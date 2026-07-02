@@ -90,6 +90,7 @@ Mac local MVP:
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
 - Sync import also folds active duplicate lemmas into one card while preserving contexts.
+- Sync import/export preserves recommendation feedback generated on Android.
 
 Run:
 

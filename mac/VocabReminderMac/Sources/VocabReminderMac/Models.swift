@@ -92,6 +92,14 @@ struct StoredReviewEvent: Identifiable, Codable, Equatable {
     var metadata: [String: String]
 }
 
+struct RecommendationFeedback: Identifiable, Codable, Equatable {
+    var id: String
+    var cardId: String
+    var lemma: String
+    var action: String
+    var createdAt: Date
+}
+
 struct UserSettingsData: Codable, Equatable {
     var dailyWordGoal: Int = 10
     var maxQueueSize: Int = 20

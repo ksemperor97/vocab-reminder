@@ -9,6 +9,7 @@ final class LocalVocabularyStore: ObservableObject {
     @Published private(set) var contexts: [StoredContext] = []
     @Published private(set) var definitionCandidates: [StoredDefinitionCandidate] = []
     @Published private(set) var reviewEvents: [StoredReviewEvent] = []
+    @Published private(set) var recommendationFeedback: [RecommendationFeedback] = []
     @Published var settings = UserSettingsData()
     @Published var preview: DictionaryResult?
     @Published var pendingAnalysis: CaptureAnalysis?
@@ -131,6 +132,7 @@ final class LocalVocabularyStore: ObservableObject {
                 contexts: contexts,
                 definitionCandidates: definitionCandidates,
                 reviewEvents: reviewEvents,
+                recommendationFeedback: recommendationFeedback,
                 settings: settings
             )
             try data.write(to: syncURL, options: .atomic)
@@ -151,6 +153,7 @@ final class LocalVocabularyStore: ObservableObject {
             contexts = snapshot.contexts
             definitionCandidates = snapshot.definitionCandidates
             reviewEvents = snapshot.reviewEvents
+            recommendationFeedback = snapshot.recommendationFeedback
             settings = snapshot.settings
             save()
             message = "Sync batch imported"
@@ -278,6 +281,7 @@ final class LocalVocabularyStore: ObservableObject {
             contexts = snapshot.contexts
             definitionCandidates = snapshot.definitionCandidates
             reviewEvents = snapshot.reviewEvents
+            recommendationFeedback = snapshot.recommendationFeedback
             settings = snapshot.settings
             refreshNotifications()
         } catch {
@@ -286,7 +290,7 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     private func save() {
-        let snapshot = StoreSnapshot(cards: cards, contexts: contexts, definitionCandidates: definitionCandidates, reviewEvents: reviewEvents, settings: settings)
+        let snapshot = StoreSnapshot(cards: cards, contexts: contexts, definitionCandidates: definitionCandidates, reviewEvents: reviewEvents, recommendationFeedback: recommendationFeedback, settings: settings)
         if let data = try? JSONEncoder.vocab.encode(snapshot) {
             try? data.write(to: storeURL, options: .atomic)
         }
@@ -299,7 +303,43 @@ struct StoreSnapshot: Codable {
     var contexts: [StoredContext]
     var definitionCandidates: [StoredDefinitionCandidate]
     var reviewEvents: [StoredReviewEvent]
+    var recommendationFeedback: [RecommendationFeedback]
     var settings: UserSettingsData
+
+    init(
+        cards: [VocabularyCard],
+        contexts: [StoredContext],
+        definitionCandidates: [StoredDefinitionCandidate],
+        reviewEvents: [StoredReviewEvent],
+        recommendationFeedback: [RecommendationFeedback] = [],
+        settings: UserSettingsData
+    ) {
+        self.cards = cards
+        self.contexts = contexts
+        self.definitionCandidates = definitionCandidates
+        self.reviewEvents = reviewEvents
+        self.recommendationFeedback = recommendationFeedback
+        self.settings = settings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case cards
+        case contexts
+        case definitionCandidates
+        case reviewEvents
+        case recommendationFeedback
+        case settings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cards = try container.decode([VocabularyCard].self, forKey: .cards)
+        contexts = try container.decode([StoredContext].self, forKey: .contexts)
+        definitionCandidates = try container.decode([StoredDefinitionCandidate].self, forKey: .definitionCandidates)
+        reviewEvents = try container.decode([StoredReviewEvent].self, forKey: .reviewEvents)
+        recommendationFeedback = try container.decodeIfPresent([RecommendationFeedback].self, forKey: .recommendationFeedback) ?? []
+        settings = try container.decode(UserSettingsData.self, forKey: .settings)
+    }
 }
 
 private extension VocabularyCard {

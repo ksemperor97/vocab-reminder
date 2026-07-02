@@ -6,6 +6,7 @@ enum SyncBatchFactory {
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
         reviewEvents: [StoredReviewEvent],
+        recommendationFeedback: [RecommendationFeedback] = [],
         settings: UserSettingsData
     ) -> [String: Any] {
         [
@@ -13,7 +14,7 @@ enum SyncBatchFactory {
             "contexts": contexts.map(context),
             "definition_candidates": definitionCandidates.map(candidate),
             "review_events": reviewEvents.map(reviewEvent),
-            "recommendation_feedback": [],
+            "recommendation_feedback": recommendationFeedback.map(feedback),
             "settings": settingsPayload(settings)
         ]
     }
@@ -23,6 +24,7 @@ enum SyncBatchFactory {
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
         reviewEvents: [StoredReviewEvent],
+        recommendationFeedback: [RecommendationFeedback] = [],
         settings: UserSettingsData
     ) throws -> Data {
         let payload = build(
@@ -30,6 +32,7 @@ enum SyncBatchFactory {
             contexts: contexts,
             definitionCandidates: definitionCandidates,
             reviewEvents: reviewEvents,
+            recommendationFeedback: recommendationFeedback,
             settings: settings
         )
         return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
@@ -48,6 +51,7 @@ enum SyncBatchFactory {
             contexts: array(payload["contexts"]).map(contextPayload),
             definitionCandidates: array(payload["definition_candidates"]).map(candidatePayload),
             reviewEvents: array(payload["review_events"]).map(reviewEventPayload),
+            recommendationFeedback: array(payload["recommendation_feedback"]).map(feedbackPayload),
             settings: settingsPayload(payload["settings"] as? [String: Any] ?? [:])
         ))
     }
@@ -131,6 +135,16 @@ enum SyncBatchFactory {
             "client_created_at": iso(event.clientCreatedAt),
             "server_created_at": iso(event.clientCreatedAt),
             "metadata": event.metadata
+        ]
+    }
+
+    private static func feedback(_ feedback: RecommendationFeedback) -> [String: Any] {
+        [
+            "id": feedback.id,
+            "card_id": feedback.cardId,
+            "lemma": feedback.lemma,
+            "action": feedback.action,
+            "created_at": iso(feedback.createdAt)
         ]
     }
 
@@ -233,6 +247,16 @@ enum SyncBatchFactory {
         )
     }
 
+    private static func feedbackPayload(_ payload: [String: Any]) -> RecommendationFeedback {
+        RecommendationFeedback(
+            id: string(payload, "id"),
+            cardId: string(payload, "card_id"),
+            lemma: string(payload, "lemma"),
+            action: string(payload, "action"),
+            createdAt: date(payload, "created_at")
+        )
+    }
+
     private static func settingsPayload(_ payload: [String: Any]) -> UserSettingsData {
         UserSettingsData(
             dailyWordGoal: int(payload, "daily_word_goal", fallback: 10),
@@ -314,6 +338,11 @@ enum SyncBatchFactory {
         normalized.reviewEvents = snapshot.reviewEvents.map { event in
             var copy = event
             copy.cardId = cardIdMap[event.cardId] ?? event.cardId
+            return copy
+        }
+        normalized.recommendationFeedback = snapshot.recommendationFeedback.map { feedback in
+            var copy = feedback
+            copy.cardId = cardIdMap[feedback.cardId] ?? feedback.cardId
             return copy
         }
         return normalized
