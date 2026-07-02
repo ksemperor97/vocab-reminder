@@ -48,6 +48,21 @@ cd android/VocabReminderAndroid
 
 Android builds require Android Studio or an Android SDK installation, plus a JDK compatible with the Android Gradle Plugin.
 
+Current Android M3 slice:
+
+- Manual word add with word, meaning, and example.
+- First review scheduled through WorkManager at save time + 10 minutes.
+- Review notification actions for `remembered`, `forgotten`, and `unavailable`.
+- `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
+- Review events are stored append-only in local app storage until Firebase sync is added.
+
+Install the debug APK on a connected device or emulator:
+
+```sh
+cd android/VocabReminderAndroid
+./gradlew :app:installDebug
+```
+
 ## Firebase Setup Procedure
 
 Firebase console work requires the user's Google account, so this repository does not include project IDs, API keys, service accounts, or generated client config files.

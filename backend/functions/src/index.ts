@@ -16,10 +16,54 @@ export const dictionaryProxy = onRequest({ cors: true }, async (request, respons
     return;
   }
 
-  // guide 10.5: real dictionary/translation/LLM resolver logic is introduced in M2.
-  logger.info("Dictionary proxy stub invoked", { word });
-  response.status(501).json({
-    error: "Dictionary resolver is not implemented yet.",
-    word
-  });
+  // guide 10.5: keep external dictionary calls behind Functions, never in clients.
+  const baseUrl = process.env.FREE_DICTIONARY_BASE_URL ?? "https://api.dictionaryapi.dev/api/v2/entries/en";
+  const dictionaryUrl = `${baseUrl}/${encodeURIComponent(word)}`;
+
+  try {
+    const dictionaryResponse = await fetch(dictionaryUrl);
+    if (!dictionaryResponse.ok) {
+      response.status(200).json({
+        word,
+        candidates: [],
+        translation_fallback_configured: Boolean(process.env.TRANSLATION_API_KEY)
+      });
+      return;
+    }
+
+    const entries = await dictionaryResponse.json() as Array<{
+      word?: string;
+      phonetic?: string;
+      meanings?: Array<{
+        partOfSpeech?: string;
+        definitions?: Array<{
+          definition?: string;
+          example?: string;
+        }>;
+      }>;
+    }>;
+
+    const candidates = entries.flatMap((entry) =>
+      entry.meanings?.flatMap((meaning) =>
+        meaning.definitions?.slice(0, 2).map((definition) => ({
+          source: "free_dictionary_api",
+          headword: entry.word ?? word,
+          phonetic: entry.phonetic ?? null,
+          part_of_speech: meaning.partOfSpeech ?? null,
+          definition_en: definition.definition ?? "",
+          example_sentence: definition.example ?? null,
+          meaning_ko: null
+        })) ?? []
+      ) ?? []
+    ).slice(0, 8);
+
+    response.status(200).json({
+      word,
+      candidates,
+      translation_fallback_configured: Boolean(process.env.TRANSLATION_API_KEY)
+    });
+  } catch (error) {
+    logger.error("Dictionary proxy failed", { word, error });
+    response.status(502).json({ error: "Dictionary proxy failed", word });
+  }
 });
