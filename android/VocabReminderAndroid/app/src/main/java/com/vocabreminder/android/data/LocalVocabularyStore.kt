@@ -375,6 +375,16 @@ class LocalVocabularyStore(context: Context) {
         ).toString()
     }
 
+    fun importSyncBatchJson(raw: String) {
+        val payload = SyncPayloadFactory.parse(raw)
+        saveCards(mergeCards(allCards(includeDeleted = true), payload.cards))
+        saveContexts(mergeById(contexts(), payload.contexts) { it.id })
+        saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id })
+        saveEvents(mergeById(events(), payload.reviewEvents) { it.id })
+        saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id })
+        payload.settings?.let { saveSettings(it) }
+    }
+
     private fun appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Instant) {
         val sourceSentence = result.sourceSentence.ifBlank { result.exampleSentence }
         if (sourceSentence.isBlank() && result.sourceApp.isBlank()) return
@@ -447,6 +457,25 @@ class LocalVocabularyStore(context: Context) {
         val array = JSONArray()
         feedback.forEach { array.put(it.toJson()) }
         prefs.edit().putString(KEY_RECOMMENDATION_FEEDBACK, array.toString()).apply()
+    }
+
+    private fun mergeCards(local: List<VocabularyCard>, incoming: List<VocabularyCard>): List<VocabularyCard> {
+        val byId = local.associateBy { it.id }.toMutableMap()
+        for (card in incoming) {
+            val existing = byId[card.id]
+            byId[card.id] = if (existing == null || card.updatedAt > existing.updatedAt || card.version > existing.version) {
+                card
+            } else {
+                existing
+            }
+        }
+        return byId.values.toList()
+    }
+
+    private fun <T> mergeById(local: List<T>, incoming: List<T>, idOf: (T) -> String): List<T> {
+        val byId = local.associateBy(idOf).toMutableMap()
+        incoming.forEach { byId.putIfAbsent(idOf(it), it) }
+        return byId.values.toList()
     }
 
     private fun VocabularyCard.toJson(): JSONObject {

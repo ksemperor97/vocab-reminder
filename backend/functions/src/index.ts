@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { applySyncBatch } from "./sync";
+import { applySyncBatch, readSyncSnapshot } from "./sync";
 
 initializeApp();
 
@@ -75,4 +75,12 @@ export const syncBatch = onCall(async (request) => {
   }
 
   return applySyncBatch(request.auth.uid, request.data);
+});
+
+export const syncSnapshot = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Firebase Auth is required for sync.");
+  }
+
+  return readSyncSnapshot(request.auth.uid);
 });

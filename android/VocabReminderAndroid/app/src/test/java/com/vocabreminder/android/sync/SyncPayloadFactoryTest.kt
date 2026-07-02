@@ -6,6 +6,10 @@ import com.vocabreminder.android.data.StoredDefinitionCandidate
 import com.vocabreminder.android.data.UserSettingsData
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.scheduler.CardStatus
+import com.vocabreminder.android.scheduler.ReviewResponse
+import com.vocabreminder.android.scheduler.Wordbook
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -66,5 +70,52 @@ class SyncPayloadFactoryTest {
         assertEquals("user", payload.getJSONArray("cards").getJSONObject(0).getString("wordbook"))
         assertEquals("android_process_text", payload.getJSONArray("contexts").getJSONObject(0).getString("capture_method"))
         assertEquals(10, payload.getJSONObject("settings").getInt("daily_word_goal"))
+    }
+
+    @Test
+    fun parsesFirestoreShapedSnapshotBackIntoLocalModels() {
+        val payload = JSONObject()
+            .put(
+                "cards",
+                JSONArray().put(
+                    JSONObject()
+                        .put("id", "card-1")
+                        .put("lemma", "tentative")
+                        .put("display_word", "tentative")
+                        .put("wordbook", "recommended")
+                        .put("meaning_ko", "잠정적인")
+                        .put("definition_en", "not certain")
+                        .put("status", "new")
+                        .put("due_at", "2026-07-02T00:10:00Z")
+                        .put("interval_days", 0)
+                        .put("lapse_count", 0)
+                        .put("created_at", "2026-07-02T00:00:00Z")
+                        .put("updated_at", "2026-07-02T00:00:00Z")
+                )
+            )
+            .put(
+                "review_events",
+                JSONArray().put(
+                    JSONObject()
+                        .put("id", "event-1")
+                        .put("card_id", "card-1")
+                        .put("response", "remembered")
+                        .put("previous_status", "new")
+                        .put("next_status", "learning")
+                        .put("previous_due_at", "2026-07-02T00:10:00Z")
+                        .put("next_due_at", "2026-07-03T00:10:00Z")
+                        .put("previous_interval_days", 0)
+                        .put("next_interval_days", 1)
+                        .put("client_created_at", "2026-07-02T00:11:00Z")
+                )
+            )
+            .put("settings", JSONObject().put("daily_word_goal", 7))
+
+        val parsed = SyncPayloadFactory.parse(payload)
+
+        assertEquals(CardStatus.NEW, parsed.cards.first().status)
+        assertEquals(Wordbook.RECOMMENDED, parsed.cards.first().wordbook)
+        assertEquals(ReviewResponse.REMEMBERED, parsed.reviewEvents.first().response)
+        assertEquals(7, parsed.settings?.dailyWordGoal)
     }
 }

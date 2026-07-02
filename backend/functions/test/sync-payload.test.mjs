@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { HttpsError } from "firebase-functions/v2/https";
-import { parseSyncBatchPayload } from "../lib/sync.js";
+import { parseSyncBatchPayload, stripServerFields } from "../lib/sync.js";
 
 describe("sync payload parser", () => {
   it("accepts Firestore-shaped collection arrays and settings", () => {
@@ -31,5 +31,18 @@ describe("sync payload parser", () => {
     assert.deepEqual(parsed.cards, []);
     assert.deepEqual(parsed.review_events, []);
     assert.equal(parsed.settings, null);
+  });
+
+  it("strips server-only fields from snapshot payloads", () => {
+    assert.deepEqual(
+      stripServerFields({
+        id: "card-1",
+        lemma: "tentative",
+        user_id: "user-a",
+        server_created_at: { seconds: 1 },
+        server_updated_at: { seconds: 2 }
+      }),
+      { id: "card-1", lemma: "tentative" }
+    );
   });
 });

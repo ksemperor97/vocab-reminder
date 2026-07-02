@@ -1,7 +1,9 @@
 import {
   FieldValue,
   getFirestore,
+  type DocumentData,
   type DocumentReference,
+  type QueryDocumentSnapshot,
   type SetOptions,
   type WriteBatch
 } from "firebase-admin/firestore";
@@ -30,7 +32,11 @@ export type SyncBatchResult = {
 const writableCollections = [
   "cards",
   "contexts",
-  "definition_candidates",
+  "definition_candidates"
+] as const;
+
+const appendOnlyCollections = [
+  "review_events",
   "recommendation_feedback"
 ] as const;
 
@@ -97,18 +103,50 @@ export async function applySyncBatch(uid: string, data: unknown): Promise<SyncBa
   }
   await commitPending();
 
-  // guide 12.2/12.3: review_events are append-only and idempotent by client UUID.
-  for (const event of payload.review_events) {
-    const id = event.id as string;
-    const eventRef = userRef.collection("review_events").doc(id);
-    const snapshot = await eventRef.get();
-    if (!snapshot.exists) {
-      await eventRef.create(withServerFields(event, uid));
-      result.review_events += 1;
+  // guide 12.2/12.3 and 24.3: events/feedback are append-only and idempotent by client UUID.
+  for (const collection of appendOnlyCollections) {
+    for (const entity of payload[collection]) {
+      const id = entity.id as string;
+      const entityRef = userRef.collection(collection).doc(id);
+      const snapshot = await entityRef.get();
+      if (!snapshot.exists) {
+        await entityRef.create(withServerFields(entity, uid));
+        result[collection] += 1;
+      }
     }
   }
 
   return result;
+}
+
+export async function readSyncSnapshot(uid: string): Promise<Required<SyncBatchPayload>> {
+  const db = getFirestore();
+  const userRef = db.collection("users").doc(uid);
+
+  const [
+    cards,
+    contexts,
+    definitionCandidates,
+    reviewEvents,
+    recommendationFeedback,
+    settingsSnapshot
+  ] = await Promise.all([
+    userRef.collection("cards").get(),
+    userRef.collection("contexts").get(),
+    userRef.collection("definition_candidates").get(),
+    userRef.collection("review_events").get(),
+    userRef.collection("recommendation_feedback").get(),
+    userRef.collection("settings").doc("main").get()
+  ]);
+
+  return {
+    cards: cards.docs.map(toClientEntity),
+    contexts: contexts.docs.map(toClientEntity),
+    definition_candidates: definitionCandidates.docs.map(toClientEntity),
+    review_events: reviewEvents.docs.map(toClientEntity),
+    recommendation_feedback: recommendationFeedback.docs.map(toClientEntity),
+    settings: settingsSnapshot.exists ? stripServerFields(settingsSnapshot.data() ?? {}) : null
+  };
 }
 
 function parseEntityArray(value: unknown, name: string): Entity[] {
@@ -147,4 +185,20 @@ function withServerFields(entity: Entity, uid: string): Entity {
     server_created_at: entity.server_created_at ?? FieldValue.serverTimestamp(),
     server_updated_at: FieldValue.serverTimestamp()
   };
+}
+
+export function toClientEntity(snapshot: QueryDocumentSnapshot<DocumentData>): Entity {
+  const data = stripServerFields(snapshot.data());
+  return {
+    ...data,
+    id: typeof data.id === "string" && data.id.trim() !== "" ? data.id : snapshot.id
+  };
+}
+
+export function stripServerFields(data: Entity): Entity {
+  const clientData = { ...data };
+  delete clientData.user_id;
+  delete clientData.server_created_at;
+  delete clientData.server_updated_at;
+  return clientData;
 }
