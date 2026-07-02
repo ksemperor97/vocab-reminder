@@ -1,0 +1,50 @@
+{
+  "hitchhike": [
+    {
+      "word": "hitchhike",
+      "meanings": [
+        {
+          "partOfSpeech": "verb",
+          "definitions": [
+            {
+              "definition": "to travel by getting free rides in passing vehicles",
+              "example": "They decided to hitchhike across the country."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "embezzlement": [
+    {
+      "word": "embezzlement",
+      "meanings": [
+        {
+          "partOfSpeech": "noun",
+          "definitions": [
+            {
+              "definition": "the act of secretly taking money that one has been trusted to manage",
+              "example": "The audit uncovered evidence of embezzlement."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "hunches": [
+    {
+      "word": "hunches",
+      "meanings": [
+        {
+          "partOfSpeech": "noun",
+          "definitions": [
+            {
+              "definition": "feelings or guesses based on intuition rather than proof",
+              "example": "The researchers treated the early hunches as hypotheses to test."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

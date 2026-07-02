@@ -1,0 +1,69 @@
+{
+  "generatedAt": "2026-07-02",
+  "sourceQueue": "shared/recommendations/recommendation_fill_queue.json",
+  "limit": 3,
+  "totalEnriched": 3,
+  "complete": 3,
+  "entries": [
+    {
+      "queueRank": 1,
+      "lemma": "hitchhike",
+      "sourceWord": "hitchhike",
+      "frequencyRank": 18000,
+      "frequencyCount": 48,
+      "bucket": "boundary",
+      "fillStatus": "complete",
+      "meaningKo": "히치하이크하다, 얻어 타고 이동하다",
+      "definitionEn": "to travel by getting free rides in passing vehicles",
+      "partOfSpeech": "verb",
+      "exampleSentence": "They decided to hitchhike across the country.",
+      "topic": "general",
+      "sources": {
+        "frequency": "subtlex-word-frequencies@2.0.0",
+        "definition": "dictionaryapi.dev",
+        "translation": "fixture",
+        "topic": "heuristic"
+      }
+    },
+    {
+      "queueRank": 2,
+      "lemma": "embezzlement",
+      "sourceWord": "embezzlement",
+      "frequencyRank": 17999,
+      "frequencyCount": 48,
+      "bucket": "boundary",
+      "fillStatus": "complete",
+      "meaningKo": "횡령",
+      "definitionEn": "the act of secretly taking money that one has been trusted to manage",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The audit uncovered evidence of embezzlement.",
+      "topic": "academic",
+      "sources": {
+        "frequency": "subtlex-word-frequencies@2.0.0",
+        "definition": "dictionaryapi.dev",
+        "translation": "fixture",
+        "topic": "heuristic"
+      }
+    },
+    {
+      "queueRank": 3,
+      "lemma": "hunches",
+      "sourceWord": "hunches",
+      "frequencyRank": 18001,
+      "frequencyCount": 48,
+      "bucket": "boundary",
+      "fillStatus": "complete",
+      "meaningKo": "직감들, 예감들",
+      "definitionEn": "feelings or guesses based on intuition rather than proof",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The researchers treated the early hunches as hypotheses to test.",
+      "topic": "methods",
+      "sources": {
+        "frequency": "subtlex-word-frequencies@2.0.0",
+        "definition": "dictionaryapi.dev",
+        "translation": "fixture",
+        "topic": "heuristic"
+      }
+    }
+  ]
+}

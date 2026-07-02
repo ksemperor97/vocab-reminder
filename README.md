@@ -29,7 +29,7 @@ npm install
 npm run recommendations:all
 ```
 
-This regenerates the full SUBTLEX-ranked candidate pool, fill queue, and app-bundled curated catalogue.
+This regenerates the full SUBTLEX-ranked candidate pool, fill queue, fixture-backed enrichment sample, and app-bundled curated catalogue.
 
 ## Build Entrypoints
 

@@ -7,7 +7,9 @@
     "recommendations:build": "node shared/recommendations/scripts/build_catalog.mjs",
     "recommendations:pool": "node shared/recommendations/scripts/build_candidate_pool.mjs",
     "recommendations:queue": "node shared/recommendations/scripts/build_fill_queue.mjs",
-    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:build"
+    "recommendations:enrich": "node shared/recommendations/scripts/enrich_fill_queue.mjs",
+    "recommendations:enrich:sample": "RECOMMENDATION_ENRICH_LIMIT=3 RECOMMENDATION_ENRICH_REQUIRE_COMPLETE=true RECOMMENDATION_ENRICH_OUTPUT=shared/recommendations/recommendation_enriched_candidates.sample.json RECOMMENDATION_DICTIONARY_FIXTURE_JSON=shared/recommendations/fixtures/fill_dictionary_fixture.json RECOMMENDATION_TRANSLATION_FIXTURE_JSON=shared/recommendations/fixtures/fill_translation_fixture.json node shared/recommendations/scripts/enrich_fill_queue.mjs",
+    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:build"
   },
   "devDependencies": {
     "subtlex-word-frequencies": "2.0.0"

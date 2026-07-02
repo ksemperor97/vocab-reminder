@@ -31,3 +31,5 @@ GoogleService-Info.plist
 # Generated local artifacts
 dist/
 tmp/
+shared/recommendations/recommendation_enriched_candidates.json
+shared/recommendations/recommendation_definition_cache.json

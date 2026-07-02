@@ -16,6 +16,14 @@ catalogue. Each queue item is marked `needs_definition_translation_topic`; this
 is the input for the future definition, Korean meaning, example, and topic fill
 step.
 
+`shared/recommendations/scripts/enrich_fill_queue.mjs` can enrich queue entries
+with English definitions/examples from dictionaryapi.dev, Korean meanings from a
+translation fixture/provider, and heuristic topics. The default live output
+`recommendation_enriched_candidates.json` is gitignored until source/licensing
+and translation-provider choices are finalized. The committed
+`recommendation_enriched_candidates.sample.json` is generated from fixtures and
+proves the enrichment shape end to end.
+
 Frequency ranks are derived from `subtlex-word-frequencies` 2.0.0, an
 ISC-licensed package based on the SUBTLEXus American English subtitle corpus.
 
@@ -26,6 +34,12 @@ Install root dependencies and regenerate all recommendation artifacts:
 ```sh
 npm install
 npm run recommendations:all
+```
+
+Run a live enrichment batch locally:
+
+```sh
+RECOMMENDATION_ENRICH_LIMIT=25 npm run recommendations:enrich
 ```
 
 Regenerate only the curated app catalogue after changing the seed list:
