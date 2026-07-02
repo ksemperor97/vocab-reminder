@@ -74,7 +74,7 @@ Current Android slice:
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.
 - Sync import folds active duplicate lemmas into one card and keeps their contexts attached to the surviving card.
 - A config-gated Android callable sync client can push `syncBatch` then pull `syncSnapshot` when given a Firebase Auth ID token and Functions base URL. It does not require `google-services.json` to build.
-- The Android UI includes a manual Cloud sync panel for that Functions URL + Firebase Auth ID token path.
+- The Android UI includes a manual Cloud sync panel for Functions URL + Firebase Auth ID token, plus Firebase email/password sign-in via Web API key to fetch an ID token.
 
 Current backend slice:
 
@@ -121,7 +121,7 @@ swift run VocabReminderMac --check-scheduler-vectors
 Firebase console work requires the user's Google account, so this repository does not include project IDs, API keys, service accounts, or generated client config files.
 
 1. Create a Firebase project.
-2. Enable Firebase Authentication.
+2. Enable Firebase Authentication and the Email/Password provider.
 3. Enable Cloud Firestore.
 4. Enable Cloud Functions.
 5. Enable Firebase Cloud Messaging.
@@ -130,7 +130,7 @@ Firebase console work requires the user's Google account, so this repository doe
 8. Register the Apple app when the Mac Firebase client is introduced and place `GoogleService-Info.plist` in the Mac target then.
 9. Store any dictionary, translation, or LLM API keys as backend secrets or environment variables only. Do not put API keys in client code or resources.
 
-Android currently has a raw HTTPS callable sync path for development, tests, and manual app sync. Until Auth UI is wired, the Android Cloud sync panel requires:
+Android currently has a raw HTTPS callable sync path for development, tests, and manual app sync. The Android Cloud sync panel can sign in with Firebase Email/Password when given the project's Web API key, then use that ID token for sync. Direct token paste remains available for debugging:
 
 ```text
 functionsBaseUrl=https://<region>-<project-id>.cloudfunctions.net

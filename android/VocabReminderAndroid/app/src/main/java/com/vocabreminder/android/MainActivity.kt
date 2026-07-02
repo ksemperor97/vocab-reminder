@@ -56,6 +56,8 @@ import com.vocabreminder.android.notifications.ReminderScheduler
 import com.vocabreminder.android.scheduler.Scheduler
 import com.vocabreminder.android.sync.CloudSyncClient
 import com.vocabreminder.android.sync.CloudSyncConfig
+import com.vocabreminder.android.sync.FirebaseAuthRestClient
+import com.vocabreminder.android.sync.FirebasePasswordAuthConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,8 +139,12 @@ private fun VocabReminderApp(
     var captureMethod by remember { mutableStateOf(initialMethod) }
     var sourceApp by remember { mutableStateOf(initialSourceApp) }
     var settings by remember { mutableStateOf(store.settings()) }
+    var firebaseWebApiKey by remember { mutableStateOf("") }
+    var firebaseEmail by remember { mutableStateOf("") }
+    var firebasePassword by remember { mutableStateOf("") }
     var cloudFunctionsUrl by remember { mutableStateOf("") }
     var cloudAuthToken by remember { mutableStateOf("") }
+    var firebaseAuthRunning by remember { mutableStateOf(false) }
     var cloudSyncRunning by remember { mutableStateOf(false) }
 
     fun reload() {
@@ -262,6 +268,42 @@ private fun VocabReminderApp(
         }
     }
 
+    fun signInFirebase() {
+        val apiKey = firebaseWebApiKey.trim()
+        val emailValue = firebaseEmail.trim()
+        val passwordValue = firebasePassword
+        if (apiKey.isBlank() || emailValue.isBlank() || passwordValue.isBlank()) {
+            message = "Firebase Web API key, email, password를 입력하세요."
+            return
+        }
+        firebaseAuthRunning = true
+        message = "Firebase 로그인 중..."
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    FirebaseAuthRestClient().signInWithPassword(
+                        FirebasePasswordAuthConfig(
+                            webApiKey = apiKey,
+                            email = emailValue,
+                            password = passwordValue
+                        )
+                    )
+                }
+            }
+            firebaseAuthRunning = false
+            result.fold(
+                onSuccess = { session ->
+                    cloudAuthToken = session.idToken
+                    firebasePassword = ""
+                    message = "Firebase 로그인 완료 · ID token ${session.expiresInSeconds}초 유효"
+                },
+                onFailure = { error ->
+                    message = "Firebase 로그인 실패: ${error.message ?: error::class.java.simpleName}"
+                }
+            )
+        }
+    }
+
     LaunchedEffect(Unit) {
         reload()
         DailyReviewPlanner.planAndSchedule(context)
@@ -367,11 +409,19 @@ private fun VocabReminderApp(
 
                 item {
                     CloudSyncPanel(
+                        firebaseWebApiKey = firebaseWebApiKey,
+                        firebaseEmail = firebaseEmail,
+                        firebasePassword = firebasePassword,
                         functionsUrl = cloudFunctionsUrl,
                         authToken = cloudAuthToken,
+                        authRunning = firebaseAuthRunning,
                         running = cloudSyncRunning,
+                        onFirebaseWebApiKeyChange = { firebaseWebApiKey = it },
+                        onFirebaseEmailChange = { firebaseEmail = it },
+                        onFirebasePasswordChange = { firebasePassword = it },
                         onFunctionsUrlChange = { cloudFunctionsUrl = it },
                         onAuthTokenChange = { cloudAuthToken = it },
+                        onSignIn = { signInFirebase() },
                         onSync = { runCloudSync() }
                     )
                 }
@@ -416,11 +466,19 @@ private fun VocabReminderApp(
 
 @Composable
 private fun CloudSyncPanel(
+    firebaseWebApiKey: String,
+    firebaseEmail: String,
+    firebasePassword: String,
     functionsUrl: String,
     authToken: String,
+    authRunning: Boolean,
     running: Boolean,
+    onFirebaseWebApiKeyChange: (String) -> Unit,
+    onFirebaseEmailChange: (String) -> Unit,
+    onFirebasePasswordChange: (String) -> Unit,
     onFunctionsUrlChange: (String) -> Unit,
     onAuthTokenChange: (String) -> Unit,
+    onSignIn: () -> Unit,
     onSync: () -> Unit
 ) {
     Card {
@@ -431,6 +489,40 @@ private fun CloudSyncPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("Cloud sync", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("firebase_web_api_key_field"),
+                value = firebaseWebApiKey,
+                onValueChange = onFirebaseWebApiKeyChange,
+                label = { Text("Firebase Web API key") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("firebase_email_field"),
+                value = firebaseEmail,
+                onValueChange = onFirebaseEmailChange,
+                label = { Text("Firebase email") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("firebase_password_field"),
+                value = firebasePassword,
+                onValueChange = onFirebasePasswordChange,
+                label = { Text("Firebase password") },
+                singleLine = true
+            )
+            Button(
+                modifier = Modifier.testTag("firebase_sign_in_button"),
+                enabled = !authRunning,
+                onClick = onSignIn
+            ) {
+                Text(if (authRunning) "로그인 중" else "Firebase 로그인")
+            }
             OutlinedTextField(
                 modifier = Modifier
                     .fillMaxWidth()
