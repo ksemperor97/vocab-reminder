@@ -100,6 +100,7 @@ Mac local MVP:
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
+- Manual Mac Cloud sync can push/pull the same callable `syncBatch` / `syncSnapshot` contract when given a Functions URL and Firebase Auth ID token.
 - Sync import also folds active duplicate lemmas into one card while preserving contexts.
 - Sync import/export preserves recommendation feedback generated on Android.
 

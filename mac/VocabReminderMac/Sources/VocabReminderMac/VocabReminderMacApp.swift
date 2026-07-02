@@ -209,6 +209,9 @@ struct PreviewView: View {
 
 struct SettingsView: View {
     @ObservedObject var store: LocalVocabularyStore
+    @AppStorage("cloudFunctionsURL") private var cloudFunctionsURL = ""
+    @State private var cloudAuthToken = ""
+    @State private var cloudSyncRunning = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -225,11 +228,40 @@ struct SettingsView: View {
                 Button("Sync 내보내기") { store.exportSyncSnapshot() }
                 Button("Sync 가져오기") { store.importSyncSnapshot() }
             }
+            Divider()
+            TextField("Functions URL", text: $cloudFunctionsURL)
+                .textFieldStyle(.roundedBorder)
+            SecureField("Firebase Auth ID token", text: $cloudAuthToken)
+                .textFieldStyle(.roundedBorder)
+            Button(cloudSyncRunning ? "Cloud Sync 중" : "Cloud Sync") {
+                runCloudSync()
+            }
+            .disabled(cloudSyncRunning || cloudFunctionsURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cloudAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(12)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onChange(of: store.settings) { _, _ in
             store.persistSettings()
+        }
+    }
+
+    private func runCloudSync() {
+        let functionsURL = cloudFunctionsURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = cloudAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard functionsURL.isEmpty == false, token.isEmpty == false else {
+            store.message = "Functions URL과 Firebase Auth ID token을 입력하세요."
+            return
+        }
+        cloudSyncRunning = true
+        store.message = "Cloud sync 중..."
+        Task { @MainActor in
+            defer { cloudSyncRunning = false }
+            do {
+                let summary = try await store.syncWithCloud(functionsBaseURL: functionsURL, authToken: token)
+                store.message = "Cloud sync 완료 · 카드 \(summary.cards), 이벤트 \(summary.reviewEvents)"
+            } catch {
+                store.message = "Cloud sync 실패: \(error.localizedDescription)"
+            }
         }
     }
 }

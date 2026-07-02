@@ -162,6 +162,30 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
+    func syncWithCloud(functionsBaseURL: String, authToken: String) async throws -> CloudSyncSummary {
+        save()
+        let payload = SyncBatchFactory.build(
+            cards: cards,
+            contexts: contexts,
+            definitionCandidates: definitionCandidates,
+            reviewEvents: reviewEvents,
+            recommendationFeedback: recommendationFeedback,
+            settings: settings
+        )
+        let snapshotData = try await CloudSyncClient(
+            config: CloudSyncConfig(functionsBaseURL: functionsBaseURL, bearerToken: authToken)
+        ).pushAndPull(localBatch: payload)
+        let snapshot = try SyncBatchFactory.localSnapshot(from: snapshotData)
+        cards = snapshot.cards
+        contexts = snapshot.contexts
+        definitionCandidates = snapshot.definitionCandidates
+        reviewEvents = snapshot.reviewEvents
+        recommendationFeedback = snapshot.recommendationFeedback
+        settings = snapshot.settings
+        save()
+        return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count)
+    }
+
     private func addResolvedCard(_ result: DictionaryResult, captureMethod: CaptureMethod, dueAt: Date, now: Date, wordbook: Wordbook = .user) -> VocabularyCard {
         if let existingIndex = cards.firstIndex(where: { $0.deletedAt == nil && $0.lemma == result.lemma }) {
             var card = cards[existingIndex]
@@ -296,6 +320,11 @@ final class LocalVocabularyStore: ObservableObject {
         }
         refreshNotifications()
     }
+}
+
+struct CloudSyncSummary {
+    var cards: Int
+    var reviewEvents: Int
 }
 
 struct StoreSnapshot: Codable {
