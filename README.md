@@ -65,6 +65,7 @@ Current Android slice:
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.
 - Sync import folds active duplicate lemmas into one card and keeps their contexts attached to the surviving card.
 - A config-gated Android callable sync client can push `syncBatch` then pull `syncSnapshot` when given a Firebase Auth ID token and Functions base URL. It does not require `google-services.json` to build.
+- The Android UI includes a manual Cloud sync panel for that Functions URL + Firebase Auth ID token path.
 
 Current backend slice:
 
@@ -120,7 +121,7 @@ Firebase console work requires the user's Google account, so this repository doe
 8. Register the Apple app when the Mac Firebase client is introduced and place `GoogleService-Info.plist` in the Mac target then.
 9. Store any dictionary, translation, or LLM API keys as backend secrets or environment variables only. Do not put API keys in client code or resources.
 
-Android currently has a raw HTTPS callable sync path for development and tests. Until Auth UI is wired, a caller must provide:
+Android currently has a raw HTTPS callable sync path for development, tests, and manual app sync. Until Auth UI is wired, the Android Cloud sync panel requires:
 
 ```text
 functionsBaseUrl=https://<region>-<project-id>.cloudfunctions.net

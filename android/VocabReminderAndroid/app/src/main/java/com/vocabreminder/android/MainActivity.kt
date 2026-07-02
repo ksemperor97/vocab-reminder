@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +54,11 @@ import com.vocabreminder.android.notifications.QuietHoursWorker
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReminderScheduler
 import com.vocabreminder.android.scheduler.Scheduler
+import com.vocabreminder.android.sync.CloudSyncClient
+import com.vocabreminder.android.sync.CloudSyncConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
@@ -114,6 +120,7 @@ private fun VocabReminderApp(
     initialSourceApp: String
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val store = remember { LocalVocabularyStore(context) }
     val cards = remember { mutableStateListOf<VocabularyCard>() }
     val events = remember { mutableStateListOf<StoredReviewEvent>() }
@@ -130,6 +137,9 @@ private fun VocabReminderApp(
     var captureMethod by remember { mutableStateOf(initialMethod) }
     var sourceApp by remember { mutableStateOf(initialSourceApp) }
     var settings by remember { mutableStateOf(store.settings()) }
+    var cloudFunctionsUrl by remember { mutableStateOf("") }
+    var cloudAuthToken by remember { mutableStateOf("") }
+    var cloudSyncRunning by remember { mutableStateOf(false) }
 
     fun reload() {
         cards.clear()
@@ -221,6 +231,35 @@ private fun VocabReminderApp(
         example = ""
         message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
         reload()
+    }
+
+    fun runCloudSync() {
+        val functionsUrl = cloudFunctionsUrl.trim()
+        val token = cloudAuthToken.trim()
+        if (functionsUrl.isBlank() || token.isBlank()) {
+            message = "Functions URL과 Firebase Auth ID token을 입력하세요."
+            return
+        }
+        cloudSyncRunning = true
+        message = "동기화 중..."
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    store.syncWithCloud(CloudSyncClient(CloudSyncConfig(functionsUrl, token)))
+                }
+            }
+            cloudSyncRunning = false
+            result.fold(
+                onSuccess = { snapshot ->
+                    message = "Cloud sync 완료 · snapshot ${snapshot.length}자"
+                    reload()
+                    DailyReviewPlanner.planAndSchedule(context)
+                },
+                onFailure = { error ->
+                    message = "Cloud sync 실패: ${error.message ?: error::class.java.simpleName}"
+                }
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -327,6 +366,17 @@ private fun VocabReminderApp(
                 }
 
                 item {
+                    CloudSyncPanel(
+                        functionsUrl = cloudFunctionsUrl,
+                        authToken = cloudAuthToken,
+                        running = cloudSyncRunning,
+                        onFunctionsUrlChange = { cloudFunctionsUrl = it },
+                        onAuthTokenChange = { cloudAuthToken = it },
+                        onSync = { runCloudSync() }
+                    )
+                }
+
+                item {
                     Text(
                         text = "저장된 단어 ${cards.size}개 · 취약 단어 ${weakWordIds.value.size}개",
                         style = MaterialTheme.typography.titleMedium
@@ -359,6 +409,52 @@ private fun VocabReminderApp(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudSyncPanel(
+    functionsUrl: String,
+    authToken: String,
+    running: Boolean,
+    onFunctionsUrlChange: (String) -> Unit,
+    onAuthTokenChange: (String) -> Unit,
+    onSync: () -> Unit
+) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Cloud sync", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("sync_functions_url_field"),
+                value = functionsUrl,
+                onValueChange = onFunctionsUrlChange,
+                label = { Text("Functions URL") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("sync_auth_token_field"),
+                value = authToken,
+                onValueChange = onAuthTokenChange,
+                label = { Text("Firebase Auth ID token") },
+                singleLine = true
+            )
+            Button(
+                modifier = Modifier.testTag("cloud_sync_button"),
+                enabled = !running,
+                onClick = onSync
+            ) {
+                Text(if (running) "동기화 중" else "Cloud sync")
             }
         }
     }
