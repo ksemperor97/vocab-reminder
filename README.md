@@ -105,6 +105,7 @@ Mac local MVP:
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards use a separate intro notification with start/known/dismiss actions.
 - Shared scheduler/recommendation parity check with `shared/test-vectors/scheduler.json` and `shared/test-vectors/recommendations.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
+- Self-check verifies that capturing a locally recommended lemma promotes it to the user wordbook while preserving progress.
 - Manual Mac Cloud sync can push/pull the same callable `syncBatch` / `syncSnapshot` contract when given a Functions URL and Firebase Auth ID token.
 - The Mac UI can sign in with Firebase email/password via Web API key and refresh the ID token without storing the password.
 - Sync import also folds active duplicate lemmas into one card while preserving contexts.

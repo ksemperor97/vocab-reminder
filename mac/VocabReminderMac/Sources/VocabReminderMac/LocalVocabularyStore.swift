@@ -17,13 +17,15 @@ final class LocalVocabularyStore: ObservableObject {
 
     private let storeURL: URL
     private let syncURL: URL
+    private let scheduleNotifications: Bool
 
-    init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    init(appSupportURL: URL? = nil, scheduleNotifications: Bool = true) {
+        let appSupport = appSupportURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("VocabReminder", isDirectory: true)
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         storeURL = appSupport.appendingPathComponent("vocab-data.json")
         syncURL = appSupport.appendingPathComponent("vocab-reminder-sync.json")
+        self.scheduleNotifications = scheduleNotifications
         load()
     }
 
@@ -79,6 +81,7 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     func refreshNotifications() {
+        guard scheduleNotifications else { return }
         MacNotificationScheduler.shared.reschedule(cards: activeCards, settings: settings)
     }
 

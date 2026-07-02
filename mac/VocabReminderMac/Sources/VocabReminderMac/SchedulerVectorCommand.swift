@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 
 enum SchedulerVectorCommand {
+    @MainActor
     static func runAndExitIfRequested() {
         guard CommandLine.arguments.contains("--check-scheduler-vectors") else { return }
         do {
@@ -14,6 +15,7 @@ enum SchedulerVectorCommand {
         }
     }
 
+    @MainActor
     private static func run() throws {
         let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: vectorURL())) as! [[String: Any]]
         try require(vectors.count >= 15, "Expected at least 15 vectors")
@@ -159,6 +161,7 @@ enum SchedulerVectorCommand {
         try require(duplicateSnapshot.contexts.count == 2, "Mac sync import should keep both duplicate contexts")
         try require(duplicateSnapshot.contexts.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate contexts")
         try require(duplicateSnapshot.recommendationFeedback.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate feedback")
+        try assertLocalRecommendedCapturePromotion()
 
         let notificationCards = [
             notificationCard(id: "rec-unstarted", wordbook: .recommended, dueAt: Date(timeIntervalSince1970: 0)),
@@ -206,6 +209,63 @@ enum SchedulerVectorCommand {
         ], existingRefreshToken: "refresh-token")
         try require(refreshedSession.idToken == "fresh-id-token", "Mac Firebase refresh should parse id_token")
         try require(refreshedSession.refreshToken == "fresh-refresh-token", "Mac Firebase refresh should parse refresh_token")
+    }
+
+    @MainActor
+    private static func assertLocalRecommendedCapturePromotion() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "VocabReminderSelfCheck-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let recommendedPayload: [String: Any] = [
+            "cards": [
+                [
+                    "id": "recommended-card",
+                    "lemma": "ubiquitous",
+                    "display_word": "ubiquitous",
+                    "meaning_ko": "어디에나 있는, 아주 흔한",
+                    "definition_en": "present or found everywhere",
+                    "wordbook": "recommended",
+                    "status": "learning",
+                    "due_at": "1970-01-04T00:00:00Z",
+                    "interval_days": 3,
+                    "lapse_count": 1,
+                    "created_at": "1970-01-01T00:00:00Z",
+                    "updated_at": "1970-01-01T00:00:00Z",
+                    "version": 2
+                ]
+            ],
+            "contexts": [],
+            "definition_candidates": [],
+            "review_events": [],
+            "recommendation_feedback": [],
+            "settings": ["daily_word_goal": 10]
+        ]
+        let syncURL = tempDir.appending(path: "vocab-reminder-sync.json")
+        try JSONSerialization.data(withJSONObject: recommendedPayload).write(to: syncURL)
+
+        let store = LocalVocabularyStore(appSupportURL: tempDir, scheduleNotifications: false)
+        store.importSyncSnapshot()
+        try require(store.activeCards.count == 1, "Mac local promotion setup should import one recommended card")
+
+        store.capture(text: "Ubiquitous", method: .macClipboardHotkey, sourceApp: "Self-check")
+        guard let preview = store.preview else {
+            throw CheckError("Mac local promotion should create a capture preview")
+        }
+        store.savePreview(
+            meaningOverride: preview.meaningKo,
+            exampleOverride: preview.sourceSentence.isEmpty ? preview.exampleSentence : preview.sourceSentence
+        )
+
+        let cards = store.activeCards
+        try require(cards.count == 1, "Mac local capture should not duplicate recommended lemma")
+        let promoted = cards[0]
+        try require(promoted.wordbook == .user, "Mac local capture should promote recommended word to user wordbook")
+        try require(promoted.status == .learning, "Mac local capture should preserve recommended progress status")
+        try require(promoted.intervalDays == 3, "Mac local capture should preserve recommended interval")
+        try require(promoted.lapseCount == 1, "Mac local capture should preserve recommended lapse count")
+        try require(store.contexts.count == 1, "Mac local capture should attach a real context to promoted recommendation")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {
