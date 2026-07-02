@@ -28,17 +28,21 @@ class DailyReviewPlannerTest {
     }
 
     @Test
+    fun planAndScheduleDoesNotRecommendBeforeFiftyUserWords() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        addFutureUserCards(count = 49, now = now)
+
+        val summary = DailyReviewPlanner.planAndSchedule(context, now)
+
+        assertEquals(0, summary.generatedRecommendations)
+        assertEquals(0, summary.scheduledNotifications)
+        assertEquals(0, store.cards().count { it.wordbook == Wordbook.RECOMMENDED })
+    }
+
+    @Test
     fun planAndScheduleFillsRecommendationSlotsAfterFiftyUserWords() {
         val now = Instant.parse("2026-07-03T00:00:00Z")
-        repeat(50) { index ->
-            store.addCard(
-                displayWord = "seedword$index",
-                meaningKo = "meaning $index",
-                exampleSentence = "Example sentence $index.",
-                dueAt = now.plusSeconds(24 * 60 * 60),
-                now = now.minusSeconds((index + 1).toLong())
-            )
-        }
+        addFutureUserCards(count = 50, now = now)
 
         val summary = DailyReviewPlanner.planAndSchedule(context, now)
         val recommendations = store.cards().filter { it.wordbook == Wordbook.RECOMMENDED }
@@ -53,6 +57,18 @@ class DailyReviewPlannerTest {
             assertEquals(now, store.settings().recommendationsIntroducedAt)
         } else {
             assertNull(store.settings().recommendationsIntroducedAt)
+        }
+    }
+
+    private fun addFutureUserCards(count: Int, now: Instant) {
+        repeat(count) { index ->
+            store.addCard(
+                displayWord = "seedword$index",
+                meaningKo = "meaning $index",
+                exampleSentence = "Example sentence $index.",
+                dueAt = now.plusSeconds(24 * 60 * 60),
+                now = now.minusSeconds((index + 1).toLong())
+            )
         }
     }
 }
