@@ -21,15 +21,7 @@ final class MacNotificationScheduler {
     }
 
     func reschedule(cards: [VocabularyCard], settings: UserSettingsData) {
-        let scheduledCards = cards
-            .filter { card in
-                card.deletedAt == nil &&
-                    !card.meaningKo.isEmpty &&
-                    card.status != .mastered &&
-                    card.status != .suspended
-            }
-            .sorted { $0.dueAt < $1.dueAt }
-            .prefix(max(settings.maxQueueSize, settings.dailyWordGoal))
+        let scheduledCards = MacNotificationPlan.scheduledCards(cards: cards, settings: settings)
 
         center.getPendingNotificationRequests { [center, identifierPrefix] requests in
             let oldIdentifiers = requests
@@ -60,5 +52,27 @@ final class MacNotificationScheduler {
                 }
             }
         }
+    }
+}
+
+enum MacNotificationPlan {
+    static func scheduledCards(cards: [VocabularyCard], settings: UserSettingsData) -> [VocabularyCard] {
+        let limit = max(0, min(settings.maxQueueSize, settings.dailyWordGoal))
+        guard limit > 0 else { return [] }
+        return Array(cards
+            .filter { card in
+                card.deletedAt == nil &&
+                    !card.meaningKo.isEmpty &&
+                    card.status != .mastered &&
+                    card.status != .suspended &&
+                    isNotificationAllowed(card: card, settings: settings)
+            }
+            .sorted { $0.dueAt < $1.dueAt }
+            .prefix(limit))
+    }
+
+    private static func isNotificationAllowed(card: VocabularyCard, settings: UserSettingsData) -> Bool {
+        guard card.wordbook == .recommended else { return true }
+        return settings.enableWordRecommendations && card.recommendationStartedAt != nil
     }
 }

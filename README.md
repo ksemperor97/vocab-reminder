@@ -98,7 +98,7 @@ Mac local MVP:
 - Menu bar app with clipboard capture.
 - macOS DictionaryServices resolver first, local fallback second.
 - Save preview, card list/edit/review actions, manual rebalance.
-- Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`.
+- Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards are not sent as regular review alerts.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
 - Manual Mac Cloud sync can push/pull the same callable `syncBatch` / `syncSnapshot` contract when given a Functions URL and Firebase Auth ID token.

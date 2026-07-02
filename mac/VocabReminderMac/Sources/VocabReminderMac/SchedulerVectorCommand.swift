@@ -159,6 +159,23 @@ enum SchedulerVectorCommand {
         try require(duplicateSnapshot.contexts.count == 2, "Mac sync import should keep both duplicate contexts")
         try require(duplicateSnapshot.contexts.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate contexts")
         try require(duplicateSnapshot.recommendationFeedback.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate feedback")
+
+        let notificationCards = [
+            notificationCard(id: "rec-unstarted", wordbook: .recommended, dueAt: Date(timeIntervalSince1970: 0)),
+            notificationCard(id: "user-due", wordbook: .user, dueAt: Date(timeIntervalSince1970: 60)),
+            notificationCard(id: "rec-started", wordbook: .recommended, dueAt: Date(timeIntervalSince1970: 120), recommendationStartedAt: Date(timeIntervalSince1970: 30)),
+            notificationCard(id: "user-overflow", wordbook: .user, dueAt: Date(timeIntervalSince1970: 180))
+        ]
+        let enabledMacNotifications = MacNotificationPlan.scheduledCards(
+            cards: notificationCards,
+            settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 2)
+        )
+        try require(enabledMacNotifications.map(\.id) == ["user-due", "rec-started"], "Mac notifications should skip unstarted recommendations and respect queue cap")
+        let disabledMacNotifications = MacNotificationPlan.scheduledCards(
+            cards: notificationCards,
+            settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)
+        )
+        try require(disabledMacNotifications.map(\.id) == ["user-due", "user-overflow"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {
@@ -262,6 +279,33 @@ enum SchedulerVectorCommand {
     private static func parseStatus(_ value: String) -> CardStatus { CardStatus(rawValue: value)! }
     private static func parseResponse(_ value: String) -> ReviewResponse { ReviewResponse(rawValue: value)! }
     private static func parseDate(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }
+
+    private static func notificationCard(
+        id: String,
+        wordbook: Wordbook,
+        dueAt: Date,
+        recommendationStartedAt: Date? = nil
+    ) -> VocabularyCard {
+        VocabularyCard(
+            id: id,
+            lemma: id,
+            displayWord: id,
+            meaningKo: "meaning",
+            definitionEn: "",
+            partOfSpeech: "",
+            exampleSentence: "",
+            definitionSourcePrimary: "test",
+            status: .new,
+            wordbook: wordbook,
+            dueAt: dueAt,
+            intervalDays: 0,
+            lapseCount: 0,
+            recommendationStartedAt: recommendationStartedAt,
+            createdAt: dueAt,
+            updatedAt: dueAt,
+            version: 1
+        )
+    }
 
     private static func vectorURL() throws -> URL {
         let candidates = [
