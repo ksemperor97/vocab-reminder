@@ -75,6 +75,7 @@ Current Android slice:
 - Sync import folds active duplicate lemmas into one card and keeps their contexts attached to the surviving card.
 - A config-gated Android callable sync client can push `syncBatch` then pull `syncSnapshot` when given a Firebase Auth ID token and Functions base URL. It does not require `google-services.json` to build.
 - The Android UI includes a manual Cloud sync panel for Functions URL + Firebase Auth ID token, plus Firebase email/password sign-in via Web API key to fetch an ID token.
+- The Android app stores the Web API key, Functions URL, and Firebase refresh token in private app storage so it can refresh ID tokens without storing the password.
 
 Current backend slice:
 

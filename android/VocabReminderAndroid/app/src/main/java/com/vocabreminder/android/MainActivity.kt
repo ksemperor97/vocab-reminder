@@ -43,6 +43,7 @@ import androidx.core.app.ActivityCompat
 import com.vocabreminder.android.capture.CaptureAnalysis
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
+import com.vocabreminder.android.data.CloudSyncCredentials
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.StoredReviewEvent
 import com.vocabreminder.android.data.UserSettingsData
@@ -124,6 +125,7 @@ private fun VocabReminderApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { LocalVocabularyStore(context) }
+    val initialCloudCredentials = remember { store.cloudSyncCredentials() }
     val cards = remember { mutableStateListOf<VocabularyCard>() }
     val events = remember { mutableStateListOf<StoredReviewEvent>() }
     val weakWordIds = remember { mutableStateOf(emptySet<String>()) }
@@ -139,10 +141,11 @@ private fun VocabReminderApp(
     var captureMethod by remember { mutableStateOf(initialMethod) }
     var sourceApp by remember { mutableStateOf(initialSourceApp) }
     var settings by remember { mutableStateOf(store.settings()) }
-    var firebaseWebApiKey by remember { mutableStateOf("") }
+    var firebaseWebApiKey by remember { mutableStateOf(initialCloudCredentials.firebaseWebApiKey) }
     var firebaseEmail by remember { mutableStateOf("") }
     var firebasePassword by remember { mutableStateOf("") }
-    var cloudFunctionsUrl by remember { mutableStateOf("") }
+    var firebaseRefreshToken by remember { mutableStateOf(initialCloudCredentials.refreshToken) }
+    var cloudFunctionsUrl by remember { mutableStateOf(initialCloudCredentials.functionsBaseUrl) }
     var cloudAuthToken by remember { mutableStateOf("") }
     var firebaseAuthRunning by remember { mutableStateOf(false) }
     var cloudSyncRunning by remember { mutableStateOf(false) }
@@ -246,6 +249,15 @@ private fun VocabReminderApp(
             message = "Functions URL과 Firebase Auth ID token을 입력하세요."
             return
         }
+        if (firebaseRefreshToken.isNotBlank() || firebaseWebApiKey.isNotBlank() || functionsUrl.isNotBlank()) {
+            store.saveCloudSyncCredentials(
+                CloudSyncCredentials(
+                    firebaseWebApiKey = firebaseWebApiKey.trim(),
+                    functionsBaseUrl = functionsUrl,
+                    refreshToken = firebaseRefreshToken
+                )
+            )
+        }
         cloudSyncRunning = true
         message = "동기화 중..."
         scope.launch {
@@ -294,11 +306,55 @@ private fun VocabReminderApp(
             result.fold(
                 onSuccess = { session ->
                     cloudAuthToken = session.idToken
+                    firebaseRefreshToken = session.refreshToken
+                    store.saveCloudSyncCredentials(
+                        CloudSyncCredentials(
+                            firebaseWebApiKey = apiKey,
+                            functionsBaseUrl = cloudFunctionsUrl.trim(),
+                            refreshToken = session.refreshToken
+                        )
+                    )
                     firebasePassword = ""
                     message = "Firebase 로그인 완료 · ID token ${session.expiresInSeconds}초 유효"
                 },
                 onFailure = { error ->
                     message = "Firebase 로그인 실패: ${error.message ?: error::class.java.simpleName}"
+                }
+            )
+        }
+    }
+
+    fun refreshFirebaseToken() {
+        val apiKey = firebaseWebApiKey.trim()
+        val refreshToken = firebaseRefreshToken.trim()
+        if (apiKey.isBlank() || refreshToken.isBlank()) {
+            message = "저장된 Firebase Web API key와 refresh token이 필요합니다."
+            return
+        }
+        firebaseAuthRunning = true
+        message = "ID token 갱신 중..."
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    FirebaseAuthRestClient().refreshIdToken(apiKey, refreshToken)
+                }
+            }
+            firebaseAuthRunning = false
+            result.fold(
+                onSuccess = { session ->
+                    cloudAuthToken = session.idToken
+                    firebaseRefreshToken = session.refreshToken
+                    store.saveCloudSyncCredentials(
+                        CloudSyncCredentials(
+                            firebaseWebApiKey = apiKey,
+                            functionsBaseUrl = cloudFunctionsUrl.trim(),
+                            refreshToken = session.refreshToken
+                        )
+                    )
+                    message = "ID token 갱신 완료 · ${session.expiresInSeconds}초 유효"
+                },
+                onFailure = { error ->
+                    message = "ID token 갱신 실패: ${error.message ?: error::class.java.simpleName}"
                 }
             )
         }
@@ -416,12 +472,14 @@ private fun VocabReminderApp(
                         authToken = cloudAuthToken,
                         authRunning = firebaseAuthRunning,
                         running = cloudSyncRunning,
+                        hasRefreshToken = firebaseRefreshToken.isNotBlank(),
                         onFirebaseWebApiKeyChange = { firebaseWebApiKey = it },
                         onFirebaseEmailChange = { firebaseEmail = it },
                         onFirebasePasswordChange = { firebasePassword = it },
                         onFunctionsUrlChange = { cloudFunctionsUrl = it },
                         onAuthTokenChange = { cloudAuthToken = it },
                         onSignIn = { signInFirebase() },
+                        onRefreshToken = { refreshFirebaseToken() },
                         onSync = { runCloudSync() }
                     )
                 }
@@ -473,12 +531,14 @@ private fun CloudSyncPanel(
     authToken: String,
     authRunning: Boolean,
     running: Boolean,
+    hasRefreshToken: Boolean,
     onFirebaseWebApiKeyChange: (String) -> Unit,
     onFirebaseEmailChange: (String) -> Unit,
     onFirebasePasswordChange: (String) -> Unit,
     onFunctionsUrlChange: (String) -> Unit,
     onAuthTokenChange: (String) -> Unit,
     onSignIn: () -> Unit,
+    onRefreshToken: () -> Unit,
     onSync: () -> Unit
 ) {
     Card {
@@ -522,6 +582,13 @@ private fun CloudSyncPanel(
                 onClick = onSignIn
             ) {
                 Text(if (authRunning) "로그인 중" else "Firebase 로그인")
+            }
+            Button(
+                modifier = Modifier.testTag("firebase_refresh_button"),
+                enabled = !authRunning && hasRefreshToken,
+                onClick = onRefreshToken
+            ) {
+                Text(if (authRunning) "갱신 중" else "ID token 갱신")
             }
             OutlinedTextField(
                 modifier = Modifier

@@ -141,6 +141,12 @@ data class UserSettingsData(
     }
 }
 
+data class CloudSyncCredentials(
+    val firebaseWebApiKey: String = "",
+    val functionsBaseUrl: String = "",
+    val refreshToken: String = ""
+)
+
 class LocalVocabularyStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("vocab_reminder_store", Context.MODE_PRIVATE)
 
@@ -183,6 +189,27 @@ class LocalVocabularyStore(context: Context) {
     fun settings(): UserSettingsData {
         val raw = prefs.getString(KEY_SETTINGS, null) ?: return UserSettingsData()
         return parseSettings(JSONObject(raw))
+    }
+
+    fun cloudSyncCredentials(): CloudSyncCredentials {
+        val raw = prefs.getString(KEY_CLOUD_SYNC, null) ?: return CloudSyncCredentials()
+        val json = JSONObject(raw)
+        return CloudSyncCredentials(
+            firebaseWebApiKey = json.optString("firebase_web_api_key"),
+            functionsBaseUrl = json.optString("functions_base_url"),
+            refreshToken = json.optString("refresh_token")
+        )
+    }
+
+    fun saveCloudSyncCredentials(credentials: CloudSyncCredentials) {
+        prefs.edit().putString(
+            KEY_CLOUD_SYNC,
+            JSONObject()
+                .put("firebase_web_api_key", credentials.firebaseWebApiKey)
+                .put("functions_base_url", credentials.functionsBaseUrl)
+                .put("refresh_token", credentials.refreshToken)
+                .toString()
+        ).apply()
     }
 
     fun saveSettings(settings: UserSettingsData) {
@@ -774,5 +801,6 @@ class LocalVocabularyStore(context: Context) {
         const val KEY_EVENTS = "review_events"
         const val KEY_RECOMMENDATION_FEEDBACK = "recommendation_feedback"
         const val KEY_SETTINGS = "settings"
+        const val KEY_CLOUD_SYNC = "cloud_sync"
     }
 }
