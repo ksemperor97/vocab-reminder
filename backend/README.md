@@ -8,6 +8,14 @@ M0 includes a buildable TypeScript Functions package with a health endpoint and 
 cd functions
 npm install
 npm run build
+npm test
+```
+
+Firestore rules tests run through the Firebase emulator and require Java 21+:
+
+```sh
+cd functions
+npm run emulators:rules
 ```
 
 No Firebase project ID or secret is stored in this repository.

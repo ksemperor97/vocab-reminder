@@ -10,7 +10,7 @@ describe("sync payload parser", () => {
       contexts: [{ id: "context-1", card_id: "card-1" }],
       definition_candidates: [{ id: "candidate-1", card_id: "card-1" }],
       review_events: [{ id: "event-1", card_id: "card-1" }],
-      recommendation_feedback: [{ id: "feedback-1", lemma: "ubiquitous" }],
+      recommendation_feedback: [{ id: "feedback-1", lemma: "ubiquitous", action: "known" }],
       settings: { daily_word_goal: 10 }
     });
 
@@ -22,6 +22,17 @@ describe("sync payload parser", () => {
   it("rejects entities without client-generated ids", () => {
     assert.throws(
       () => parseSyncBatchPayload({ cards: [{ lemma: "tentative" }] }),
+      HttpsError
+    );
+  });
+
+  it("rejects invalid recommendation feedback actions", () => {
+    assert.throws(
+      () => parseSyncBatchPayload({
+        recommendation_feedback: [
+          { id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "maybe" }
+        ]
+      }),
       HttpsError
     );
   });

@@ -40,6 +40,8 @@ const appendOnlyCollections = [
   "recommendation_feedback"
 ] as const;
 
+const recommendationFeedbackActions = new Set(["started", "known", "dismissed"]);
+
 export function parseSyncBatchPayload(data: unknown): Required<SyncBatchPayload> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new HttpsError("invalid-argument", "Sync payload must be an object.");
@@ -51,7 +53,7 @@ export function parseSyncBatchPayload(data: unknown): Required<SyncBatchPayload>
     contexts: parseEntityArray(input.contexts, "contexts"),
     definition_candidates: parseEntityArray(input.definition_candidates, "definition_candidates"),
     review_events: parseEntityArray(input.review_events, "review_events"),
-    recommendation_feedback: parseEntityArray(input.recommendation_feedback, "recommendation_feedback"),
+    recommendation_feedback: parseRecommendationFeedbackArray(input.recommendation_feedback),
     settings: input.settings == null ? null : parseSettings(input.settings)
   };
 }
@@ -176,6 +178,16 @@ function parseEntity(value: unknown, label: string): Entity {
     throw new HttpsError("invalid-argument", `${label}.id is required.`);
   }
   return entity;
+}
+
+function parseRecommendationFeedbackArray(value: unknown): Entity[] {
+  const feedback = parseEntityArray(value, "recommendation_feedback");
+  feedback.forEach((entity, index) => {
+    if (typeof entity.action !== "string" || !recommendationFeedbackActions.has(entity.action)) {
+      throw new HttpsError("invalid-argument", `recommendation_feedback[${index}].action is invalid.`);
+    }
+  });
+  return feedback;
 }
 
 function withServerFields(entity: Entity, uid: string): Entity {

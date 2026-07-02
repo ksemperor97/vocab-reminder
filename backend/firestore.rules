@@ -10,6 +10,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function isRecommendationFeedback() {
+      return request.resource.data.action in ["started", "known", "dismissed"];
+    }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create, update, delete: if false;
@@ -33,7 +37,8 @@ service cloud.firestore {
       }
 
       match /recommendation_feedback/{feedbackId} {
-        allow read, create: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && isRecommendationFeedback();
         allow update, delete: if false;
       }
 

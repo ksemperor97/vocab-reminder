@@ -108,6 +108,18 @@ describe("Firestore rules", () => {
     await assertFails(deleteDoc(feedbackRef));
   });
 
+  it("denies recommendation_feedback with invalid action", async () => {
+    const db = testEnv.authenticatedContext("user-a").firestore();
+
+    await assertFails(
+      setDoc(doc(db, "users/user-a/recommendation_feedback/feedback-1"), {
+        card_id: "card-1",
+        lemma: "ubiquitous",
+        action: "maybe"
+      })
+    );
+  });
+
   it("allows settings/main and denies unknown subcollections", async () => {
     const db = testEnv.authenticatedContext("user-a").firestore();
 

@@ -85,7 +85,7 @@ Current backend slice:
 - `dictionaryProxy` HTTP function, keeping external dictionary calls behind Functions.
 - Authenticated `syncBatch` callable for cards, contexts, definition candidates, append-only review events, recommendation feedback, and settings.
 - Authenticated `syncSnapshot` callable for pulling the current per-user Firestore snapshot back to clients.
-- Firestore rules and parser tests cover user-scoped writes plus immutable review/feedback events.
+- Firestore rules and parser tests cover user-scoped writes, immutable review/feedback events, and allowed recommendation feedback actions.
 
 Install the debug APK on a connected device or emulator:
 
