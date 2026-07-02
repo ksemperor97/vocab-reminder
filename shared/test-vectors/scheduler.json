@@ -156,6 +156,20 @@
     "then": { "notification_count": 10, "recommended_count": 4, "rebalanced_count": 0 }
   },
   {
+    "name": "plan_day_recommendations_disabled_keeps_recommended_cards_silent",
+    "kind": "planDay",
+    "now": "2026-07-02T00:00:00Z",
+    "settings": { "daily_word_goal": 4, "max_queue_size": 20, "enable_word_recommendations": false },
+    "user_word_count": 50,
+    "cards": [
+      { "id": "review-1", "status": "review", "wordbook": "user", "interval_days": 7, "due_at": "2026-07-01T00:00:00Z", "lapse_count": 0 },
+      { "id": "review-2", "status": "review", "wordbook": "user", "interval_days": 7, "due_at": "2026-07-01T01:00:00Z", "lapse_count": 0 },
+      { "id": "rec-1", "status": "new", "wordbook": "recommended", "interval_days": 0, "due_at": "2026-07-01T00:00:00Z", "lapse_count": 0 },
+      { "id": "rec-2", "status": "new", "wordbook": "recommended", "interval_days": 0, "due_at": "2026-07-01T00:00:00Z", "lapse_count": 0 }
+    ],
+    "then": { "notification_count": 2, "recommended_count": 0, "rebalanced_count": 0 }
+  },
+  {
     "name": "plan_day_overflow_rebalances_extra_due_cards",
     "kind": "planDay",
     "now": "2026-07-02T00:00:00Z",
