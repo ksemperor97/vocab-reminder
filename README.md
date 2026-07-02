@@ -63,6 +63,7 @@ Current Android slice:
 - The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
 - Review events are stored append-only in local app storage.
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.
+- A config-gated Android callable sync client can push `syncBatch` then pull `syncSnapshot` when given a Firebase Auth ID token and Functions base URL. It does not require `google-services.json` to build.
 
 Current backend slice:
 
@@ -115,6 +116,13 @@ Firebase console work requires the user's Google account, so this repository doe
 7. Download `google-services.json` when Android Firebase integration begins and place it at `android/VocabReminderAndroid/app/google-services.json`.
 8. Register the Apple app when the Mac Firebase client is introduced and place `GoogleService-Info.plist` in the Mac target then.
 9. Store any dictionary, translation, or LLM API keys as backend secrets or environment variables only. Do not put API keys in client code or resources.
+
+Android currently has a raw HTTPS callable sync path for development and tests. Until Auth UI is wired, a caller must provide:
+
+```text
+functionsBaseUrl=https://<region>-<project-id>.cloudfunctions.net
+bearerToken=<Firebase Auth ID token>
+```
 
 Suggested future backend environment names:
 

@@ -10,6 +10,7 @@ import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.SchedulerCard
 import com.vocabreminder.android.scheduler.SchedulerSettings
 import com.vocabreminder.android.scheduler.Wordbook
+import com.vocabreminder.android.sync.CloudSyncClient
 import com.vocabreminder.android.sync.SyncPayloadFactory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -388,6 +389,22 @@ class LocalVocabularyStore(context: Context) {
         saveEvents(mergeById(events(), payload.reviewEvents) { it.id })
         saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id })
         payload.settings?.let { saveSettings(it) }
+    }
+
+    fun syncWithCloud(client: CloudSyncClient): String {
+        val snapshot = client.pushAndPull(
+            SyncPayloadFactory.build(
+                cards = allCards(includeDeleted = true),
+                contexts = contexts(),
+                definitionCandidates = definitionCandidates(),
+                reviewEvents = events(),
+                recommendationFeedback = recommendationFeedback(),
+                settings = settings()
+            )
+        )
+        val rawSnapshot = snapshot.toString()
+        importSyncBatchJson(rawSnapshot)
+        return rawSnapshot
     }
 
     private fun appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Instant) {
