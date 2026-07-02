@@ -161,6 +161,7 @@ object SyncPayloadFactory {
             .put("save_source_url", true)
             .put("save_surrounding_text", false)
             .put("enable_word_recommendations", enableWordRecommendations)
+            .put("recommendations_introduced_at", recommendationsIntroducedAt?.toString() ?: JSONObject.NULL)
     }
 
     private fun JSONObject.toCard(): VocabularyCard {
@@ -259,7 +260,8 @@ object SyncPayloadFactory {
             quietHoursStart = LocalTime.parse(string("quiet_hours_start", "23:00")),
             quietHoursEnd = LocalTime.parse(string("quiet_hours_end", "09:00")),
             timezone = ZoneId.of(string("timezone", "Asia/Seoul")),
-            enableWordRecommendations = optBoolean("enable_word_recommendations", true)
+            enableWordRecommendations = optBoolean("enable_word_recommendations", true),
+            recommendationsIntroducedAt = nullableInstant("recommendations_introduced_at")
         )
     }
 

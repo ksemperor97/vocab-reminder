@@ -124,7 +124,8 @@ data class UserSettingsData(
     val quietHoursStart: LocalTime = LocalTime.of(23, 0),
     val quietHoursEnd: LocalTime = LocalTime.of(9, 0),
     val timezone: ZoneId = ZoneId.of("Asia/Seoul"),
-    val enableWordRecommendations: Boolean = true
+    val enableWordRecommendations: Boolean = true,
+    val recommendationsIntroducedAt: Instant? = null
 ) {
     fun toSchedulerSettings(): SchedulerSettings {
         return SchedulerSettings(
@@ -185,6 +186,10 @@ class LocalVocabularyStore(context: Context) {
 
     fun saveSettings(settings: UserSettingsData) {
         prefs.edit().putString(KEY_SETTINGS, settings.toJson().toString()).apply()
+    }
+
+    fun markRecommendationsIntroduced(now: Instant) {
+        saveSettings(settings().copy(recommendationsIntroducedAt = now))
     }
 
     fun clearAll() {
@@ -565,6 +570,7 @@ class LocalVocabularyStore(context: Context) {
             .put("quiet_hours_end", quietHoursEnd.toString())
             .put("timezone", timezone.id)
             .put("enable_word_recommendations", enableWordRecommendations)
+            .put("recommendations_introduced_at", recommendationsIntroducedAt?.toString())
     }
 
     private fun parseCard(json: JSONObject): VocabularyCard {
@@ -664,7 +670,8 @@ class LocalVocabularyStore(context: Context) {
             quietHoursStart = LocalTime.parse(json.optString("quiet_hours_start", "23:00")),
             quietHoursEnd = LocalTime.parse(json.optString("quiet_hours_end", "09:00")),
             timezone = ZoneId.of(json.optString("timezone", "Asia/Seoul")),
-            enableWordRecommendations = json.optBoolean("enable_word_recommendations", true)
+            enableWordRecommendations = json.optBoolean("enable_word_recommendations", true),
+            recommendationsIntroducedAt = json.optInstant("recommendations_introduced_at")
         )
     }
 

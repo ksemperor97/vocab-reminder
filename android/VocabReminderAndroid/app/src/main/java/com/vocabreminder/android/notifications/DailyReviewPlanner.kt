@@ -10,8 +10,16 @@ import java.time.Instant
 object DailyReviewPlanner {
     fun planAndSchedule(context: Context, now: Instant = Instant.now()): PlanSummary {
         val store = LocalVocabularyStore(context)
-        val settings = store.settings().toSchedulerSettings()
+        val settingsData = store.settings()
+        val settings = settingsData.toSchedulerSettings()
         val generated = RecommendationEngine.ensureRecommendations(store, settings, now)
+        val introShown = if (generated > 0 && settingsData.recommendationsIntroducedAt == null) {
+            ReminderNotifications.showRecommendationIntro(context).also { shown ->
+                if (shown) store.markRecommendationsIntroduced(now)
+            }
+        } else {
+            false
+        }
         val cardsById = store.cards().associateBy { it.id }
         val result = Scheduler.planDay(
             cards = store.cards().map { it.toSchedulerCard() },
@@ -43,7 +51,8 @@ object DailyReviewPlanner {
         return PlanSummary(
             generatedRecommendations = generated,
             scheduledNotifications = scheduled,
-            rebalancedCards = result.rebalancedCards.size
+            rebalancedCards = result.rebalancedCards.size,
+            recommendationIntroShown = introShown
         )
     }
 
@@ -66,5 +75,6 @@ object DailyReviewPlanner {
 data class PlanSummary(
     val generatedRecommendations: Int,
     val scheduledNotifications: Int,
-    val rebalancedCards: Int
+    val rebalancedCards: Int,
+    val recommendationIntroShown: Boolean = false
 )

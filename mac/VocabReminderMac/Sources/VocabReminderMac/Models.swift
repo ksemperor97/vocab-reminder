@@ -100,6 +100,7 @@ struct UserSettingsData: Codable, Equatable {
     var quietHoursEnd: String = "09:00"
     var timezone: String = "Asia/Seoul"
     var enableWordRecommendations: Bool = true
+    var recommendationsIntroducedAt: Date?
 }
 
 struct DictionaryResult: Equatable {

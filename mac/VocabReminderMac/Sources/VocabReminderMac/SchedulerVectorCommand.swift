@@ -59,14 +59,17 @@ enum SchedulerVectorCommand {
             contexts: [],
             definitionCandidates: [],
             reviewEvents: [],
-            settings: UserSettingsData()
+            settings: UserSettingsData(recommendationsIntroducedAt: Date(timeIntervalSince1970: 0))
         )
         let syncJson = try JSONSerialization.jsonObject(with: syncPayload) as! [String: Any]
         let cards = syncJson["cards"] as! [[String: Any]]
         try require(cards.first?["status"] as? String == "new", "Mac sync card status should be lowercase")
+        let settingsJson = syncJson["settings"] as! [String: Any]
+        try require(settingsJson["recommendations_introduced_at"] as? String == "1970-01-01T00:00:00Z", "Mac sync should export recommendation intro timestamp")
         let importedSnapshot = try SyncBatchFactory.localSnapshot(from: syncPayload)
         try require(importedSnapshot.cards.first?.status == .new, "Mac sync import should restore status")
         try require(importedSnapshot.cards.first?.wordbook == .user, "Mac sync import should restore wordbook")
+        try require(importedSnapshot.settings.recommendationsIntroducedAt == Date(timeIntervalSince1970: 0), "Mac sync import should restore recommendation intro timestamp")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {

@@ -149,7 +149,8 @@ enum SyncBatchFactory {
             "auto_generate_korean_meaning": true,
             "save_source_url": true,
             "save_surrounding_text": false,
-            "enable_word_recommendations": settings.enableWordRecommendations
+            "enable_word_recommendations": settings.enableWordRecommendations,
+            "recommendations_introduced_at": settings.recommendationsIntroducedAt.map { iso($0) as Any } ?? NSNull()
         ]
     }
 
@@ -240,7 +241,8 @@ enum SyncBatchFactory {
             quietHoursStart: string(payload, "quiet_hours_start", fallback: "23:00"),
             quietHoursEnd: string(payload, "quiet_hours_end", fallback: "09:00"),
             timezone: string(payload, "timezone", fallback: "Asia/Seoul"),
-            enableWordRecommendations: bool(payload, "enable_word_recommendations", fallback: true)
+            enableWordRecommendations: bool(payload, "enable_word_recommendations", fallback: true),
+            recommendationsIntroducedAt: optionalDate(payload, "recommendations_introduced_at")
         )
     }
 

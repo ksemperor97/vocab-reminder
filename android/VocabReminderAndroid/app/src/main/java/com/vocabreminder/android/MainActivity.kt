@@ -308,12 +308,14 @@ private fun VocabReminderApp(
                         onSave = {
                             store.saveSettings(settings)
                             val summary = DailyReviewPlanner.planAndSchedule(context)
-                            message = "설정 저장됨 · 알림 ${summary.scheduledNotifications}개 편성"
+                            val intro = if (summary.recommendationIntroShown) " · 추천 안내 표시" else ""
+                            message = "설정 저장됨 · 알림 ${summary.scheduledNotifications}개 편성$intro"
                             reload()
                         },
                         onPlan = {
                             val summary = DailyReviewPlanner.planAndSchedule(context)
-                            message = "오늘 편성: 추천 ${summary.generatedRecommendations}, 알림 ${summary.scheduledNotifications}, 재조정 ${summary.rebalancedCards}"
+                            val intro = if (summary.recommendationIntroShown) ", 추천 안내 표시" else ""
+                            message = "오늘 편성: 추천 ${summary.generatedRecommendations}, 알림 ${summary.scheduledNotifications}, 재조정 ${summary.rebalancedCards}$intro"
                             reload()
                         },
                         onRebalance = {

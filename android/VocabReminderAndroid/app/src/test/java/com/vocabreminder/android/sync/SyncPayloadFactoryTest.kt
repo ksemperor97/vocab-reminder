@@ -63,13 +63,14 @@ class SyncPayloadFactoryTest {
             ),
             reviewEvents = emptyList(),
             recommendationFeedback = emptyList(),
-            settings = UserSettingsData()
+            settings = UserSettingsData(recommendationsIntroducedAt = now)
         )
 
         assertEquals("new", payload.getJSONArray("cards").getJSONObject(0).getString("status"))
         assertEquals("user", payload.getJSONArray("cards").getJSONObject(0).getString("wordbook"))
         assertEquals("android_process_text", payload.getJSONArray("contexts").getJSONObject(0).getString("capture_method"))
         assertEquals(10, payload.getJSONObject("settings").getInt("daily_word_goal"))
+        assertEquals("2026-07-02T00:00:00Z", payload.getJSONObject("settings").getString("recommendations_introduced_at"))
     }
 
     @Test
@@ -109,7 +110,12 @@ class SyncPayloadFactoryTest {
                         .put("client_created_at", "2026-07-02T00:11:00Z")
                 )
             )
-            .put("settings", JSONObject().put("daily_word_goal", 7))
+            .put(
+                "settings",
+                JSONObject()
+                    .put("daily_word_goal", 7)
+                    .put("recommendations_introduced_at", "2026-07-02T00:30:00Z")
+            )
 
         val parsed = SyncPayloadFactory.parse(payload)
 
@@ -117,5 +123,6 @@ class SyncPayloadFactoryTest {
         assertEquals(Wordbook.RECOMMENDED, parsed.cards.first().wordbook)
         assertEquals(ReviewResponse.REMEMBERED, parsed.reviewEvents.first().response)
         assertEquals(7, parsed.settings?.dailyWordGoal)
+        assertEquals(Instant.parse("2026-07-02T00:30:00Z"), parsed.settings?.recommendationsIntroducedAt)
     }
 }

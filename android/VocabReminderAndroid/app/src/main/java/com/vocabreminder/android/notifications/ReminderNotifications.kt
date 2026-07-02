@@ -26,6 +26,7 @@ object ReminderNotifications {
     const val RECOMMENDATION_START = "start"
     const val RECOMMENDATION_KNOWN = "known"
     const val RECOMMENDATION_DISMISS = "dismiss"
+    private const val RECOMMENDATION_INTRO_NOTIFICATION_ID = 70_024
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -108,6 +109,32 @@ object ReminderNotifications {
                 .addAction(recommendationAction(context, card, RECOMMENDATION_KNOWN, "알아요"))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_DISMISS, "관심 없음"))
         )
+    }
+
+    fun showRecommendationIntro(context: Context): Boolean {
+        ensureChannel(context)
+        if (!canNotify(context)) return false
+        val openIntent = PendingIntent.getActivity(
+            context,
+            RECOMMENDATION_INTRO_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(openIntent)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle("추천 단어장이 시작됐습니다")
+            .setContentText("복습 자리가 남는 날, 수준에 맞는 새 단어가 소개됩니다.")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "복습 자리가 남는 날, 수준에 맞는 새 단어가 소개됩니다.\n설정에서 언제든 끌 수 있어요."
+                )
+            )
+        NotificationManagerCompat.from(context).notify(RECOMMENDATION_INTRO_NOTIFICATION_ID, builder.build())
+        return true
     }
 
     fun cancel(context: Context, card: VocabularyCard) {
