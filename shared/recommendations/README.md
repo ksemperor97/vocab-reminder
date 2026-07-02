@@ -65,6 +65,8 @@ Covered M7 product rules:
   recommendation cards are generated,
 - recommendations are chosen near the user's estimated boundary band,
 - `[알아요]` feedback shifts the band harder,
+- `[관심 없음]` feedback excludes the exact lemma and downranks the dismissed
+  topic within the boundary band,
 - capturing a recommended lemma promotes it into the user wordbook while keeping
   its progress,
 - sync duplicate import preserves that progress if one device has the

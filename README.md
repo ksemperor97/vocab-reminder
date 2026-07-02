@@ -70,6 +70,7 @@ Current Android slice:
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
 - Existing active recommendations count against open daily slots so repeated planning does not overfill the recommendation queue.
 - Recommendation selection uses a generated frequency-ranked academic/scientific catalogue; source notes live in `shared/recommendations/README.md`.
+- Recommendation feedback excludes known/dismissed lemmas, shifts `[알아요]` harder, and moves dismissed topics down.
 - The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
 - Review events are stored append-only in local app storage.
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.

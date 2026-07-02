@@ -121,6 +121,22 @@ class RecommendationEngineTest {
         assertTrue(after.upperRank > before.upperRank)
     }
 
+    @Test
+    fun dismissedFeedbackShiftsAwayFromDismissedTopic() {
+        val selected = RecommendationEngine.chooseRecommendations(
+            userSignals = List(50) { UserVocabularySignal("subtle") },
+            feedbackSignals = listOf(RecommendationFeedbackSignal("subtle", "dismissed")),
+            existingLemmas = emptySet(),
+            dueUserCount = 0,
+            settings = SchedulerSettings(dailyWordGoal = 10),
+            limit = 4
+        )
+
+        assertEquals(4, selected.size)
+        assertTrue(selected.none { it.lemma == "subtle" })
+        assertTrue(selected.none { it.topic == "academic" })
+    }
+
     private fun readSharedRecommendationCatalog(): String {
         val candidates = listOf(
             File("../../../shared/recommendations/recommendation_catalog.json"),

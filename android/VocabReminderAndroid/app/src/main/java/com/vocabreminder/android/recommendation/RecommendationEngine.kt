@@ -124,8 +124,8 @@ object RecommendationEngine {
             .filter { it.lemma !in excluded }
             .sortedWith(
                 compareByDescending<RecommendationSeed> { it.frequencyRank in profile.lowerRank..profile.upperRank }
-                    .thenByDescending { it.topic in profile.preferredTopics }
                     .thenBy { if (it.topic in dismissedTopics) 1 else 0 }
+                    .thenByDescending { it.topic in profile.preferredTopics }
                     .thenBy { distanceFromBand(it.frequencyRank, profile) }
                     .thenBy { it.frequencyRank }
             )
