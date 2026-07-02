@@ -68,6 +68,7 @@ Current Android slice:
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
+- Existing active recommendations count against open daily slots so repeated planning does not overfill the recommendation queue.
 - Recommendation selection uses a generated frequency-ranked academic/scientific catalogue; source notes live in `shared/recommendations/README.md`.
 - The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
 - Review events are stored append-only in local app storage.

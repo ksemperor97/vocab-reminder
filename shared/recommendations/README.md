@@ -61,6 +61,8 @@ Covered M7 product rules:
 
 - recommendations stay disabled below 50 user words,
 - due reviews fill `daily_word_goal` before recommendations,
+- existing active recommendations occupy open daily slots before new
+  recommendation cards are generated,
 - recommendations are chosen near the user's estimated boundary band,
 - `[알아요]` feedback shifts the band harder,
 - capturing a recommended lemma promotes it into the user wordbook while keeping

@@ -2,7 +2,9 @@ package com.vocabreminder.android.recommendation
 
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.dictionary.DictionaryResult
+import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.SchedulerSettings
 import com.vocabreminder.android.scheduler.Wordbook
@@ -43,8 +45,10 @@ object RecommendationEngine {
     val catalog: List<RecommendationSeed> = RecommendationCatalog.seeds
 
     fun ensureRecommendations(store: LocalVocabularyStore, settings: SchedulerSettings, now: Instant): Int {
-        val userCards = store.cards().filter { it.wordbook == Wordbook.USER }
-        val dueUserCount = userCards.count { !it.dueAt.isAfter(now) }
+        val activeCards = store.cards()
+        val userCards = activeCards.filter { it.wordbook == Wordbook.USER }
+        val dueUserCount = userCards.count { it.isDueReviewCandidate(now) }
+        val existingRecommendationCount = activeCards.count { it.isActiveRecommendationCandidate() }
         val existing = store.allCards(includeDeleted = true).map { it.lemma }.toSet()
         val reviewEvents = store.events()
         val userSignals = userCards.map { card ->
@@ -64,7 +68,12 @@ object RecommendationEngine {
             feedbackSignals = feedback,
             existingLemmas = existing,
             dueUserCount = dueUserCount,
-            settings = settings
+            settings = settings,
+            limit = recommendationFillLimit(
+                dueUserCount = dueUserCount,
+                existingRecommendationCount = existingRecommendationCount,
+                settings = settings
+            )
         )
 
         selected.forEach { seed ->
@@ -77,13 +86,26 @@ object RecommendationEngine {
         return selected.size
     }
 
+    fun recommendationFillLimit(
+        dueUserCount: Int,
+        existingRecommendationCount: Int,
+        settings: SchedulerSettings
+    ): Int {
+        val activeLimit = minOf(settings.dailyWordGoal, settings.maxQueueSize)
+        return (activeLimit - dueUserCount.coerceAtLeast(0) - existingRecommendationCount.coerceAtLeast(0)).coerceAtLeast(0)
+    }
+
     fun chooseRecommendations(
         userSignals: List<UserVocabularySignal>,
         feedbackSignals: List<RecommendationFeedbackSignal>,
         existingLemmas: Set<String>,
         dueUserCount: Int,
         settings: SchedulerSettings,
-        limit: Int = (settings.dailyWordGoal - dueUserCount).coerceAtLeast(0)
+        limit: Int = recommendationFillLimit(
+            dueUserCount = dueUserCount,
+            existingRecommendationCount = 0,
+            settings = settings
+        )
     ): List<RecommendationSeed> {
         // guide 24.1/24.3: recommendations only start after 50 user cards and never displace due reviews.
         if (!settings.enableWordRecommendations || userSignals.size < 50 || limit <= 0) return emptyList()
@@ -169,5 +191,19 @@ object RecommendationEngine {
             sourceSentence = exampleSentence,
             sourceApp = "Vocabulary Recommendation"
         )
+    }
+
+    private fun VocabularyCard.isDueReviewCandidate(now: Instant): Boolean {
+        return meaningKo.isNotBlank() &&
+            status != CardStatus.MASTERED &&
+            status != CardStatus.SUSPENDED &&
+            !dueAt.isAfter(now)
+    }
+
+    private fun VocabularyCard.isActiveRecommendationCandidate(): Boolean {
+        return wordbook == Wordbook.RECOMMENDED &&
+            meaningKo.isNotBlank() &&
+            status != CardStatus.MASTERED &&
+            status != CardStatus.SUSPENDED
     }
 }

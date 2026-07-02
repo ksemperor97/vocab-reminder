@@ -55,6 +55,36 @@ class RecommendationEngineTest {
     }
 
     @Test
+    fun existingRecommendationsOccupyOpenSlotsBeforeGeneratingMore() {
+        val settings = SchedulerSettings(dailyWordGoal = 10, maxQueueSize = 20)
+
+        val oneOpenSlot = RecommendationEngine.recommendationFillLimit(
+            dueUserCount = 3,
+            existingRecommendationCount = 6,
+            settings = settings
+        )
+        val noOpenSlots = RecommendationEngine.recommendationFillLimit(
+            dueUserCount = 3,
+            existingRecommendationCount = 7,
+            settings = settings
+        )
+
+        assertEquals(1, oneOpenSlot)
+        assertEquals(0, noOpenSlots)
+    }
+
+    @Test
+    fun recommendationFillLimitRespectsQueueCap() {
+        val fillLimit = RecommendationEngine.recommendationFillLimit(
+            dueUserCount = 1,
+            existingRecommendationCount = 1,
+            settings = SchedulerSettings(dailyWordGoal = 10, maxQueueSize = 4)
+        )
+
+        assertEquals(2, fillLimit)
+    }
+
+    @Test
     fun recommendationsUseFrequencyBoundaryAndPreferredTopics() {
         val userSignals = List(12) { UserVocabularySignal("subtle") } +
             List(12) { UserVocabularySignal("plausible") } +
