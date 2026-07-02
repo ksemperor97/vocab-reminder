@@ -19,7 +19,7 @@ The source of truth for implementation decisions is in `docs/`:
 ├── mac/VocabReminderMac/           # SwiftUI macOS app skeleton
 └── shared/
     ├── schema/                     # Platform-neutral entity schemas
-    └── test-vectors/               # Shared scheduler vectors for Kotlin/Swift
+    └── test-vectors/               # Shared scheduler/recommendation vectors for Kotlin/Swift
 ```
 
 Recommendation pipeline:
@@ -70,6 +70,7 @@ Current Android slice:
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
 - Existing active recommendations count against open daily slots so repeated planning does not overfill the recommendation queue.
 - Recommendation selection uses a generated frequency-ranked academic/scientific catalogue; source notes live in `shared/recommendations/README.md`.
+- Recommendation selection is checked against shared Kotlin/Swift vectors in `shared/test-vectors/recommendations.json`.
 - Recommendation feedback excludes known/dismissed lemmas, shifts `[알아요]` harder, and moves dismissed topics down.
 - The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
 - Review events are stored append-only in local app storage.
@@ -102,7 +103,7 @@ Mac local MVP:
 - Manual/after-save/after-review recommendation fill uses the same generated academic/scientific catalogue as Android, with in-app start/known/dismiss actions.
 - The first Mac recommendation fill records `recommendations_introduced_at` and shows a one-time settings opt-out notice.
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards use a separate intro notification with start/known/dismiss actions.
-- Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
+- Shared scheduler/recommendation parity check with `shared/test-vectors/scheduler.json` and `shared/test-vectors/recommendations.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
 - Manual Mac Cloud sync can push/pull the same callable `syncBatch` / `syncSnapshot` contract when given a Functions URL and Firebase Auth ID token.
 - The Mac UI can sign in with Firebase email/password via Web API key and refresh the ID token without storing the password.

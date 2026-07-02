@@ -1,6 +1,7 @@
 package com.vocabreminder.android.recommendation
 
 import com.vocabreminder.android.scheduler.SchedulerSettings
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,6 +9,22 @@ import org.junit.Test
 import java.io.File
 
 class RecommendationEngineTest {
+    @Test
+    fun sharedRecommendationVectorsPass() {
+        val vectors = JSONArray(readSharedRecommendationVectors())
+        assertTrue("Expected recommendation vectors", vectors.length() >= 7)
+
+        for (index in 0 until vectors.length()) {
+            val vector = vectors.getJSONObject(index)
+            when (vector.getString("kind")) {
+                "chooseRecommendations" -> assertChooseRecommendationsVector(vector)
+                "fillLimit" -> assertFillLimitVector(vector)
+                "estimateLevel" -> assertEstimateLevelVector(vector)
+                else -> error("Unknown recommendation vector kind: ${vector.getString("kind")}")
+            }
+        }
+    }
+
     @Test
     fun catalogIsGeneratedFromSharedRecommendationData() {
         val sharedCatalog = JSONObject(readSharedRecommendationCatalog())
@@ -137,6 +154,98 @@ class RecommendationEngineTest {
         assertTrue(selected.none { it.topic == "academic" })
     }
 
+    private fun assertChooseRecommendationsVector(vector: JSONObject) {
+        val selected = RecommendationEngine.chooseRecommendations(
+            userSignals = parseUserSignals(vector.optJSONArray("user_signals")),
+            feedbackSignals = parseFeedbackSignals(vector.optJSONArray("feedback_signals")),
+            existingLemmas = parseStringSet(vector.optJSONArray("existing_lemmas")),
+            dueUserCount = vector.optInt("due_user_count", 0),
+            settings = parseSettings(vector.optJSONObject("settings")),
+            limit = if (vector.has("limit")) vector.getInt("limit") else RecommendationEngine.recommendationFillLimit(
+                dueUserCount = vector.optInt("due_user_count", 0),
+                existingRecommendationCount = vector.optInt("existing_recommendation_count", 0),
+                settings = parseSettings(vector.optJSONObject("settings"))
+            )
+        )
+        val then = vector.getJSONObject("then")
+        assertEquals(vector.getString("name"), then.getInt("selected_count"), selected.size)
+        then.optJSONArray("frequency_rank_between")?.let { range ->
+            assertTrue(vector.getString("name"), selected.all { it.frequencyRank in range.getInt(0)..range.getInt(1) })
+        }
+        then.optJSONArray("first_topic_in")?.let { topics ->
+            assertTrue(vector.getString("name"), selected.first().topic in parseStringSet(topics))
+        }
+        then.optJSONArray("excluded_lemmas")?.let { lemmas ->
+            assertTrue(vector.getString("name"), selected.none { it.lemma in parseStringSet(lemmas) })
+        }
+        then.optJSONArray("excluded_topics")?.let { topics ->
+            assertTrue(vector.getString("name"), selected.none { it.topic in parseStringSet(topics) })
+        }
+    }
+
+    private fun assertFillLimitVector(vector: JSONObject) {
+        val fillLimit = RecommendationEngine.recommendationFillLimit(
+            dueUserCount = vector.getInt("due_user_count"),
+            existingRecommendationCount = vector.getInt("existing_recommendation_count"),
+            settings = parseSettings(vector.optJSONObject("settings"))
+        )
+        assertEquals(vector.getString("name"), vector.getJSONObject("then").getInt("fill_limit"), fillLimit)
+    }
+
+    private fun assertEstimateLevelVector(vector: JSONObject) {
+        val baseline = RecommendationEngine.estimateLevel(parseUserSignals(vector.optJSONArray("user_signals")))
+        val result = RecommendationEngine.estimateLevel(
+            parseUserSignals(vector.optJSONArray("user_signals")),
+            parseFeedbackSignals(vector.optJSONArray("feedback_signals"))
+        )
+        val then = vector.getJSONObject("then")
+        if (then.optBoolean("lower_rank_greater_than_baseline", false)) {
+            assertTrue(vector.getString("name"), result.lowerRank > baseline.lowerRank)
+        }
+        if (then.optBoolean("upper_rank_greater_than_baseline", false)) {
+            assertTrue(vector.getString("name"), result.upperRank > baseline.upperRank)
+        }
+    }
+
+    private fun parseUserSignals(signals: JSONArray?): List<UserVocabularySignal> {
+        if (signals == null) return emptyList()
+        return (0 until signals.length()).flatMap { index ->
+            val signal = signals.getJSONObject(index)
+            List(signal.optInt("count", 1)) {
+                UserVocabularySignal(
+                    lemma = signal.getString("lemma"),
+                    lapseCount = signal.optInt("lapse_count", 0),
+                    rememberedCount = signal.optInt("remembered_count", 0),
+                    forgottenCount = signal.optInt("forgotten_count", 0)
+                )
+            }
+        }
+    }
+
+    private fun parseFeedbackSignals(signals: JSONArray?): List<RecommendationFeedbackSignal> {
+        if (signals == null) return emptyList()
+        return (0 until signals.length()).map { index ->
+            val signal = signals.getJSONObject(index)
+            RecommendationFeedbackSignal(
+                lemma = signal.getString("lemma"),
+                action = signal.getString("action")
+            )
+        }
+    }
+
+    private fun parseSettings(settings: JSONObject?): SchedulerSettings {
+        return SchedulerSettings(
+            dailyWordGoal = settings?.optInt("daily_word_goal", 10) ?: 10,
+            maxQueueSize = settings?.optInt("max_queue_size", 20) ?: 20,
+            enableWordRecommendations = settings?.optBoolean("enable_word_recommendations", true) ?: true
+        )
+    }
+
+    private fun parseStringSet(values: JSONArray?): Set<String> {
+        if (values == null) return emptySet()
+        return (0 until values.length()).map { values.getString(it) }.toSet()
+    }
+
     private fun readSharedRecommendationCatalog(): String {
         val candidates = listOf(
             File("../../../shared/recommendations/recommendation_catalog.json"),
@@ -148,5 +257,18 @@ class RecommendationEngineTest {
         )
         return candidates.firstOrNull { it.isFile }?.readText()
             ?: error("Could not find shared/recommendations/recommendation_catalog.json from ${System.getProperty("user.dir")}")
+    }
+
+    private fun readSharedRecommendationVectors(): String {
+        val candidates = listOf(
+            File("../../../shared/test-vectors/recommendations.json"),
+            File("../../shared/test-vectors/recommendations.json"),
+            File("../shared/test-vectors/recommendations.json"),
+            File("shared/test-vectors/recommendations.json"),
+            File(System.getProperty("user.dir"), "../../../shared/test-vectors/recommendations.json"),
+            File(System.getProperty("user.dir"), "../../shared/test-vectors/recommendations.json")
+        )
+        return candidates.firstOrNull { it.isFile }?.readText()
+            ?: error("Could not find shared/test-vectors/recommendations.json from ${System.getProperty("user.dir")}")
     }
 }

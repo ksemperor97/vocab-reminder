@@ -296,57 +296,103 @@ enum SchedulerVectorCommand {
             try require(seed?.meaningKo == entry["meaningKo"] as? String, "Mac recommendation catalogue meaning mismatch for \(lemma)")
         }
 
-        let before = RecommendationEngine.estimateLevel(userSignals: Array(repeating: UserVocabularySignal(lemma: "plausible"), count: 50))
-        let after = RecommendationEngine.estimateLevel(
-            userSignals: Array(repeating: UserVocabularySignal(lemma: "plausible"), count: 50),
-            feedbackSignals: [
-                RecommendationFeedbackSignal(lemma: "subtle", action: "known"),
-                RecommendationFeedbackSignal(lemma: "preliminary", action: "known")
-            ]
-        )
-        try require(after.lowerRank > before.lowerRank, "Mac known feedback should shift recommendations harder")
+        let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: recommendationVectorURL())) as! [[String: Any]]
+        try require(vectors.count >= 7, "Expected recommendation vectors")
+        for vector in vectors {
+            let kind = vector["kind"] as! String
+            if kind == "chooseRecommendations" {
+                try assertChooseRecommendationsVector(vector)
+            } else if kind == "fillLimit" {
+                try assertFillLimitVector(vector)
+            } else if kind == "estimateLevel" {
+                try assertEstimateLevelVector(vector)
+            } else {
+                throw CheckError("Unknown recommendation vector kind \(kind)")
+            }
+        }
+    }
 
-        let beforeFifty = RecommendationEngine.chooseRecommendations(
-            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 49),
-            feedbackSignals: [],
-            existingLemmas: [],
-            dueUserCount: 0,
-            settings: SchedulerSettings(dailyWordGoal: 10)
+    private static func assertChooseRecommendationsVector(_ vector: [String: Any]) throws {
+        let settings = parseSettings(vector["settings"] as? [String: Any])
+        let dueUserCount = vector["due_user_count"] as? Int ?? 0
+        let limit = vector["limit"] as? Int ?? RecommendationEngine.recommendationFillLimit(
+            dueUserCount: dueUserCount,
+            existingRecommendationCount: vector["existing_recommendation_count"] as? Int ?? 0,
+            settings: settings
         )
-        try require(beforeFifty.isEmpty, "Mac recommendations should stay off before 50 user words")
-
-        let goalFilled = RecommendationEngine.chooseRecommendations(
-            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 50),
-            feedbackSignals: [],
-            existingLemmas: [],
-            dueUserCount: 10,
-            settings: SchedulerSettings(dailyWordGoal: 10)
-        )
-        try require(goalFilled.isEmpty, "Mac recommendations should not displace due reviews that fill the goal")
-
-        let openSlot = RecommendationEngine.recommendationFillLimit(
-            dueUserCount: 3,
-            existingRecommendationCount: 6,
-            settings: SchedulerSettings(dailyWordGoal: 10, maxQueueSize: 20)
-        )
-        let fullSlots = RecommendationEngine.recommendationFillLimit(
-            dueUserCount: 3,
-            existingRecommendationCount: 7,
-            settings: SchedulerSettings(dailyWordGoal: 10, maxQueueSize: 20)
-        )
-        try require(openSlot == 1 && fullSlots == 0, "Mac existing recommendations should occupy open daily slots")
-
         let selected = RecommendationEngine.chooseRecommendations(
-            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 50),
-            feedbackSignals: [RecommendationFeedbackSignal(lemma: "subtle", action: "dismissed")],
-            existingLemmas: [],
-            dueUserCount: 0,
-            settings: SchedulerSettings(dailyWordGoal: 10),
-            limit: 4
+            userSignals: parseUserSignals(vector["user_signals"] as? [[String: Any]]),
+            feedbackSignals: parseFeedbackSignals(vector["feedback_signals"] as? [[String: Any]]),
+            existingLemmas: Set(vector["existing_lemmas"] as? [String] ?? []),
+            dueUserCount: dueUserCount,
+            settings: settings,
+            limit: limit
         )
-        try require(selected.count == 4, "Mac recommendation engine should fill open slots")
-        try require(selected.contains { $0.lemma == "subtle" } == false, "Mac recommendation engine should exclude dismissed lemmas")
-        try require(selected.contains { $0.topic == "academic" } == false, "Mac recommendation engine should downrank dismissed topics out of a small fill")
+        let then = vector["then"] as! [String: Any]
+        let name = vector["name"] as! String
+        try require(selected.count == then["selected_count"] as! Int, "\(name): selected count")
+        if let range = then["frequency_rank_between"] as? [Int] {
+            try require(selected.allSatisfy { range[0]...range[1] ~= $0.frequencyRank }, "\(name): frequency rank range")
+        }
+        if let topics = then["first_topic_in"] as? [String], let first = selected.first {
+            try require(topics.contains(first.topic), "\(name): first topic")
+        }
+        if let lemmas = then["excluded_lemmas"] as? [String] {
+            try require(selected.allSatisfy { !lemmas.contains($0.lemma) }, "\(name): excluded lemmas")
+        }
+        if let topics = then["excluded_topics"] as? [String] {
+            try require(selected.allSatisfy { !topics.contains($0.topic) }, "\(name): excluded topics")
+        }
+    }
+
+    private static func assertFillLimitVector(_ vector: [String: Any]) throws {
+        let result = RecommendationEngine.recommendationFillLimit(
+            dueUserCount: vector["due_user_count"] as! Int,
+            existingRecommendationCount: vector["existing_recommendation_count"] as! Int,
+            settings: parseSettings(vector["settings"] as? [String: Any])
+        )
+        let then = vector["then"] as! [String: Any]
+        try require(result == then["fill_limit"] as! Int, "\(vector["name"] as! String): fill limit")
+    }
+
+    private static func assertEstimateLevelVector(_ vector: [String: Any]) throws {
+        let userSignals = parseUserSignals(vector["user_signals"] as? [[String: Any]])
+        let baseline = RecommendationEngine.estimateLevel(userSignals: userSignals)
+        let result = RecommendationEngine.estimateLevel(
+            userSignals: userSignals,
+            feedbackSignals: parseFeedbackSignals(vector["feedback_signals"] as? [[String: Any]])
+        )
+        let then = vector["then"] as! [String: Any]
+        let name = vector["name"] as! String
+        if then["lower_rank_greater_than_baseline"] as? Bool == true {
+            try require(result.lowerRank > baseline.lowerRank, "\(name): lower rank")
+        }
+        if then["upper_rank_greater_than_baseline"] as? Bool == true {
+            try require(result.upperRank > baseline.upperRank, "\(name): upper rank")
+        }
+    }
+
+    private static func parseUserSignals(_ json: [[String: Any]]?) -> [UserVocabularySignal] {
+        (json ?? []).flatMap { signal in
+            Array(
+                repeating: UserVocabularySignal(
+                    lemma: signal["lemma"] as! String,
+                    lapseCount: signal["lapse_count"] as? Int ?? 0,
+                    rememberedCount: signal["remembered_count"] as? Int ?? 0,
+                    forgottenCount: signal["forgotten_count"] as? Int ?? 0
+                ),
+                count: signal["count"] as? Int ?? 1
+            )
+        }
+    }
+
+    private static func parseFeedbackSignals(_ json: [[String: Any]]?) -> [RecommendationFeedbackSignal] {
+        (json ?? []).map { signal in
+            RecommendationFeedbackSignal(
+                lemma: signal["lemma"] as! String,
+                action: signal["action"] as! String
+            )
+        }
     }
 
     private static func parseCard(_ json: [String: Any], now: Date) -> SchedulerCard {
@@ -435,6 +481,21 @@ enum SchedulerVectorCommand {
             return url
         }
         throw CheckError("Could not find shared/recommendations/recommendation_catalog.json")
+    }
+
+    private static func recommendationVectorURL() throws -> URL {
+        let candidates = [
+            URL(filePath: "../../../shared/test-vectors/recommendations.json"),
+            URL(filePath: "../../shared/test-vectors/recommendations.json"),
+            URL(filePath: "../shared/test-vectors/recommendations.json"),
+            URL(filePath: "shared/test-vectors/recommendations.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../../shared/test-vectors/recommendations.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../shared/test-vectors/recommendations.json")
+        ]
+        if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return url
+        }
+        throw CheckError("Could not find shared/test-vectors/recommendations.json")
     }
 
     private static func localMinutes(_ date: Date, settings: SchedulerSettings) -> Int {

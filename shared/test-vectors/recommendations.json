@@ -1,0 +1,90 @@
+[
+  {
+    "name": "recommendations_stay_off_before_fifty_user_words",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "unknown", "count": 49 }
+    ],
+    "due_user_count": 0,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "then": { "selected_count": 0 }
+  },
+  {
+    "name": "due_reviews_fill_goal_before_recommendations",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "unknown", "count": 50 }
+    ],
+    "due_user_count": 10,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "then": { "selected_count": 0 }
+  },
+  {
+    "name": "existing_recommendations_occupy_open_daily_slots",
+    "kind": "fillLimit",
+    "due_user_count": 3,
+    "existing_recommendation_count": 6,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "then": { "fill_limit": 1 }
+  },
+  {
+    "name": "recommendation_fill_limit_respects_queue_cap",
+    "kind": "fillLimit",
+    "due_user_count": 1,
+    "existing_recommendation_count": 1,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 4 },
+    "then": { "fill_limit": 2 }
+  },
+  {
+    "name": "recommendations_use_boundary_and_preferred_topics",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "subtle", "count": 12 },
+      { "lemma": "plausible", "count": 12 },
+      { "lemma": "hypothesis", "count": 12 },
+      { "lemma": "tentative", "count": 14 }
+    ],
+    "existing_lemmas": ["subtle", "plausible", "hypothesis", "tentative"],
+    "due_user_count": 6,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "limit": 4,
+    "then": {
+      "selected_count": 4,
+      "frequency_rank_between": [11000, 35000],
+      "first_topic_in": ["academic", "methods"]
+    }
+  },
+  {
+    "name": "known_feedback_shifts_recommendation_band_harder",
+    "kind": "estimateLevel",
+    "user_signals": [
+      { "lemma": "plausible", "count": 50 }
+    ],
+    "feedback_signals": [
+      { "lemma": "subtle", "action": "known" },
+      { "lemma": "preliminary", "action": "known" }
+    ],
+    "then": {
+      "lower_rank_greater_than_baseline": true,
+      "upper_rank_greater_than_baseline": true
+    }
+  },
+  {
+    "name": "dismissed_feedback_excludes_lemma_and_downranks_topic",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "subtle", "count": 50 }
+    ],
+    "feedback_signals": [
+      { "lemma": "subtle", "action": "dismissed" }
+    ],
+    "due_user_count": 0,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "limit": 4,
+    "then": {
+      "selected_count": 4,
+      "excluded_lemmas": ["subtle"],
+      "excluded_topics": ["academic"]
+    }
+  }
+]
