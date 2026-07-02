@@ -168,9 +168,9 @@ enum SchedulerVectorCommand {
         ]
         let enabledMacNotifications = MacNotificationPlan.scheduledCards(
             cards: notificationCards,
-            settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 2)
+            settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3)
         )
-        try require(enabledMacNotifications.map(\.id) == ["user-due", "rec-started"], "Mac notifications should skip unstarted recommendations and respect queue cap")
+        try require(enabledMacNotifications.map(\.id) == ["user-due", "user-overflow", "rec-unstarted"], "Mac notifications should prioritize user cards before recommendation intro alerts")
         let disabledMacNotifications = MacNotificationPlan.scheduledCards(
             cards: notificationCards,
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)

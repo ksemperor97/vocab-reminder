@@ -187,6 +187,11 @@ final class LocalVocabularyStore: ObservableObject {
         message = "\(card.displayWord) 복습 시작"
     }
 
+    func markRecommendationStarted(cardId: String) {
+        guard let card = cards.first(where: { $0.id == cardId }) else { return }
+        markRecommendationStarted(card)
+    }
+
     func softDeleteRecommendation(_ card: VocabularyCard, action: String) {
         guard card.wordbook == .recommended, card.deletedAt == nil, ["known", "dismissed"].contains(action) else { return }
         let now = Date()
@@ -197,6 +202,11 @@ final class LocalVocabularyStore: ObservableObject {
         updated.version += 1
         update(card: updated)
         message = action == "known" ? "\(card.displayWord) 알고 있음으로 처리" : "\(card.displayWord) 관심 없음으로 처리"
+    }
+
+    func softDeleteRecommendation(cardId: String, action: String) {
+        guard let card = cards.first(where: { $0.id == cardId }) else { return }
+        softDeleteRecommendation(card, action: action)
     }
 
     func exportSyncSnapshot() {
