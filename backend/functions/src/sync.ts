@@ -41,7 +41,7 @@ const appendOnlyCollections = [
 ] as const;
 
 const recommendationFeedbackActions = new Set(["started", "known", "dismissed"]);
-const recommendationFeedbackRequiredStringFields = ["card_id", "lemma"] as const;
+const recommendationFeedbackRequiredStringFields = ["card_id", "lemma", "created_at"] as const;
 
 export function parseSyncBatchPayload(data: unknown): Required<SyncBatchPayload> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -188,6 +188,10 @@ function parseRecommendationFeedbackArray(value: unknown): Entity[] {
       if (typeof entity[field] !== "string" || entity[field].trim() === "") {
         throw new HttpsError("invalid-argument", `recommendation_feedback[${index}].${field} is required.`);
       }
+    }
+    const createdAt = entity.created_at as string;
+    if (Number.isNaN(Date.parse(createdAt))) {
+      throw new HttpsError("invalid-argument", `recommendation_feedback[${index}].created_at must be an ISO timestamp.`);
     }
     if (typeof entity.action !== "string" || !recommendationFeedbackActions.has(entity.action)) {
       throw new HttpsError("invalid-argument", `recommendation_feedback[${index}].action is invalid.`);

@@ -10,7 +10,7 @@ describe("sync payload parser", () => {
       contexts: [{ id: "context-1", card_id: "card-1" }],
       definition_candidates: [{ id: "candidate-1", card_id: "card-1" }],
       review_events: [{ id: "event-1", card_id: "card-1" }],
-      recommendation_feedback: [{ id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "known" }],
+      recommendation_feedback: [{ id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "known", created_at: "2026-07-02T00:00:00Z" }],
       settings: { daily_word_goal: 10 }
     });
 
@@ -30,7 +30,7 @@ describe("sync payload parser", () => {
     assert.throws(
       () => parseSyncBatchPayload({
         recommendation_feedback: [
-          { id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "maybe" }
+          { id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "maybe", created_at: "2026-07-02T00:00:00Z" }
         ]
       }),
       HttpsError
@@ -42,10 +42,11 @@ describe("sync payload parser", () => {
       id: "feedback-1",
       card_id: "card-1",
       lemma: "ubiquitous",
-      action: "known"
+      action: "known",
+      created_at: "2026-07-02T00:00:00Z"
     };
 
-    for (const field of ["card_id", "lemma"]) {
+    for (const field of ["card_id", "lemma", "created_at"]) {
       const missingField = { ...baseFeedback };
       delete missingField[field];
       assert.throws(
@@ -60,6 +61,17 @@ describe("sync payload parser", () => {
         HttpsError
       );
     }
+  });
+
+  it("rejects recommendation feedback with invalid created_at timestamps", () => {
+    assert.throws(
+      () => parseSyncBatchPayload({
+        recommendation_feedback: [
+          { id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "known", created_at: "not a date" }
+        ]
+      }),
+      HttpsError
+    );
   });
 
   it("defaults missing collections to empty arrays", () => {

@@ -100,7 +100,8 @@ describe("Firestore rules", () => {
       setDoc(feedbackRef, {
         card_id: "card-1",
         lemma: "ubiquitous",
-        action: "known"
+        action: "known",
+        created_at: "2026-07-02T00:00:00Z"
       })
     );
 
@@ -115,7 +116,8 @@ describe("Firestore rules", () => {
       setDoc(doc(db, "users/user-a/recommendation_feedback/feedback-1"), {
         card_id: "card-1",
         lemma: "ubiquitous",
-        action: "maybe"
+        action: "maybe",
+        created_at: "2026-07-02T00:00:00Z"
       })
     );
   });
@@ -126,7 +128,8 @@ describe("Firestore rules", () => {
     await assertFails(
       setDoc(doc(db, "users/user-a/recommendation_feedback/missing-card-id"), {
         lemma: "ubiquitous",
-        action: "known"
+        action: "known",
+        created_at: "2026-07-02T00:00:00Z"
       })
     );
 
@@ -134,7 +137,17 @@ describe("Firestore rules", () => {
       setDoc(doc(db, "users/user-a/recommendation_feedback/blank-lemma"), {
         card_id: "card-1",
         lemma: "  ",
-        action: "known"
+        action: "known",
+        created_at: "2026-07-02T00:00:00Z"
+      })
+    );
+
+    await assertFails(
+      setDoc(doc(db, "users/user-a/recommendation_feedback/blank-created-at"), {
+        card_id: "card-1",
+        lemma: "ubiquitous",
+        action: "known",
+        created_at: "  "
       })
     );
   });

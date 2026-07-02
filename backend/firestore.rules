@@ -17,6 +17,7 @@ service cloud.firestore {
     function isRecommendationFeedback() {
       return isNonBlankString(request.resource.data.card_id) &&
         isNonBlankString(request.resource.data.lemma) &&
+        isNonBlankString(request.resource.data.created_at) &&
         request.resource.data.action in ["started", "known", "dismissed"];
     }
 
