@@ -46,6 +46,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.work:work-testing:2.8.1")
     testImplementation("org.json:json:20250517")
     testImplementation("org.robolectric:robolectric:4.12.2")
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.06.01"))
