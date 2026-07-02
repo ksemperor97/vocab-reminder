@@ -10,7 +10,7 @@ describe("sync payload parser", () => {
       contexts: [{ id: "context-1", card_id: "card-1" }],
       definition_candidates: [{ id: "candidate-1", card_id: "card-1" }],
       review_events: [{ id: "event-1", card_id: "card-1" }],
-      recommendation_feedback: [{ id: "feedback-1", lemma: "ubiquitous", action: "known" }],
+      recommendation_feedback: [{ id: "feedback-1", card_id: "card-1", lemma: "ubiquitous", action: "known" }],
       settings: { daily_word_goal: 10 }
     });
 
@@ -35,6 +35,31 @@ describe("sync payload parser", () => {
       }),
       HttpsError
     );
+  });
+
+  it("rejects recommendation feedback without required card fields", () => {
+    const baseFeedback = {
+      id: "feedback-1",
+      card_id: "card-1",
+      lemma: "ubiquitous",
+      action: "known"
+    };
+
+    for (const field of ["card_id", "lemma"]) {
+      const missingField = { ...baseFeedback };
+      delete missingField[field];
+      assert.throws(
+        () => parseSyncBatchPayload({ recommendation_feedback: [missingField] }),
+        HttpsError
+      );
+
+      assert.throws(
+        () => parseSyncBatchPayload({
+          recommendation_feedback: [{ ...baseFeedback, [field]: "  " }]
+        }),
+        HttpsError
+      );
+    }
   });
 
   it("defaults missing collections to empty arrays", () => {

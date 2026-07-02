@@ -10,8 +10,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function isNonBlankString(value) {
+      return value is string && value.trim().size() > 0;
+    }
+
     function isRecommendationFeedback() {
-      return request.resource.data.action in ["started", "known", "dismissed"];
+      return isNonBlankString(request.resource.data.card_id) &&
+        isNonBlankString(request.resource.data.lemma) &&
+        request.resource.data.action in ["started", "known", "dismissed"];
     }
 
     match /users/{uid} {

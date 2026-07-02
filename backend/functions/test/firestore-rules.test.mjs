@@ -120,6 +120,25 @@ describe("Firestore rules", () => {
     );
   });
 
+  it("denies recommendation_feedback without required card fields", async () => {
+    const db = testEnv.authenticatedContext("user-a").firestore();
+
+    await assertFails(
+      setDoc(doc(db, "users/user-a/recommendation_feedback/missing-card-id"), {
+        lemma: "ubiquitous",
+        action: "known"
+      })
+    );
+
+    await assertFails(
+      setDoc(doc(db, "users/user-a/recommendation_feedback/blank-lemma"), {
+        card_id: "card-1",
+        lemma: "  ",
+        action: "known"
+      })
+    );
+  });
+
   it("allows settings/main and denies unknown subcollections", async () => {
     const db = testEnv.authenticatedContext("user-a").firestore();
 
