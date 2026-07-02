@@ -32,6 +32,11 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /recommendation_feedback/{feedbackId} {
+        allow read, create: if isOwner(uid);
+        allow update, delete: if false;
+      }
+
       match /devices/{deviceId} {
         allow read, create, update, delete: if isOwner(uid);
       }

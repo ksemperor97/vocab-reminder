@@ -6,7 +6,6 @@ import android.content.Intent
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Scheduler
-import com.vocabreminder.android.scheduler.SchedulerSettings
 import java.time.Instant
 
 class ReviewActionReceiver : BroadcastReceiver() {
@@ -21,7 +20,7 @@ class ReviewActionReceiver : BroadcastReceiver() {
         val store = LocalVocabularyStore(context)
         val card = store.findCard(cardId) ?: return
         val now = Instant.now()
-        val settings = SchedulerSettings()
+        val settings = store.settings().toSchedulerSettings()
         val result = Scheduler.applyReview(
             card = card.toSchedulerCard(),
             response = response,

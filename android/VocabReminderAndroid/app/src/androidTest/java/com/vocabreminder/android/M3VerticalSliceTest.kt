@@ -10,10 +10,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
+import com.vocabreminder.android.dictionary.DictionaryResolver
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReviewActionReceiver
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
+import com.vocabreminder.android.scheduler.Wordbook
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -52,6 +54,51 @@ class M3VerticalSliceTest {
         assertEquals(CardStatus.NEW, card.status)
         assertEquals(0, card.intervalDays)
         assertTrue("first due should be about 10 minutes, was $dueInMinutes", dueInMinutes in 8..11)
+    }
+
+    @Test
+    fun sentenceCaptureShowsCandidateSelectionAndSavesPreview() {
+        composeRule.onNodeWithTag("word_field").performTextInput("The results are tentative, but the pattern is robust.")
+        composeRule.onNodeWithTag("preview_button").performClick()
+        composeRule.onNodeWithTag("candidate_tentative").performClick()
+        composeRule.onNodeWithTag("preview_save_button").performClick()
+
+        val card = store.cards().single()
+        assertEquals("tentative", card.lemma)
+        assertEquals("잠정적인, 임시의", card.meaningKo)
+        assertEquals("The results are tentative, but the pattern is robust.", store.contexts().single().sourceSentence)
+        assertEquals("local_dictionary", store.definitionCandidates().single().source)
+    }
+
+    @Test
+    fun capturedRecommendedWordPromotesToUserWordbookAndKeepsProgress() {
+        val now = Instant.now()
+        val recommended = store.addRecommendedCard(
+            result = DictionaryResolver.resolve("ubiquitous"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.RECOMMENDATION,
+            now = now
+        )
+        val progressed = recommended.copy(
+            status = CardStatus.LEARNING,
+            intervalDays = 3,
+            lapseCount = 1,
+            dueAt = now.plusSeconds(3 * 24 * 60 * 60)
+        )
+        store.updateCard(progressed)
+
+        val captured = store.addResolvedCard(
+            result = DictionaryResolver.resolve("Ubiquitous"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.ANDROID_PROCESS_TEXT,
+            dueAt = now.plusSeconds(600),
+            now = now.plusSeconds(1),
+            wordbook = Wordbook.USER
+        )
+
+        assertEquals(1, store.cards().size)
+        assertEquals(Wordbook.USER, captured.wordbook)
+        assertEquals(CardStatus.LEARNING, captured.status)
+        assertEquals(3, captured.intervalDays)
+        assertEquals(1, captured.lapseCount)
     }
 
     @Test

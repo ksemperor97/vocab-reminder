@@ -92,6 +92,22 @@ describe("Firestore rules", () => {
     await assertFails(deleteDoc(eventRef));
   });
 
+  it("allows recommendation_feedback create but denies update and delete", async () => {
+    const db = testEnv.authenticatedContext("user-a").firestore();
+    const feedbackRef = doc(db, "users/user-a/recommendation_feedback/feedback-1");
+
+    await assertSucceeds(
+      setDoc(feedbackRef, {
+        card_id: "card-1",
+        lemma: "ubiquitous",
+        action: "known"
+      })
+    );
+
+    await assertFails(updateDoc(feedbackRef, { action: "dismissed" }));
+    await assertFails(deleteDoc(feedbackRef));
+  });
+
   it("allows settings/main and denies unknown subcollections", async () => {
     const db = testEnv.authenticatedContext("user-a").firestore();
 

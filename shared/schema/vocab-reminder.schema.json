@@ -258,6 +258,26 @@
         "last_seen_at": { "$ref": "#/$defs/timestamp" },
         "created_at": { "$ref": "#/$defs/timestamp" }
       }
+    },
+    "recommendationFeedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "user_id",
+        "card_id",
+        "lemma",
+        "action",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "user_id": { "type": "string" },
+        "card_id": { "$ref": "#/$defs/uuid" },
+        "lemma": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "enum": ["started", "known", "dismissed"] },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
     }
   },
   "properties": {
@@ -266,6 +286,7 @@
     "definition_candidate": { "$ref": "#/$defs/definitionCandidate" },
     "review_event": { "$ref": "#/$defs/reviewEvent" },
     "user_settings": { "$ref": "#/$defs/userSettings" },
-    "device": { "$ref": "#/$defs/device" }
+    "device": { "$ref": "#/$defs/device" },
+    "recommendation_feedback": { "$ref": "#/$defs/recommendationFeedback" }
   }
 }

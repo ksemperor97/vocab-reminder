@@ -6,13 +6,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.vocabreminder.android.data.VocabularyCard
+import com.vocabreminder.android.scheduler.CardStatus
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 object ReminderScheduler {
     fun schedule(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
-        if (card.meaningKo.isBlank()) return
+        if (card.meaningKo.isBlank() || card.deletedAt != null || card.status == CardStatus.MASTERED || card.status == CardStatus.SUSPENDED) return
         val delayMillis = Duration.between(now, card.dueAt).toMillis().coerceAtLeast(0)
         val request = OneTimeWorkRequestBuilder<ReviewNotificationWorker>()
             .setInputData(workDataOf(ReviewNotificationWorker.KEY_CARD_ID to card.id))

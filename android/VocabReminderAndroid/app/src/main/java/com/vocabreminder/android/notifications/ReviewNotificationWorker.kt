@@ -5,6 +5,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.scheduler.CardStatus
+import com.vocabreminder.android.scheduler.Wordbook
 import java.time.Instant
 
 class ReviewNotificationWorker(
@@ -25,7 +26,11 @@ class ReviewNotificationWorker(
             return Result.success()
         }
 
-        ReminderNotifications.showReview(applicationContext, card)
+        if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
+            ReminderNotifications.showRecommendation(applicationContext, card)
+        } else {
+            ReminderNotifications.showReview(applicationContext, card)
+        }
         return Result.success()
     }
 

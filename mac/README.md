@@ -2,9 +2,10 @@
 
 SwiftUI macOS app workspace.
 
-M0 keeps this as a minimal SwiftPM executable so the project has a buildable Mac entrypoint. M5 turns it into the menu bar capture/edit/sync app described in the guide.
+The Mac target is a local MVP for capture and management: menu bar app, clipboard hotkey/button capture, macOS DictionaryServices resolver with local fallback, save preview, card management/review, shared scheduler vector checks, and local JSON sync snapshot export/import until Firebase project config is available.
 
 ```sh
 cd VocabReminderMac
 swift build
+swift run VocabReminderMac --check-scheduler-vectors
 ```

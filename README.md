@@ -48,12 +48,17 @@ cd android/VocabReminderAndroid
 
 Android builds require Android Studio or an Android SDK installation, plus a JDK compatible with the Android Gradle Plugin.
 
-Current Android M3 slice:
+Current Android slice:
 
 - Manual word add with word, meaning, and example.
+- ACTION_PROCESS_TEXT and text/plain share intent capture.
+- Clipboard fallback only when the in-app button is pressed.
+- Save preview with local dictionary fallback and 4+ word candidate selection.
 - First review scheduled through WorkManager at save time + 10 minutes.
 - Review notification actions for `remembered`, `forgotten`, and `unavailable`.
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
+- Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
+- Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
 - Review events are stored append-only in local app storage until Firebase sync is added.
 
 Install the debug APK on a connected device or emulator:
@@ -61,6 +66,28 @@ Install the debug APK on a connected device or emulator:
 ```sh
 cd android/VocabReminderAndroid
 ./gradlew :app:installDebug
+```
+
+Mac local MVP:
+
+- Menu bar app with clipboard capture.
+- macOS DictionaryServices resolver first, local fallback second.
+- Save preview, card list/edit/review actions, manual rebalance.
+- Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
+- Local sync snapshot export/import while real Firebase client configuration is pending.
+
+Run:
+
+```sh
+cd mac/VocabReminderMac
+swift run
+```
+
+Check the Swift scheduler against the shared vectors:
+
+```sh
+cd mac/VocabReminderMac
+swift run VocabReminderMac --check-scheduler-vectors
 ```
 
 ## Firebase Setup Procedure

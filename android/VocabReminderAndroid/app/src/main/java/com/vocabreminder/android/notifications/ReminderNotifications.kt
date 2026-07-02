@@ -19,8 +19,13 @@ import com.vocabreminder.android.scheduler.ReviewResponse
 object ReminderNotifications {
     const val CHANNEL_ID = "vocabulary_review"
     const val ACTION_REVIEW = "com.vocabreminder.android.ACTION_REVIEW"
+    const val ACTION_RECOMMENDATION = "com.vocabreminder.android.ACTION_RECOMMENDATION"
     const val EXTRA_CARD_ID = "card_id"
     const val EXTRA_RESPONSE = "response"
+    const val EXTRA_RECOMMENDATION_ACTION = "recommendation_action"
+    const val RECOMMENDATION_START = "start"
+    const val RECOMMENDATION_KNOWN = "known"
+    const val RECOMMENDATION_DISMISS = "dismiss"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -84,6 +89,27 @@ object ReminderNotifications {
         )
     }
 
+    fun showRecommendation(context: Context, card: VocabularyCard) {
+        val body = buildString {
+            append("뜻: ${card.meaningKo}")
+            if (card.exampleSentence.isNotBlank()) {
+                append("\n예문: ${card.exampleSentence}")
+            }
+        }
+        // guide 24.3: recommended first notification is an introduction, not a recall quiz.
+        show(
+            context = context,
+            card = card,
+            builder = baseBuilder(context, card)
+                .setContentTitle("오늘의 새 단어: ${card.displayWord}")
+                .setContentText("뜻: ${card.meaningKo}")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .addAction(recommendationAction(context, card, RECOMMENDATION_START, "시작하기"))
+                .addAction(recommendationAction(context, card, RECOMMENDATION_KNOWN, "알아요"))
+                .addAction(recommendationAction(context, card, RECOMMENDATION_DISMISS, "관심 없음"))
+        )
+    }
+
     fun cancel(context: Context, card: VocabularyCard) {
         NotificationManagerCompat.from(context).cancel(card.notificationId)
     }
@@ -122,6 +148,25 @@ object ReminderNotifications {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             card.notificationId + response.ordinal,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(0, label, pendingIntent).build()
+    }
+
+    private fun recommendationAction(
+        context: Context,
+        card: VocabularyCard,
+        recommendationAction: String,
+        label: String
+    ): NotificationCompat.Action {
+        val intent = Intent(context, RecommendationActionReceiver::class.java)
+            .setAction(ACTION_RECOMMENDATION)
+            .putExtra(EXTRA_CARD_ID, card.id)
+            .putExtra(EXTRA_RECOMMENDATION_ACTION, recommendationAction)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            card.notificationId + recommendationAction.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

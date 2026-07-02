@@ -1,5 +1,5 @@
-## 현재 마일스톤: M4
-## 완료: M0, M1, M2, M3
-## 진행 중: M4-1 (Android capture and dictionary resolver beyond manual entry)
-## 막힌 것 / 사용자 확인 필요: Firebase 프로젝트 생성/키 발급은 사용자 계정이 필요하므로 README에 절차만 문서화됨
+## 현재 마일스톤: M5-M7 통합 검증
+## 완료: M0, M1, M2, M3, M4 로컬 구현
+## 진행 중: M5 Firebase 실계정 sync, M6/M7 기기 검증
+## 막힌 것 / 사용자 확인 필요: Firebase 프로젝트 생성/키 발급은 사용자 계정이 필요하므로 README에 절차만 문서화됨. M7 대규모 단어 빈도 데이터는 라이선스 확인 전까지 내장 demo seed만 사용.
 ## 마지막 갱신: 2026-07-02
