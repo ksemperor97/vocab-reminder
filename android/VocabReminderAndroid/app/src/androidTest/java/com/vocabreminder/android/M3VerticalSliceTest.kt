@@ -11,6 +11,7 @@ import androidx.test.uiautomator.UiDevice
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.dictionary.DictionaryResolver
+import com.vocabreminder.android.notifications.DailyReviewPlanner
 import com.vocabreminder.android.notifications.RecommendationActionReceiver
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReviewActionReceiver
@@ -198,6 +199,35 @@ class M3VerticalSliceTest {
         assertEquals(0, store.cards().count { it.wordbook == Wordbook.RECOMMENDED })
         assertTrue(store.allCards(includeDeleted = true).all { it.deletedAt != null })
         assertEquals(listOf("known", "dismissed"), store.recommendationFeedback().map { it.action })
+    }
+
+    @Test
+    fun dailyPlannerGeneratesRecommendationSlotsAfterFiftyUserWords() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        repeat(50) { index ->
+            store.addCard(
+                displayWord = "seedword$index",
+                meaningKo = "meaning $index",
+                exampleSentence = "Example sentence $index.",
+                dueAt = now.plusSeconds(24 * 60 * 60),
+                now = now.minusSeconds((index + 1).toLong())
+            )
+        }
+
+        val summary = DailyReviewPlanner.planAndSchedule(composeRule.activity, now)
+        val recommendations = store.cards().filter { it.wordbook == Wordbook.RECOMMENDED }
+
+        assertEquals(10, summary.generatedRecommendations)
+        assertEquals(10, summary.scheduledNotifications)
+        assertEquals(0, summary.rebalancedCards)
+        assertEquals(summary.generatedRecommendations, recommendations.size)
+        assertTrue(recommendations.all { it.meaningKo.isNotBlank() })
+        assertTrue(recommendations.all { it.recommendationStartedAt == null })
+        if (summary.recommendationIntroShown) {
+            assertEquals(now, store.settings().recommendationsIntroducedAt)
+        } else {
+            assertNull(store.settings().recommendationsIntroducedAt)
+        }
     }
 
     @Test

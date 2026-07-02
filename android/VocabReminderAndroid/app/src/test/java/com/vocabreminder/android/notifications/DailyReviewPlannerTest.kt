@@ -1,0 +1,58 @@
+package com.vocabreminder.android.notifications
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.scheduler.Wordbook
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.Instant
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], manifest = Config.NONE)
+class DailyReviewPlannerTest {
+    private lateinit var context: Context
+    private lateinit var store: LocalVocabularyStore
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        store = LocalVocabularyStore(context)
+        store.clearAll()
+    }
+
+    @Test
+    fun planAndScheduleFillsRecommendationSlotsAfterFiftyUserWords() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        repeat(50) { index ->
+            store.addCard(
+                displayWord = "seedword$index",
+                meaningKo = "meaning $index",
+                exampleSentence = "Example sentence $index.",
+                dueAt = now.plusSeconds(24 * 60 * 60),
+                now = now.minusSeconds((index + 1).toLong())
+            )
+        }
+
+        val summary = DailyReviewPlanner.planAndSchedule(context, now)
+        val recommendations = store.cards().filter { it.wordbook == Wordbook.RECOMMENDED }
+
+        assertEquals(10, summary.generatedRecommendations)
+        assertEquals(10, summary.scheduledNotifications)
+        assertEquals(0, summary.rebalancedCards)
+        assertEquals(summary.generatedRecommendations, recommendations.size)
+        assertTrue(recommendations.all { it.meaningKo.isNotBlank() })
+        assertTrue(recommendations.all { it.recommendationStartedAt == null })
+        if (summary.recommendationIntroShown) {
+            assertEquals(now, store.settings().recommendationsIntroducedAt)
+        } else {
+            assertNull(store.settings().recommendationsIntroducedAt)
+        }
+    }
+}
