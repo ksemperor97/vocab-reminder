@@ -83,8 +83,9 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     func fillRecommendations() {
+        let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: Date())
-        message = generated > 0 ? "추천 단어 \(generated)개 준비됨" : "추천 조건 또는 빈자리가 없습니다."
+        message = generated > 0 ? "추천 채우기 완료" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced) : "추천 조건 또는 빈자리가 없습니다."
     }
 
     @discardableResult
@@ -141,9 +142,9 @@ final class LocalVocabularyStore: ObservableObject {
         let card = addResolvedCard(result, captureMethod: method, dueAt: Scheduler.initialDueAt(now: now, settings: schedulerSettings()), now: now)
         preview = nil
         pendingAnalysis = nil
+        let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
-        let suffix = generated > 0 ? " · 추천 \(generated)개 준비됨" : ""
-        message = (card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨") + suffix
+        message = (card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨") + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
     }
 
     func review(card: VocabularyCard, response: ReviewResponse) {
@@ -158,8 +159,9 @@ final class LocalVocabularyStore: ObservableObject {
         )
         update(card: card.applying(result.card, now: now))
         append(event: result.event, now: now)
+        let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
-        message = "복습 기록됨" + (generated > 0 ? " · 추천 \(generated)개 준비됨" : "")
+        message = "복습 기록됨" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
     }
 
     func rebalanceDueCards() {
@@ -172,8 +174,9 @@ final class LocalVocabularyStore: ObservableObject {
                 append(event: result.event, now: now)
             }
         }
+        let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
-        message = "복습 재조정 \(results.count)개" + (generated > 0 ? " · 추천 \(generated)개 준비됨" : "")
+        message = "복습 재조정 \(results.count)개" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
     }
 
     func markRecommendationStarted(_ card: VocabularyCard) {
@@ -396,6 +399,12 @@ final class LocalVocabularyStore: ObservableObject {
             timezone: settings.timezone,
             enableWordRecommendations: settings.enableWordRecommendations
         )
+    }
+
+    private func recommendationMessageSuffix(generated: Int, wasIntroduced: Bool) -> String {
+        guard generated > 0 else { return "" }
+        let intro = wasIntroduced ? "" : " · 추천 단어장이 시작됐습니다. 설정에서 끌 수 있어요."
+        return "\(intro) · 추천 \(generated)개 준비됨"
     }
 
     private func load() {

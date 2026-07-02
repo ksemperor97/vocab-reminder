@@ -100,6 +100,7 @@ Mac local MVP:
 - macOS DictionaryServices resolver first, local fallback second.
 - Save preview, card list/edit/review actions, manual rebalance.
 - Manual/after-save/after-review recommendation fill uses the same generated academic/scientific catalogue as Android, with in-app start/known/dismiss actions.
+- The first Mac recommendation fill records `recommendations_introduced_at` and shows a one-time settings opt-out notice.
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards use a separate intro notification with start/known/dismiss actions.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
