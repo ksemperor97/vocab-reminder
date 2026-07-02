@@ -61,6 +61,7 @@ struct MenuBarView: View {
                 }
             }
             Button("복습 재조정") { store.rebalanceDueCards() }
+            Button("추천 채우기") { store.fillRecommendations() }
             Divider()
             Button("창 열기") { NSApp.activate(ignoringOtherApps: true) }
             Button("종료") { NSApp.terminate(nil) }
@@ -230,6 +231,7 @@ struct SettingsView: View {
             Toggle("추천 단어", isOn: $store.settings.enableWordRecommendations)
             HStack {
                 Button("복습 재조정") { store.rebalanceDueCards() }
+                Button("추천 채우기") { store.fillRecommendations() }
                 Button("Sync 내보내기") { store.exportSyncSnapshot() }
                 Button("Sync 가져오기") { store.importSyncSnapshot() }
             }
@@ -355,10 +357,18 @@ struct CardRow: View {
             Text("\(card.status.rawValue) · interval=\(card.intervalDays)d · due=\(card.dueAt.formatted())")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack {
-                Button("외웠다") { store.review(card: card, response: .remembered) }
-                Button("못외웠다") { store.review(card: card, response: .forgotten) }
-                Button("나중에") { store.review(card: card, response: .unavailable) }
+            if card.wordbook == .recommended && card.recommendationStartedAt == nil {
+                HStack {
+                    Button("시작하기") { store.markRecommendationStarted(card) }
+                    Button("알아요") { store.softDeleteRecommendation(card, action: "known") }
+                    Button("관심 없음") { store.softDeleteRecommendation(card, action: "dismissed") }
+                }
+            } else {
+                HStack {
+                    Button("외웠다") { store.review(card: card, response: .remembered) }
+                    Button("못외웠다") { store.review(card: card, response: .forgotten) }
+                    Button("나중에") { store.review(card: card, response: .unavailable) }
+                }
             }
         }
         .padding(.vertical, 8)

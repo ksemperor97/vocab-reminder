@@ -3,6 +3,8 @@
 The Android recommendation engine uses the generated catalogue in
 `shared/recommendations/recommendation_catalog.json`. The generated Kotlin copy
 is `android/VocabReminderAndroid/app/src/main/java/com/vocabreminder/android/recommendation/RecommendationCatalog.kt`.
+The Mac app uses the generated Swift copy at
+`mac/VocabReminderMac/Sources/VocabReminderMac/RecommendationCatalog.swift`.
 
 The full ranked source pool is generated as JSONL in
 `shared/recommendations/recommendation_candidate_pool.jsonl`, with metadata in
@@ -56,6 +58,8 @@ metadata only, and the fill queue selects the next eligible items to enrich;
 definitions, Korean meanings, examples, and domain topics are filled in the
 curated app catalogue. The Android unit tests enforce catalogue size, unique
 lemmas, required topics, and parity between the shared JSON and Kotlin copy.
+The Mac scheduler self-check enforces the same parity for the generated Swift
+copy and checks the recommendation selection feedback rules.
 
 Covered M7 product rules:
 

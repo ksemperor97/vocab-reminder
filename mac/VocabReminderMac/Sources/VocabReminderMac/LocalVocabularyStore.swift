@@ -82,6 +82,53 @@ final class LocalVocabularyStore: ObservableObject {
         MacNotificationScheduler.shared.reschedule(cards: activeCards, settings: settings)
     }
 
+    func fillRecommendations() {
+        let generated = ensureRecommendations(now: Date())
+        message = generated > 0 ? "추천 단어 \(generated)개 준비됨" : "추천 조건 또는 빈자리가 없습니다."
+    }
+
+    @discardableResult
+    func ensureRecommendations(now: Date = Date()) -> Int {
+        let active = activeCards
+        let userCards = active.filter { $0.wordbook == .user }
+        let dueUserCount = userCards.filter { $0.isDueReviewCandidate(now) }.count
+        let existingRecommendationCount = active.filter(\.isActiveRecommendationCandidate).count
+        let reviewSignals = userCards.map { card -> UserVocabularySignal in
+            let events = reviewEvents.filter { $0.cardId == card.id }
+            return UserVocabularySignal(
+                lemma: card.lemma,
+                lapseCount: card.lapseCount,
+                rememberedCount: events.filter { $0.response == .remembered }.count,
+                forgottenCount: events.filter { $0.response == .forgotten }.count
+            )
+        }
+        let feedbackSignals = recommendationFeedback.map {
+            RecommendationFeedbackSignal(lemma: $0.lemma, action: $0.action)
+        }
+        let selected = RecommendationEngine.chooseRecommendations(
+            userSignals: reviewSignals,
+            feedbackSignals: feedbackSignals,
+            existingLemmas: Set(cards.map(\.lemma)),
+            dueUserCount: dueUserCount,
+            settings: schedulerSettings(),
+            limit: RecommendationEngine.recommendationFillLimit(
+                dueUserCount: dueUserCount,
+                existingRecommendationCount: existingRecommendationCount,
+                settings: schedulerSettings()
+            )
+        )
+        guard selected.isEmpty == false else { return 0 }
+
+        for seed in selected {
+            addRecommendedCard(seed, now: now)
+        }
+        if settings.recommendationsIntroducedAt == nil {
+            settings.recommendationsIntroducedAt = now
+            save()
+        }
+        return selected.count
+    }
+
     func savePreview(meaningOverride: String, exampleOverride: String, method: CaptureMethod = .macClipboardHotkey) {
         guard var result = preview else { return }
         let now = Date()
@@ -94,7 +141,9 @@ final class LocalVocabularyStore: ObservableObject {
         let card = addResolvedCard(result, captureMethod: method, dueAt: Scheduler.initialDueAt(now: now, settings: schedulerSettings()), now: now)
         preview = nil
         pendingAnalysis = nil
-        message = card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨"
+        let generated = ensureRecommendations(now: now)
+        let suffix = generated > 0 ? " · 추천 \(generated)개 준비됨" : ""
+        message = (card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨") + suffix
     }
 
     func review(card: VocabularyCard, response: ReviewResponse) {
@@ -121,7 +170,33 @@ final class LocalVocabularyStore: ObservableObject {
                 append(event: result.event, now: now)
             }
         }
-        message = "복습 재조정 \(results.count)개"
+        let generated = ensureRecommendations(now: now)
+        message = "복습 재조정 \(results.count)개" + (generated > 0 ? " · 추천 \(generated)개 준비됨" : "")
+    }
+
+    func markRecommendationStarted(_ card: VocabularyCard) {
+        guard card.wordbook == .recommended, card.deletedAt == nil else { return }
+        let now = Date()
+        var updated = card
+        updated.recommendationStartedAt = now
+        updated.dueAt = Scheduler.initialDueAt(now: now, settings: schedulerSettings())
+        updated.updatedAt = now
+        updated.version += 1
+        update(card: updated)
+        appendRecommendationFeedback(card: updated, action: "started", now: now)
+        message = "\(card.displayWord) 복습 시작"
+    }
+
+    func softDeleteRecommendation(_ card: VocabularyCard, action: String) {
+        guard card.wordbook == .recommended, card.deletedAt == nil, ["known", "dismissed"].contains(action) else { return }
+        let now = Date()
+        appendRecommendationFeedback(card: card, action: action, now: now)
+        var updated = card
+        updated.deletedAt = now
+        updated.updatedAt = now
+        updated.version += 1
+        update(card: updated)
+        message = action == "known" ? "\(card.displayWord) 알고 있음으로 처리" : "\(card.displayWord) 관심 없음으로 처리"
     }
 
     func exportSyncSnapshot() {
@@ -233,6 +308,10 @@ final class LocalVocabularyStore: ObservableObject {
         return card
     }
 
+    private func addRecommendedCard(_ seed: RecommendationSeed, now: Date) {
+        _ = addResolvedCard(seed.dictionaryResult, captureMethod: .recommendation, dueAt: now, now: now, wordbook: .recommended)
+    }
+
     private func update(card: VocabularyCard) {
         guard let index = cards.firstIndex(where: { $0.id == card.id }) else { return }
         cards[index] = card
@@ -280,6 +359,19 @@ final class LocalVocabularyStore: ObservableObject {
                 createdAt: now
             )
         )
+    }
+
+    private func appendRecommendationFeedback(card: VocabularyCard, action: String, now: Date) {
+        recommendationFeedback.append(
+            RecommendationFeedback(
+                id: UUID().uuidString,
+                cardId: card.id,
+                lemma: card.lemma,
+                action: action,
+                createdAt: now
+            )
+        )
+        save()
     }
 
     private func schedulerSettings() -> SchedulerSettings {
@@ -376,6 +468,20 @@ private extension VocabularyCard {
         SchedulerCard(id: id, status: status, intervalDays: intervalDays, dueAt: dueAt, lapseCount: lapseCount, intervalBeforeLapse: intervalBeforeLapse, meaningKo: meaningKo, wordbook: wordbook, deletedAt: deletedAt)
     }
 
+    func isDueReviewCandidate(_ now: Date) -> Bool {
+        !meaningKo.isEmpty &&
+            status != .mastered &&
+            status != .suspended &&
+            dueAt <= now
+    }
+
+    var isActiveRecommendationCandidate: Bool {
+        wordbook == .recommended &&
+            !meaningKo.isEmpty &&
+            status != .mastered &&
+            status != .suspended
+    }
+
     func applying(_ schedulerCard: SchedulerCard, now: Date) -> VocabularyCard {
         var copy = self
         copy.status = schedulerCard.status
@@ -386,6 +492,24 @@ private extension VocabularyCard {
         copy.updatedAt = now
         copy.version += 1
         return copy
+    }
+}
+
+private extension RecommendationSeed {
+    var dictionaryResult: DictionaryResult {
+        DictionaryResult(
+            lemma: lemma,
+            displayWord: lemma,
+            meaningKo: meaningKo,
+            definitionEn: definitionEn,
+            partOfSpeech: partOfSpeech,
+            exampleSentence: exampleSentence,
+            rawSource: "\(partOfSpeech): \(definitionEn)",
+            sourceType: "local_dictionary",
+            confidence: 0.74,
+            sourceSentence: exampleSentence,
+            sourceApp: "Vocabulary Recommendation"
+        )
     }
 }
 

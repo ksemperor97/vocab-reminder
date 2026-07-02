@@ -99,13 +99,14 @@ Mac local MVP:
 - Menu bar app with clipboard capture.
 - macOS DictionaryServices resolver first, local fallback second.
 - Save preview, card list/edit/review actions, manual rebalance.
+- Manual/after-save recommendation fill uses the same generated academic/scientific catalogue as Android, with in-app start/known/dismiss actions.
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards are not sent as regular review alerts.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
 - Manual Mac Cloud sync can push/pull the same callable `syncBatch` / `syncSnapshot` contract when given a Functions URL and Firebase Auth ID token.
 - The Mac UI can sign in with Firebase email/password via Web API key and refresh the ID token without storing the password.
 - Sync import also folds active duplicate lemmas into one card while preserving contexts.
-- Sync import/export preserves recommendation feedback generated on Android.
+- Sync import/export preserves recommendation feedback generated on Android or Mac.
 
 Run:
 

@@ -177,6 +177,8 @@ enum SchedulerVectorCommand {
         )
         try require(disabledMacNotifications.map(\.id) == ["user-due", "user-overflow"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
 
+        try assertRecommendationEngine()
+
         let signInURL = try FirebaseAuthRequestFactory.signInURL(webApiKey: "api key")
         try require(signInURL.absoluteString == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=api%20key", "Mac Firebase sign-in URL should include encoded Web API key")
         let signInBody = try JSONSerialization.jsonObject(
@@ -277,6 +279,46 @@ enum SchedulerVectorCommand {
         }
     }
 
+    private static func assertRecommendationEngine() throws {
+        let sharedCatalog = try JSONSerialization.jsonObject(with: Data(contentsOf: recommendationCatalogURL())) as! [String: Any]
+        let sharedEntries = sharedCatalog["entries"] as! [[String: Any]]
+
+        try require(RecommendationEngine.catalog.count >= 100, "Expected production-sized Mac recommendation catalogue")
+        try require(RecommendationEngine.catalog.count == sharedEntries.count, "Mac recommendation catalogue should match shared JSON count")
+        try require(Set(RecommendationEngine.catalog.map(\.lemma)).count == RecommendationEngine.catalog.count, "Mac recommendation catalogue should not duplicate lemmas")
+        try require(Set(RecommendationEngine.catalog.map(\.topic)).isSuperset(of: ["academic", "methods", "statistics", "neuroscience"]), "Mac recommendation catalogue should include core topics")
+        let byLemma = Dictionary(uniqueKeysWithValues: RecommendationEngine.catalog.map { ($0.lemma, $0) })
+        for entry in sharedEntries {
+            let lemma = entry["lemma"] as! String
+            let seed = byLemma[lemma]
+            try require(seed?.frequencyRank == entry["frequencyRank"] as? Int, "Mac recommendation catalogue rank mismatch for \(lemma)")
+            try require(seed?.topic == entry["topic"] as? String, "Mac recommendation catalogue topic mismatch for \(lemma)")
+            try require(seed?.meaningKo == entry["meaningKo"] as? String, "Mac recommendation catalogue meaning mismatch for \(lemma)")
+        }
+
+        let before = RecommendationEngine.estimateLevel(userSignals: Array(repeating: UserVocabularySignal(lemma: "plausible"), count: 50))
+        let after = RecommendationEngine.estimateLevel(
+            userSignals: Array(repeating: UserVocabularySignal(lemma: "plausible"), count: 50),
+            feedbackSignals: [
+                RecommendationFeedbackSignal(lemma: "subtle", action: "known"),
+                RecommendationFeedbackSignal(lemma: "preliminary", action: "known")
+            ]
+        )
+        try require(after.lowerRank > before.lowerRank, "Mac known feedback should shift recommendations harder")
+
+        let selected = RecommendationEngine.chooseRecommendations(
+            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 50),
+            feedbackSignals: [RecommendationFeedbackSignal(lemma: "subtle", action: "dismissed")],
+            existingLemmas: [],
+            dueUserCount: 0,
+            settings: SchedulerSettings(dailyWordGoal: 10),
+            limit: 4
+        )
+        try require(selected.count == 4, "Mac recommendation engine should fill open slots")
+        try require(selected.contains { $0.lemma == "subtle" } == false, "Mac recommendation engine should exclude dismissed lemmas")
+        try require(selected.contains { $0.topic == "academic" } == false, "Mac recommendation engine should downrank dismissed topics out of a small fill")
+    }
+
     private static func parseCard(_ json: [String: Any], now: Date) -> SchedulerCard {
         SchedulerCard(
             id: json["id"] as! String,
@@ -348,6 +390,21 @@ enum SchedulerVectorCommand {
             return url
         }
         throw CheckError("Could not find shared/test-vectors/scheduler.json")
+    }
+
+    private static func recommendationCatalogURL() throws -> URL {
+        let candidates = [
+            URL(filePath: "../../../shared/recommendations/recommendation_catalog.json"),
+            URL(filePath: "../../shared/recommendations/recommendation_catalog.json"),
+            URL(filePath: "../shared/recommendations/recommendation_catalog.json"),
+            URL(filePath: "shared/recommendations/recommendation_catalog.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../../shared/recommendations/recommendation_catalog.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../shared/recommendations/recommendation_catalog.json")
+        ]
+        if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return url
+        }
+        throw CheckError("Could not find shared/recommendations/recommendation_catalog.json")
     }
 
     private static func localMinutes(_ date: Date, settings: SchedulerSettings) -> Int {

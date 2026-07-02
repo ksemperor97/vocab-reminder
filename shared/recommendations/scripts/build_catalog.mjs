@@ -217,8 +217,38 @@ ${kotlinEntries}
 }
 `);
 
+const swiftEntries = catalog.map((entry) => {
+  return [
+    "        RecommendationSeed(",
+    `            lemma: ${swiftString(entry.lemma)},`,
+    `            meaningKo: ${swiftString(entry.meaningKo)},`,
+    `            definitionEn: ${swiftString(entry.definitionEn)},`,
+    `            partOfSpeech: ${swiftString(entry.partOfSpeech)},`,
+    `            exampleSentence: ${swiftString(entry.exampleSentence)},`,
+    `            frequencyRank: ${entry.frequencyRank},`,
+    `            topic: ${swiftString(entry.topic)}`,
+    "        )"
+  ].join("\n");
+}).join(",\n");
+
+const swiftPath = resolve(repoRoot, "mac/VocabReminderMac/Sources/VocabReminderMac/RecommendationCatalog.swift");
+writeFileSync(swiftPath, `import Foundation
+
+// Generated from shared/recommendations/recommendation_catalog.json.
+// Source ranks are derived from subtlex-word-frequencies 2.0.0 (ISC/SUBTLEXus).
+enum RecommendationCatalog {
+    static let seeds: [RecommendationSeed] = [
+${swiftEntries}
+    ]
+}
+`);
+
 console.log(`Wrote ${catalog.length} recommendation seeds`);
 
 function kotlinString(value) {
+  return JSON.stringify(value);
+}
+
+function swiftString(value) {
   return JSON.stringify(value);
 }
