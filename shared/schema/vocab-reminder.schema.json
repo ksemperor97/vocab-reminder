@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vocab-reminder.local/schema/vocab-reminder.schema.json",
+  "title": "Vocabulary Reminder Shared Schema",
+  "type": "object",
+  "$defs": {
+    "timestamp": {
+      "description": "ISO-8601 timestamp at sync boundaries; platform storage may use native timestamp types.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cardStatus": {
+      "type": "string",
+      "enum": ["new", "learning", "review", "relearning", "mastered", "suspended"]
+    },
+    "wordbook": {
+      "type": "string",
+      "enum": ["user", "recommended"]
+    },
+    "captureMethod": {
+      "type": "string",
+      "enum": [
+        "mac_service",
+        "mac_clipboard_hotkey",
+        "android_process_text",
+        "android_share",
+        "manual",
+        "recommendation"
+      ]
+    },
+    "definitionSource": {
+      "type": "string",
+      "enum": [
+        "mac_dictionary",
+        "local_dictionary",
+        "free_dictionary_api",
+        "oxford_api",
+        "merriam_webster_api",
+        "wiktionary",
+        "translation_api",
+        "llm",
+        "user"
+      ]
+    },
+    "reviewResponse": {
+      "type": "string",
+      "enum": [
+        "remembered",
+        "forgotten",
+        "unavailable",
+        "reveal",
+        "manual_edit",
+        "suspend",
+        "restore"
+      ]
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["mac", "android", "web"]
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "user_id",
+        "lemma",
+        "display_word",
+        "language",
+        "wordbook",
+        "meaning_ko",
+        "definition_en",
+        "definition_source_primary",
+        "status",
+        "due_at",
+        "interval_days",
+        "ease",
+        "lapse_count",
+        "created_device_id",
+        "created_at",
+        "updated_at",
+        "version"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "user_id": { "type": "string" },
+        "lemma": { "type": "string", "minLength": 1 },
+        "display_word": { "type": "string", "minLength": 1 },
+        "language": { "type": "string", "minLength": 2 },
+        "wordbook": { "$ref": "#/$defs/wordbook", "default": "user" },
+        "meaning_ko": { "type": "string" },
+        "definition_en": { "type": "string" },
+        "part_of_speech": { "type": ["string", "null"] },
+        "phonetic": { "type": ["string", "null"] },
+        "audio_url": { "type": ["string", "null"], "format": "uri" },
+        "source_sentence_primary": { "type": ["string", "null"] },
+        "source_url_primary": { "type": ["string", "null"], "format": "uri" },
+        "source_app_primary": { "type": ["string", "null"] },
+        "definition_source_primary": { "$ref": "#/$defs/definitionSource" },
+        "status": { "$ref": "#/$defs/cardStatus" },
+        "due_at": { "$ref": "#/$defs/timestamp" },
+        "interval_days": { "type": "number", "minimum": 0 },
+        "ease": { "type": "number" },
+        "stability": { "type": ["number", "null"] },
+        "difficulty": { "type": ["number", "null"] },
+        "lapse_count": { "type": "integer", "minimum": 0 },
+        "interval_before_lapse": { "type": ["number", "null"], "minimum": 0 },
+        "deleted_at": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "created_device_id": { "type": "string" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "updated_at": { "$ref": "#/$defs/timestamp" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "card_id",
+        "user_id",
+        "source_sentence",
+        "capture_method",
+        "created_device_id",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "card_id": { "$ref": "#/$defs/uuid" },
+        "user_id": { "type": "string" },
+        "source_sentence": { "type": "string" },
+        "surrounding_text": { "type": ["string", "null"] },
+        "source_url": { "type": ["string", "null"], "format": "uri" },
+        "page_title": { "type": ["string", "null"] },
+        "source_app": { "type": ["string", "null"] },
+        "capture_method": { "$ref": "#/$defs/captureMethod" },
+        "created_device_id": { "type": "string" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "definitionCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "card_id",
+        "user_id",
+        "source",
+        "raw_text",
+        "selected_as_primary",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "card_id": { "$ref": "#/$defs/uuid" },
+        "user_id": { "type": "string" },
+        "source": { "$ref": "#/$defs/definitionSource" },
+        "raw_text": { "type": "string" },
+        "parsed_meaning_ko": { "type": ["string", "null"] },
+        "parsed_definition_en": { "type": ["string", "null"] },
+        "part_of_speech": { "type": ["string", "null"] },
+        "phonetic": { "type": ["string", "null"] },
+        "example_sentence": { "type": ["string", "null"] },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "selected_as_primary": { "type": "boolean" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "reviewEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "card_id",
+        "user_id",
+        "device_id",
+        "response",
+        "previous_status",
+        "next_status",
+        "client_created_at",
+        "server_created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "card_id": { "$ref": "#/$defs/uuid" },
+        "user_id": { "type": "string" },
+        "device_id": { "type": "string" },
+        "response": { "$ref": "#/$defs/reviewResponse" },
+        "previous_status": { "$ref": "#/$defs/cardStatus" },
+        "next_status": { "$ref": "#/$defs/cardStatus" },
+        "previous_due_at": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "next_due_at": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "previous_interval_days": { "type": ["number", "null"], "minimum": 0 },
+        "next_interval_days": { "type": ["number", "null"], "minimum": 0 },
+        "client_created_at": { "$ref": "#/$defs/timestamp" },
+        "server_created_at": { "$ref": "#/$defs/timestamp" },
+        "metadata": { "type": ["object", "null"] }
+      }
+    },
+    "userSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "max_queue_size",
+        "snooze_duration_minutes",
+        "daily_word_goal",
+        "quiet_hours_start",
+        "quiet_hours_end",
+        "timezone",
+        "enable_android_notifications",
+        "enable_mac_notifications",
+        "show_meaning_on_lockscreen",
+        "show_meaning_after_remembered",
+        "auto_generate_korean_meaning",
+        "save_source_url",
+        "save_surrounding_text",
+        "enable_word_recommendations"
+      ],
+      "properties": {
+        "user_id": { "type": "string" },
+        "max_queue_size": { "type": "integer", "minimum": 1, "default": 20 },
+        "snooze_duration_minutes": { "type": "integer", "minimum": 1, "default": 60 },
+        "daily_word_goal": { "type": "integer", "minimum": 1, "default": 10 },
+        "quiet_hours_start": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "default": "23:00" },
+        "quiet_hours_end": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "default": "09:00" },
+        "timezone": { "type": "string", "default": "Asia/Seoul" },
+        "enable_android_notifications": { "type": "boolean" },
+        "enable_mac_notifications": { "type": "boolean" },
+        "show_meaning_on_lockscreen": { "type": "boolean", "default": false },
+        "show_meaning_after_remembered": { "type": "boolean", "default": true },
+        "auto_generate_korean_meaning": { "type": "boolean", "default": true },
+        "save_source_url": { "type": "boolean", "default": true },
+        "save_surrounding_text": { "type": "boolean", "default": false },
+        "enable_word_recommendations": { "type": "boolean", "default": true }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "user_id",
+        "platform",
+        "last_seen_at",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "platform": { "$ref": "#/$defs/platform" },
+        "device_name": { "type": ["string", "null"] },
+        "push_token": { "type": ["string", "null"] },
+        "last_seen_at": { "$ref": "#/$defs/timestamp" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  },
+  "properties": {
+    "card": { "$ref": "#/$defs/card" },
+    "context": { "$ref": "#/$defs/context" },
+    "definition_candidate": { "$ref": "#/$defs/definitionCandidate" },
+    "review_event": { "$ref": "#/$defs/reviewEvent" },
+    "user_settings": { "$ref": "#/$defs/userSettings" },
+    "device": { "$ref": "#/$defs/device" }
+  }
+}

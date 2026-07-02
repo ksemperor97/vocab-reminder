@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Node / Firebase Functions
+node_modules/
+lib/
+*.log
+
+# SwiftPM
+.build/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+captures/
+*.apk
+*.aab
+
+# Firebase client config and secrets
+google-services.json
+GoogleService-Info.plist
+.env
+.env.*
+!.env.example
+
+# Generated local artifacts
+dist/
+tmp/
