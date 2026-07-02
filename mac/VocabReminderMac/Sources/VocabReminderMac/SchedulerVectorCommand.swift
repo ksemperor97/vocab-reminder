@@ -176,6 +176,34 @@ enum SchedulerVectorCommand {
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)
         )
         try require(disabledMacNotifications.map(\.id) == ["user-due", "user-overflow"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
+
+        let signInURL = try FirebaseAuthRequestFactory.signInURL(webApiKey: "api key")
+        try require(signInURL.absoluteString == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=api%20key", "Mac Firebase sign-in URL should include encoded Web API key")
+        let signInBody = try JSONSerialization.jsonObject(
+            with: FirebaseAuthRequestFactory.signInBody(email: "user@example.com", password: "secret")
+        ) as! [String: Any]
+        try require(signInBody["returnSecureToken"] as? Bool == true, "Mac Firebase sign-in should request secure token")
+        let signInSession = try FirebaseAuthRequestFactory.parseSignIn([
+            "idToken": "id-token",
+            "refreshToken": "refresh-token",
+            "expiresIn": "3600",
+            "email": "user@example.com",
+            "localId": "uid-1"
+        ], fallbackEmail: "")
+        try require(signInSession.idToken == "id-token", "Mac Firebase sign-in should parse idToken")
+        try require(signInSession.refreshToken == "refresh-token", "Mac Firebase sign-in should parse refreshToken")
+        let refreshURL = try FirebaseAuthRequestFactory.refreshURL(webApiKey: "api key")
+        try require(refreshURL.absoluteString == "https://securetoken.googleapis.com/v1/token?key=api%20key", "Mac Firebase refresh URL should include encoded Web API key")
+        let refreshBody = String(data: FirebaseAuthRequestFactory.refreshBody(refreshToken: "refresh token"), encoding: .utf8)
+        try require(refreshBody == "grant_type=refresh_token&refresh_token=refresh+token", "Mac Firebase refresh body should be form encoded")
+        let refreshedSession = try FirebaseAuthRequestFactory.parseRefresh([
+            "id_token": "fresh-id-token",
+            "refresh_token": "fresh-refresh-token",
+            "expires_in": "3600",
+            "user_id": "uid-1"
+        ], existingRefreshToken: "refresh-token")
+        try require(refreshedSession.idToken == "fresh-id-token", "Mac Firebase refresh should parse id_token")
+        try require(refreshedSession.refreshToken == "fresh-refresh-token", "Mac Firebase refresh should parse refresh_token")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {

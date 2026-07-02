@@ -209,8 +209,13 @@ struct PreviewView: View {
 
 struct SettingsView: View {
     @ObservedObject var store: LocalVocabularyStore
+    @AppStorage("firebaseWebApiKey") private var firebaseWebApiKey = ""
+    @AppStorage("firebaseEmail") private var firebaseEmail = ""
+    @AppStorage("firebaseRefreshToken") private var firebaseRefreshToken = ""
     @AppStorage("cloudFunctionsURL") private var cloudFunctionsURL = ""
+    @State private var firebasePassword = ""
     @State private var cloudAuthToken = ""
+    @State private var firebaseAuthRunning = false
     @State private var cloudSyncRunning = false
 
     var body: some View {
@@ -229,6 +234,22 @@ struct SettingsView: View {
                 Button("Sync 가져오기") { store.importSyncSnapshot() }
             }
             Divider()
+            TextField("Firebase Web API key", text: $firebaseWebApiKey)
+                .textFieldStyle(.roundedBorder)
+            TextField("Firebase email", text: $firebaseEmail)
+                .textFieldStyle(.roundedBorder)
+            SecureField("Firebase password", text: $firebasePassword)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Button(firebaseAuthRunning ? "로그인 중" : "Firebase 로그인") {
+                    signInFirebase()
+                }
+                .disabled(firebaseAuthRunning || firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebaseEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebasePassword.isEmpty)
+                Button(firebaseAuthRunning ? "갱신 중" : "ID token 갱신") {
+                    refreshFirebaseToken()
+                }
+                .disabled(firebaseAuthRunning || firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebaseRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
             TextField("Functions URL", text: $cloudFunctionsURL)
                 .textFieldStyle(.roundedBorder)
             SecureField("Firebase Auth ID token", text: $cloudAuthToken)
@@ -242,6 +263,57 @@ struct SettingsView: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onChange(of: store.settings) { _, _ in
             store.persistSettings()
+        }
+    }
+
+    private func signInFirebase() {
+        let apiKey = firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = firebaseEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard apiKey.isEmpty == false, email.isEmpty == false, firebasePassword.isEmpty == false else {
+            store.message = "Firebase Web API key, email, password를 입력하세요."
+            return
+        }
+        firebaseAuthRunning = true
+        store.message = "Firebase 로그인 중..."
+        Task { @MainActor in
+            defer { firebaseAuthRunning = false }
+            do {
+                let session = try await FirebaseAuthRestClient().signInWithPassword(
+                    FirebasePasswordAuthConfig(webApiKey: apiKey, email: email, password: firebasePassword)
+                )
+                cloudAuthToken = session.idToken
+                firebaseRefreshToken = session.refreshToken
+                if session.email.isEmpty == false { firebaseEmail = session.email }
+                firebasePassword = ""
+                store.message = "Firebase 로그인 완료 · ID token \(session.expiresInSeconds)초 유효"
+            } catch {
+                store.message = "Firebase 로그인 실패: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func refreshFirebaseToken() {
+        let apiKey = firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refreshToken = firebaseRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard apiKey.isEmpty == false, refreshToken.isEmpty == false else {
+            store.message = "저장된 Firebase Web API key와 refresh token이 필요합니다."
+            return
+        }
+        firebaseAuthRunning = true
+        store.message = "ID token 갱신 중..."
+        Task { @MainActor in
+            defer { firebaseAuthRunning = false }
+            do {
+                let session = try await FirebaseAuthRestClient().refreshIdToken(
+                    webApiKey: apiKey,
+                    refreshToken: refreshToken
+                )
+                cloudAuthToken = session.idToken
+                firebaseRefreshToken = session.refreshToken
+                store.message = "ID token 갱신 완료 · \(session.expiresInSeconds)초 유효"
+            } catch {
+                store.message = "ID token 갱신 실패: \(error.localizedDescription)"
+            }
         }
     }
 
