@@ -11,12 +11,14 @@ import androidx.test.uiautomator.UiDevice
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.dictionary.DictionaryResolver
+import com.vocabreminder.android.notifications.RecommendationActionReceiver
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReviewActionReceiver
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -102,6 +104,49 @@ class M3VerticalSliceTest {
     }
 
     @Test
+    fun recommendationStartKeepsCardAndRecordsFeedback() {
+        val now = Instant.now()
+        val recommended = store.addRecommendedCard(
+            result = DictionaryResolver.resolve("ubiquitous"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.RECOMMENDATION,
+            now = now
+        )
+
+        sendRecommendationAction(recommended, ReminderNotifications.RECOMMENDATION_START)
+
+        val started = store.findCard(recommended.id)!!
+        val dueInMinutes = Duration.between(Instant.now(), started.dueAt).toMinutes()
+        assertEquals(Wordbook.RECOMMENDED, started.wordbook)
+        assertTrue(started.recommendationStartedAt != null)
+        assertTrue("started recommendation should enter review cycle in about 10 minutes, was $dueInMinutes", dueInMinutes in 8..11)
+        assertEquals("started", store.recommendationFeedback().single().action)
+    }
+
+    @Test
+    fun recommendationKnownAndDismissedSoftDeleteCardsAndRecordFeedback() {
+        val now = Instant.now()
+        val known = store.addRecommendedCard(
+            result = DictionaryResolver.resolve("ubiquitous"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.RECOMMENDATION,
+            now = now
+        )
+        val dismissed = store.addRecommendedCard(
+            result = DictionaryResolver.resolve("tentative"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.RECOMMENDATION,
+            now = now
+        )
+
+        sendRecommendationAction(known, ReminderNotifications.RECOMMENDATION_KNOWN)
+        sendRecommendationAction(dismissed, ReminderNotifications.RECOMMENDATION_DISMISS)
+
+        assertNull(store.findCard(known.id))
+        assertNull(store.findCard(dismissed.id))
+        assertEquals(0, store.cards().count { it.wordbook == Wordbook.RECOMMENDED })
+        assertTrue(store.allCards(includeDeleted = true).all { it.deletedAt != null })
+        assertEquals(listOf("known", "dismissed"), store.recommendationFeedback().map { it.action })
+    }
+
+    @Test
     fun notificationActionsPersistEventsAndUpdateDueState() {
         val now = Instant.now()
         val card = store.addCard(
@@ -181,6 +226,18 @@ class M3VerticalSliceTest {
                     .setAction(ReminderNotifications.ACTION_REVIEW)
                     .putExtra(ReminderNotifications.EXTRA_CARD_ID, card.id)
                     .putExtra(ReminderNotifications.EXTRA_RESPONSE, response.name)
+            )
+        }
+    }
+
+    private fun sendRecommendationAction(card: VocabularyCard, action: String) {
+        composeRule.activityRule.scenario.onActivity { activity ->
+            RecommendationActionReceiver().onReceive(
+                activity,
+                Intent(activity, RecommendationActionReceiver::class.java)
+                    .setAction(ReminderNotifications.ACTION_RECOMMENDATION)
+                    .putExtra(ReminderNotifications.EXTRA_CARD_ID, card.id)
+                    .putExtra(ReminderNotifications.EXTRA_RECOMMENDATION_ACTION, action)
             )
         }
     }
