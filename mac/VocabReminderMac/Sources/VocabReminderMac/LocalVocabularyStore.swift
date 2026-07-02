@@ -158,6 +158,8 @@ final class LocalVocabularyStore: ObservableObject {
         )
         update(card: card.applying(result.card, now: now))
         append(event: result.event, now: now)
+        let generated = ensureRecommendations(now: now)
+        message = "복습 기록됨" + (generated > 0 ? " · 추천 \(generated)개 준비됨" : "")
     }
 
     func rebalanceDueCards() {

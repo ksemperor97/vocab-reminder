@@ -306,6 +306,36 @@ enum SchedulerVectorCommand {
         )
         try require(after.lowerRank > before.lowerRank, "Mac known feedback should shift recommendations harder")
 
+        let beforeFifty = RecommendationEngine.chooseRecommendations(
+            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 49),
+            feedbackSignals: [],
+            existingLemmas: [],
+            dueUserCount: 0,
+            settings: SchedulerSettings(dailyWordGoal: 10)
+        )
+        try require(beforeFifty.isEmpty, "Mac recommendations should stay off before 50 user words")
+
+        let goalFilled = RecommendationEngine.chooseRecommendations(
+            userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 50),
+            feedbackSignals: [],
+            existingLemmas: [],
+            dueUserCount: 10,
+            settings: SchedulerSettings(dailyWordGoal: 10)
+        )
+        try require(goalFilled.isEmpty, "Mac recommendations should not displace due reviews that fill the goal")
+
+        let openSlot = RecommendationEngine.recommendationFillLimit(
+            dueUserCount: 3,
+            existingRecommendationCount: 6,
+            settings: SchedulerSettings(dailyWordGoal: 10, maxQueueSize: 20)
+        )
+        let fullSlots = RecommendationEngine.recommendationFillLimit(
+            dueUserCount: 3,
+            existingRecommendationCount: 7,
+            settings: SchedulerSettings(dailyWordGoal: 10, maxQueueSize: 20)
+        )
+        try require(openSlot == 1 && fullSlots == 0, "Mac existing recommendations should occupy open daily slots")
+
         let selected = RecommendationEngine.chooseRecommendations(
             userSignals: Array(repeating: UserVocabularySignal(lemma: "subtle"), count: 50),
             feedbackSignals: [RecommendationFeedbackSignal(lemma: "subtle", action: "dismissed")],
