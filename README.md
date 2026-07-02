@@ -59,7 +59,7 @@ Current Android slice:
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
-- Recommendation selection uses a small frequency-ranked academic/scientific seed catalogue; source notes live in `shared/recommendations/README.md`.
+- Recommendation selection uses a generated frequency-ranked academic/scientific catalogue; source notes live in `shared/recommendations/README.md`.
 - Review events are stored append-only in local app storage.
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.
 

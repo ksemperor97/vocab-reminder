@@ -1,11 +1,33 @@
 package com.vocabreminder.android.recommendation
 
 import com.vocabreminder.android.scheduler.SchedulerSettings
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class RecommendationEngineTest {
+    @Test
+    fun catalogIsGeneratedFromSharedRecommendationData() {
+        val sharedCatalog = JSONObject(readSharedRecommendationCatalog())
+            .getJSONArray("entries")
+
+        assertTrue("Expected production-sized MVP catalogue", RecommendationEngine.catalog.size >= 100)
+        assertEquals(sharedCatalog.length(), RecommendationEngine.catalog.size)
+        assertEquals(RecommendationEngine.catalog.size, RecommendationEngine.catalog.map { it.lemma }.toSet().size)
+        assertTrue(RecommendationEngine.catalog.all { it.meaningKo.isNotBlank() && it.frequencyRank > 0 })
+        assertTrue(RecommendationEngine.catalog.map { it.topic }.toSet().containsAll(setOf("academic", "methods", "statistics", "neuroscience")))
+        val byLemma = RecommendationEngine.catalog.associateBy { it.lemma }
+        for (index in 0 until sharedCatalog.length()) {
+            val shared = sharedCatalog.getJSONObject(index)
+            val seed = byLemma.getValue(shared.getString("lemma"))
+            assertEquals(seed.frequencyRank, shared.getInt("frequencyRank"))
+            assertEquals(seed.topic, shared.getString("topic"))
+            assertEquals(seed.meaningKo, shared.getString("meaningKo"))
+        }
+    }
+
     @Test
     fun recommendationsStayOffBeforeFiftyUserWords() {
         val selected = RecommendationEngine.chooseRecommendations(
@@ -67,5 +89,18 @@ class RecommendationEngineTest {
 
         assertTrue(after.lowerRank > before.lowerRank)
         assertTrue(after.upperRank > before.upperRank)
+    }
+
+    private fun readSharedRecommendationCatalog(): String {
+        val candidates = listOf(
+            File("../../../shared/recommendations/recommendation_catalog.json"),
+            File("../../shared/recommendations/recommendation_catalog.json"),
+            File("../shared/recommendations/recommendation_catalog.json"),
+            File("shared/recommendations/recommendation_catalog.json"),
+            File(System.getProperty("user.dir"), "../../../shared/recommendations/recommendation_catalog.json"),
+            File(System.getProperty("user.dir"), "../../shared/recommendations/recommendation_catalog.json")
+        )
+        return candidates.firstOrNull { it.isFile }?.readText()
+            ?: error("Could not find shared/recommendations/recommendation_catalog.json from ${System.getProperty("user.dir")}")
     }
 }
