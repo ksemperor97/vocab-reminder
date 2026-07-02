@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase-admin/app";
 import { logger } from "firebase-functions";
-import { onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import { applySyncBatch } from "./sync";
 
 initializeApp();
 
@@ -66,4 +67,12 @@ export const dictionaryProxy = onRequest({ cors: true }, async (request, respons
     logger.error("Dictionary proxy failed", { word, error });
     response.status(502).json({ error: "Dictionary proxy failed", word });
   }
+});
+
+export const syncBatch = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Firebase Auth is required for sync.");
+  }
+
+  return applySyncBatch(request.auth.uid, request.data);
 });

@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NSApp.servicesProvider = self
+        MacNotificationScheduler.shared.requestAuthorization()
+        LocalVocabularyStore.shared.refreshNotifications()
     }
 
     @objc func addToVocabularyReminder(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
@@ -226,6 +228,9 @@ struct SettingsView: View {
         }
         .padding(12)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .onChange(of: store.settings) { _, _ in
+            store.persistSettings()
+        }
     }
 }
 

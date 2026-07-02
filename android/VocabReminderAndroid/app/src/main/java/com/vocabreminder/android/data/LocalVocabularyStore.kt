@@ -10,6 +10,7 @@ import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.SchedulerCard
 import com.vocabreminder.android.scheduler.SchedulerSettings
 import com.vocabreminder.android.scheduler.Wordbook
+import com.vocabreminder.android.sync.SyncPayloadFactory
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -361,6 +362,17 @@ class LocalVocabularyStore(context: Context) {
             val forgotten = cardEvents.count { it.response == ReviewResponse.FORGOTTEN }
             card.lapseCount >= 3 || (cardEvents.size >= 4 && forgotten.toDouble() / cardEvents.size >= 0.5)
         }.map { it.id }.toSet()
+    }
+
+    fun exportSyncBatchJson(): String {
+        return SyncPayloadFactory.build(
+            cards = allCards(includeDeleted = true),
+            contexts = contexts(),
+            definitionCandidates = definitionCandidates(),
+            reviewEvents = events(),
+            recommendationFeedback = recommendationFeedback(),
+            settings = settings()
+        ).toString()
     }
 
     private fun appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Instant) {

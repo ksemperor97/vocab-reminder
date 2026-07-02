@@ -59,7 +59,15 @@ Current Android slice:
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
-- Review events are stored append-only in local app storage until Firebase sync is added.
+- Recommendation selection uses a small frequency-ranked academic/scientific seed catalogue; source notes live in `shared/recommendations/README.md`.
+- Review events are stored append-only in local app storage and can be exported as a Firestore-shaped sync batch.
+
+Current backend slice:
+
+- `health` HTTP function.
+- `dictionaryProxy` HTTP function, keeping external dictionary calls behind Functions.
+- Authenticated `syncBatch` callable for cards, contexts, definition candidates, append-only review events, recommendation feedback, and settings.
+- Firestore rules and parser tests cover user-scoped writes plus immutable review/feedback events.
 
 Install the debug APK on a connected device or emulator:
 
@@ -73,8 +81,9 @@ Mac local MVP:
 - Menu bar app with clipboard capture.
 - macOS DictionaryServices resolver first, local fallback second.
 - Save preview, card list/edit/review actions, manual rebalance.
+- Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
-- Local sync snapshot export/import while real Firebase client configuration is pending.
+- Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
 
 Run:
 

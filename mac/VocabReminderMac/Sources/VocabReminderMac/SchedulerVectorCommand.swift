@@ -35,6 +35,38 @@ enum SchedulerVectorCommand {
         let robust = DictionaryResolver.resolve("Robustly,")
         try require(robust.lemma == "robust", "Expected robust lemma, got \(robust.lemma)")
         try require(robust.meaningKo == "견고한, 안정적인", "Unexpected robust meaning")
+        let syncPayload = try SyncBatchFactory.jsonData(
+            cards: [
+                VocabularyCard(
+                    id: "card-1",
+                    lemma: "tentative",
+                    displayWord: "tentative",
+                    meaningKo: "잠정적인",
+                    definitionEn: "",
+                    partOfSpeech: "",
+                    exampleSentence: "The results are tentative.",
+                    definitionSourcePrimary: "user",
+                    status: .new,
+                    wordbook: .user,
+                    dueAt: Date(timeIntervalSince1970: 0),
+                    intervalDays: 0,
+                    lapseCount: 0,
+                    createdAt: Date(timeIntervalSince1970: 0),
+                    updatedAt: Date(timeIntervalSince1970: 0),
+                    version: 1
+                )
+            ],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            settings: UserSettingsData()
+        )
+        let syncJson = try JSONSerialization.jsonObject(with: syncPayload) as! [String: Any]
+        let cards = syncJson["cards"] as! [[String: Any]]
+        try require(cards.first?["status"] as? String == "new", "Mac sync card status should be lowercase")
+        let importedSnapshot = try SyncBatchFactory.localSnapshot(from: syncPayload)
+        try require(importedSnapshot.cards.first?.status == .new, "Mac sync import should restore status")
+        try require(importedSnapshot.cards.first?.wordbook == .user, "Mac sync import should restore wordbook")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {

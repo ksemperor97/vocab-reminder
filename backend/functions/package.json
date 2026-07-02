@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf lib",
     "serve": "npm run build && firebase emulators:start --only functions",
+    "test": "npm run test:unit",
+    "test:unit": "npm run build && node --test test/sync-payload.test.mjs",
     "test:rules": "node --test test/firestore-rules.test.mjs",
     "emulators:rules": "firebase emulators:exec --only firestore \"npm run test:rules\""
   },

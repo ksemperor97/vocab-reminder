@@ -73,6 +73,14 @@ final class LocalVocabularyStore: ObservableObject {
         message = "저장 전 preview를 확인하세요."
     }
 
+    func persistSettings() {
+        save()
+    }
+
+    func refreshNotifications() {
+        MacNotificationScheduler.shared.reschedule(cards: activeCards, settings: settings)
+    }
+
     func savePreview(meaningOverride: String, exampleOverride: String, method: CaptureMethod = .macClipboardHotkey) {
         guard var result = preview else { return }
         let now = Date()
@@ -117,8 +125,19 @@ final class LocalVocabularyStore: ObservableObject {
 
     func exportSyncSnapshot() {
         save()
-        try? FileManager.default.copyItemReplacingExisting(from: storeURL, to: syncURL)
-        message = "Sync snapshot exported: \(syncURL.path)"
+        do {
+            let data = try SyncBatchFactory.jsonData(
+                cards: cards,
+                contexts: contexts,
+                definitionCandidates: definitionCandidates,
+                reviewEvents: reviewEvents,
+                settings: settings
+            )
+            try data.write(to: syncURL, options: .atomic)
+            message = "Sync batch exported: \(syncURL.path)"
+        } catch {
+            message = "Sync batch export failed: \(error.localizedDescription)"
+        }
     }
 
     func importSyncSnapshot() {
@@ -126,9 +145,18 @@ final class LocalVocabularyStore: ObservableObject {
             message = "가져올 sync snapshot이 없습니다."
             return
         }
-        try? FileManager.default.copyItemReplacingExisting(from: syncURL, to: storeURL)
-        load()
-        message = "Sync snapshot imported"
+        do {
+            let snapshot = try SyncBatchFactory.localSnapshot(from: Data(contentsOf: syncURL))
+            cards = snapshot.cards
+            contexts = snapshot.contexts
+            definitionCandidates = snapshot.definitionCandidates
+            reviewEvents = snapshot.reviewEvents
+            settings = snapshot.settings
+            save()
+            message = "Sync batch imported"
+        } catch {
+            message = "Sync batch import failed: \(error.localizedDescription)"
+        }
     }
 
     private func addResolvedCard(_ result: DictionaryResult, captureMethod: CaptureMethod, dueAt: Date, now: Date, wordbook: Wordbook = .user) -> VocabularyCard {
@@ -251,6 +279,7 @@ final class LocalVocabularyStore: ObservableObject {
             definitionCandidates = snapshot.definitionCandidates
             reviewEvents = snapshot.reviewEvents
             settings = snapshot.settings
+            refreshNotifications()
         } catch {
             message = "저장소를 읽지 못했습니다: \(error.localizedDescription)"
         }
@@ -261,10 +290,11 @@ final class LocalVocabularyStore: ObservableObject {
         if let data = try? JSONEncoder.vocab.encode(snapshot) {
             try? data.write(to: storeURL, options: .atomic)
         }
+        refreshNotifications()
     }
 }
 
-private struct StoreSnapshot: Codable {
+struct StoreSnapshot: Codable {
     var cards: [VocabularyCard]
     var contexts: [StoredContext]
     var definitionCandidates: [StoredDefinitionCandidate]
@@ -290,7 +320,7 @@ private extension VocabularyCard {
     }
 }
 
-private extension JSONEncoder {
+extension JSONEncoder {
     static var vocab: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -299,19 +329,10 @@ private extension JSONEncoder {
     }
 }
 
-private extension JSONDecoder {
+extension JSONDecoder {
     static var vocab: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }
-}
-
-private extension FileManager {
-    func copyItemReplacingExisting(from source: URL, to destination: URL) throws {
-        if fileExists(atPath: destination.path) {
-            try removeItem(at: destination)
-        }
-        try copyItem(at: source, to: destination)
     }
 }
