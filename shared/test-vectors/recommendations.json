@@ -20,6 +20,16 @@
     "then": { "selected_count": 0 }
   },
   {
+    "name": "recommendations_stop_when_setting_disabled",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "subtle", "count": 50 }
+    ],
+    "due_user_count": 0,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20, "enable_word_recommendations": false },
+    "then": { "selected_count": 0 }
+  },
+  {
     "name": "existing_recommendations_occupy_open_daily_slots",
     "kind": "fillLimit",
     "due_user_count": 3,
