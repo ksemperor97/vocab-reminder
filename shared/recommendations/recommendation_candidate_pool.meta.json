@@ -1,0 +1,23 @@
+{
+  "source": {
+    "package": "subtlex-word-frequencies",
+    "version": "2.0.0",
+    "license": "ISC",
+    "repository": "https://github.com/words/subtlex-word-frequencies",
+    "rankDefinition": "1-based index in index.json sorted by descending SUBTLEXus count"
+  },
+  "generatedAt": "2026-07-02",
+  "totalEntries": 74286,
+  "candidateEntries": 63503,
+  "buckets": {
+    "core": 5000,
+    "intermediate": 10000,
+    "boundary": 15000,
+    "advanced": 25000,
+    "rare": 19286
+  },
+  "notes": [
+    "This pool is a reproducible source candidate list, not the app-bundled recommendation catalogue.",
+    "Definitions, Korean meanings, examples, and domain topics are filled only in recommendation_catalog.json for now."
+  ]
+}

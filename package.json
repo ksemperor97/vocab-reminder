@@ -1,0 +1,14 @@
+{
+  "name": "vocab-reminder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "recommendations:build": "node shared/recommendations/scripts/build_catalog.mjs",
+    "recommendations:pool": "node shared/recommendations/scripts/build_candidate_pool.mjs",
+    "recommendations:all": "npm run recommendations:pool && npm run recommendations:build"
+  },
+  "devDependencies": {
+    "subtlex-word-frequencies": "2.0.0"
+  }
+}

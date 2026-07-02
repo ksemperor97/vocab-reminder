@@ -4,12 +4,25 @@ The Android recommendation engine uses the generated catalogue in
 `shared/recommendations/recommendation_catalog.json`. The generated Kotlin copy
 is `android/VocabReminderAndroid/app/src/main/java/com/vocabreminder/android/recommendation/RecommendationCatalog.kt`.
 
+The full ranked source pool is generated as JSONL in
+`shared/recommendations/recommendation_candidate_pool.jsonl`, with metadata in
+`shared/recommendations/recommendation_candidate_pool.meta.json`. This pool keeps
+all 74,286 SUBTLEX entries available for the future definition/translation
+pipeline without bundling them into the app catalogue.
+
 Frequency ranks are derived from `subtlex-word-frequencies` 2.0.0, an
 ISC-licensed package based on the SUBTLEXus American English subtitle corpus.
 
 Source: https://github.com/words/subtlex-word-frequencies
 
-Regenerate after changing the curated seed list:
+Install root dependencies and regenerate all recommendation artifacts:
+
+```sh
+npm install
+npm run recommendations:all
+```
+
+Regenerate only the curated app catalogue after changing the seed list:
 
 ```sh
 SUBTLEX_INDEX_JSON=/path/to/subtlex-word-frequencies/index.json \
@@ -18,9 +31,11 @@ SUBTLEX_INDEX_JSON=/path/to/subtlex-word-frequencies/index.json \
 
 The app does not bundle definitions/translations for the full 74,286-word list.
 Instead it ships a generated 149-entry academic/scientific catalogue with
-verified frequency ranks. The Android unit tests enforce catalogue size,
-unique lemmas, required topics, and parity between the shared JSON and Kotlin
-copy.
+verified frequency ranks. The full pool currently contains rank/count/bucket
+metadata only; definitions, Korean meanings, examples, and domain topics are
+filled in the curated app catalogue. The Android unit tests enforce catalogue
+size, unique lemmas, required topics, and parity between the shared JSON and
+Kotlin copy.
 
 Covered M7 product rules:
 

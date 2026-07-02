@@ -22,6 +22,15 @@ The source of truth for implementation decisions is in `docs/`:
     └── test-vectors/               # Shared scheduler vectors for Kotlin/Swift
 ```
 
+Recommendation pipeline:
+
+```sh
+npm install
+npm run recommendations:all
+```
+
+This regenerates the full SUBTLEX-ranked candidate pool plus the app-bundled curated catalogue.
+
 ## Build Entrypoints
 
 Backend:
