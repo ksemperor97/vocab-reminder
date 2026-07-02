@@ -104,11 +104,12 @@ enum SchedulerVectorCommand {
                     "lemma": "tentative",
                     "display_word": "tentative",
                     "meaning_ko": "temporary",
-                    "wordbook": "user",
-                    "status": "learning",
-                    "due_at": "1970-01-02T00:00:00Z",
-                    "interval_days": 1,
-                    "lapse_count": 0,
+                    "wordbook": "recommended",
+                    "status": "review",
+                    "due_at": "1970-01-15T00:00:00Z",
+                    "interval_days": 14,
+                    "lapse_count": 2,
+                    "recommendation_started_at": "1970-01-01T00:05:00Z",
                     "created_at": "1970-01-01T00:01:00Z",
                     "updated_at": "1970-01-01T00:01:00Z",
                     "version": 2
@@ -151,6 +152,10 @@ enum SchedulerVectorCommand {
         let duplicateData = try JSONSerialization.data(withJSONObject: duplicatePayload)
         let duplicateSnapshot = try SyncBatchFactory.localSnapshot(from: duplicateData)
         try require(duplicateSnapshot.cards.count == 1, "Mac sync import should merge duplicate lemma cards")
+        try require(duplicateSnapshot.cards[0].wordbook == .user, "Mac sync import should keep user wordbook when promoting recommended duplicate")
+        try require(duplicateSnapshot.cards[0].status == .review, "Mac sync import should preserve recommended progress status")
+        try require(duplicateSnapshot.cards[0].intervalDays == 14, "Mac sync import should preserve recommended progress interval")
+        try require(duplicateSnapshot.cards[0].lapseCount == 2, "Mac sync import should preserve recommended progress lapse count")
         try require(duplicateSnapshot.contexts.count == 2, "Mac sync import should keep both duplicate contexts")
         try require(duplicateSnapshot.contexts.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate contexts")
         try require(duplicateSnapshot.recommendationFeedback.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate feedback")

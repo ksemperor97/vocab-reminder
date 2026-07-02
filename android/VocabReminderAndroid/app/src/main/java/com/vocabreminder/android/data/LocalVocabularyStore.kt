@@ -410,7 +410,7 @@ class LocalVocabularyStore(context: Context) {
 
     fun importSyncBatchJson(raw: String) {
         val payload = SyncPayloadFactory.parse(raw)
-        val canonicalCards = canonicalizeDuplicateLemmas(mergeCards(allCards(includeDeleted = true), payload.cards))
+        val canonicalCards = DuplicateCardMerger.canonicalize(mergeCards(allCards(includeDeleted = true), payload.cards))
         saveCards(canonicalCards.cards)
         saveContexts(mergeById(contexts(), payload.contexts) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
         saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
@@ -520,53 +520,6 @@ class LocalVocabularyStore(context: Context) {
             }
         }
         return byId.values.toList()
-    }
-
-    private data class CanonicalCards(
-        val cards: List<VocabularyCard>,
-        val cardIdMap: Map<String, String>
-    )
-
-    private fun canonicalizeDuplicateLemmas(cards: List<VocabularyCard>): CanonicalCards {
-        val idMap = mutableMapOf<String, String>()
-        val duplicateIds = mutableSetOf<String>()
-        cards.filter { it.deletedAt == null }
-            .groupBy { it.lemma.trim().lowercase() }
-            .filterKeys { it.isNotBlank() }
-            .values
-            .filter { it.size > 1 }
-            .forEach { duplicates ->
-                val canonical = duplicates.maxWith(cardMergePriority)
-                duplicates.filterNot { it.id == canonical.id }.forEach { duplicate ->
-                    idMap[duplicate.id] = canonical.id
-                    duplicateIds += duplicate.id
-                }
-            }
-        return CanonicalCards(
-            cards = cards.filterNot { it.id in duplicateIds },
-            cardIdMap = idMap
-        )
-    }
-
-    private val cardMergePriority = compareBy<VocabularyCard>(
-        { if (it.wordbook == Wordbook.USER) 1 else 0 },
-        { if (it.meaningKo.isNotBlank()) 1 else 0 },
-        { if (it.recommendationStartedAt != null) 1 else 0 },
-        { statusProgressRank(it.status) },
-        { it.intervalDays },
-        { it.version },
-        { it.updatedAt }
-    )
-
-    private fun statusProgressRank(status: CardStatus): Int {
-        return when (status) {
-            CardStatus.NEW -> 0
-            CardStatus.LEARNING -> 1
-            CardStatus.RELEARNING -> 2
-            CardStatus.REVIEW -> 3
-            CardStatus.MASTERED -> 4
-            CardStatus.SUSPENDED -> 1
-        }
     }
 
     private fun StoredContext.remapCardId(idMap: Map<String, String>): StoredContext {
@@ -802,5 +755,95 @@ class LocalVocabularyStore(context: Context) {
         const val KEY_RECOMMENDATION_FEEDBACK = "recommendation_feedback"
         const val KEY_SETTINGS = "settings"
         const val KEY_CLOUD_SYNC = "cloud_sync"
+    }
+}
+
+internal data class CanonicalCards(
+    val cards: List<VocabularyCard>,
+    val cardIdMap: Map<String, String>
+)
+
+internal object DuplicateCardMerger {
+    fun canonicalize(cards: List<VocabularyCard>): CanonicalCards {
+        val idMap = mutableMapOf<String, String>()
+        val duplicateIds = mutableSetOf<String>()
+        val mergedById = mutableMapOf<String, VocabularyCard>()
+        cards.filter { it.deletedAt == null }
+            .groupBy { it.lemma.trim().lowercase() }
+            .filterKeys { it.isNotBlank() }
+            .values
+            .filter { it.size > 1 }
+            .forEach { duplicates ->
+                val canonical = duplicates.maxWith(cardIdentityPriority)
+                mergedById[canonical.id] = mergeDuplicateCards(canonical, duplicates)
+                duplicates.filterNot { it.id == canonical.id }.forEach { duplicate ->
+                    idMap[duplicate.id] = canonical.id
+                    duplicateIds += duplicate.id
+                }
+            }
+        return CanonicalCards(
+            cards = cards.filterNot { it.id in duplicateIds }.map { mergedById[it.id] ?: it },
+            cardIdMap = idMap
+        )
+    }
+
+    private fun mergeDuplicateCards(canonical: VocabularyCard, duplicates: List<VocabularyCard>): VocabularyCard {
+        val progress = duplicates.maxWith(cardProgressPriority)
+        val content = duplicates.maxWith(cardContentPriority)
+        val shouldFillContent = canonical.meaningKo.isBlank() && content.meaningKo.isNotBlank()
+        return canonical.copy(
+            meaningKo = if (shouldFillContent) content.meaningKo else canonical.meaningKo,
+            definitionEn = if (shouldFillContent) content.definitionEn else canonical.definitionEn,
+            partOfSpeech = if (shouldFillContent) content.partOfSpeech else canonical.partOfSpeech,
+            phonetic = if (shouldFillContent) content.phonetic else canonical.phonetic,
+            exampleSentence = canonical.exampleSentence.ifBlank { content.exampleSentence },
+            sourceAppPrimary = canonical.sourceAppPrimary.ifBlank { content.sourceAppPrimary },
+            sourceUrlPrimary = canonical.sourceUrlPrimary.ifBlank { content.sourceUrlPrimary },
+            definitionSourcePrimary = if (shouldFillContent) content.definitionSourcePrimary else canonical.definitionSourcePrimary,
+            status = progress.status,
+            dueAt = progress.dueAt,
+            intervalDays = progress.intervalDays,
+            lapseCount = progress.lapseCount,
+            intervalBeforeLapse = progress.intervalBeforeLapse,
+            recommendationStartedAt = progress.recommendationStartedAt ?: canonical.recommendationStartedAt,
+            wordbook = if (duplicates.any { it.wordbook == Wordbook.USER }) Wordbook.USER else canonical.wordbook,
+            updatedAt = duplicates.maxOf { it.updatedAt },
+            version = duplicates.maxOf { it.version }
+        )
+    }
+
+    private val cardIdentityPriority = compareBy<VocabularyCard>(
+        { if (it.wordbook == Wordbook.USER) 1 else 0 },
+        { if (it.meaningKo.isNotBlank()) 1 else 0 },
+        { it.version },
+        { it.updatedAt }
+    )
+
+    private val cardProgressPriority = compareBy<VocabularyCard>(
+        { if (it.recommendationStartedAt != null) 1 else 0 },
+        { statusProgressRank(it.status) },
+        { it.intervalDays },
+        { it.lapseCount },
+        { it.version },
+        { it.updatedAt }
+    )
+
+    private val cardContentPriority = compareBy<VocabularyCard>(
+        { if (it.meaningKo.isNotBlank()) 1 else 0 },
+        { if (it.definitionSourcePrimary == "user") 1 else 0 },
+        { if (it.wordbook == Wordbook.USER) 1 else 0 },
+        { it.version },
+        { it.updatedAt }
+    )
+
+    private fun statusProgressRank(status: CardStatus): Int {
+        return when (status) {
+            CardStatus.NEW -> 0
+            CardStatus.LEARNING -> 1
+            CardStatus.RELEARNING -> 2
+            CardStatus.REVIEW -> 3
+            CardStatus.MASTERED -> 4
+            CardStatus.SUSPENDED -> 1
+        }
     }
 }

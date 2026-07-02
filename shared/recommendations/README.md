@@ -64,4 +64,7 @@ Covered M7 product rules:
 - recommendations are chosen near the user's estimated boundary band,
 - `[알아요]` feedback shifts the band harder,
 - capturing a recommended lemma promotes it into the user wordbook while keeping
-  its progress.
+  its progress,
+- sync duplicate import preserves that progress if one device has the
+  recommended card and another has already captured the same lemma as a user
+  card.

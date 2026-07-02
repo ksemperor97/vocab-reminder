@@ -315,7 +315,7 @@ enum SyncBatchFactory {
         }
 
         for duplicates in activeByLemma.values where duplicates.count > 1 {
-            guard let canonical = duplicates.max(by: lowerPriority) else { continue }
+            guard let canonical = duplicates.max(by: lowerIdentityPriority) else { continue }
             for duplicate in duplicates where duplicate.id != canonical.id {
                 cardIdMap[duplicate.id] = canonical.id
                 duplicateIds.insert(duplicate.id)
@@ -324,7 +324,15 @@ enum SyncBatchFactory {
         guard cardIdMap.isEmpty == false else { return snapshot }
 
         var normalized = snapshot
-        normalized.cards = snapshot.cards.filter { duplicateIds.contains($0.id) == false }
+        let mergedById = Dictionary(
+            uniqueKeysWithValues: activeByLemma.values.compactMap { duplicates -> (String, VocabularyCard)? in
+                guard duplicates.count > 1, let canonical = duplicates.max(by: lowerIdentityPriority) else { return nil }
+                return (canonical.id, mergeDuplicateCards(canonical: canonical, duplicates: duplicates))
+            }
+        )
+        normalized.cards = snapshot.cards
+            .filter { duplicateIds.contains($0.id) == false }
+            .map { mergedById[$0.id] ?? $0 }
         normalized.contexts = snapshot.contexts.map { context in
             var copy = context
             copy.cardId = cardIdMap[context.cardId] ?? context.cardId
@@ -348,13 +356,47 @@ enum SyncBatchFactory {
         return normalized
     }
 
-    private static func lowerPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
+    private static func mergeDuplicateCards(canonical: VocabularyCard, duplicates: [VocabularyCard]) -> VocabularyCard {
+        var merged = canonical
+        if let content = duplicates.max(by: lowerContentPriority),
+           merged.meaningKo.isEmpty,
+           content.meaningKo.isEmpty == false {
+            merged.meaningKo = content.meaningKo
+            merged.definitionEn = content.definitionEn
+            merged.partOfSpeech = content.partOfSpeech
+            merged.exampleSentence = merged.exampleSentence.isEmpty ? content.exampleSentence : merged.exampleSentence
+            merged.definitionSourcePrimary = content.definitionSourcePrimary
+        }
+        if let progress = duplicates.max(by: lowerProgressPriority) {
+            merged.status = progress.status
+            merged.dueAt = progress.dueAt
+            merged.intervalDays = progress.intervalDays
+            merged.lapseCount = progress.lapseCount
+            merged.intervalBeforeLapse = progress.intervalBeforeLapse
+            merged.recommendationStartedAt = progress.recommendationStartedAt ?? merged.recommendationStartedAt
+        }
+        if duplicates.contains(where: { $0.wordbook == .user }) {
+            merged.wordbook = .user
+        }
+        merged.updatedAt = duplicates.map(\.updatedAt).max() ?? merged.updatedAt
+        merged.version = duplicates.map(\.version).max() ?? merged.version
+        return merged
+    }
+
+    private static func lowerIdentityPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
         if lhs.wordbook != rhs.wordbook {
             return lhs.wordbook != .user && rhs.wordbook == .user
         }
         if lhs.meaningKo.isEmpty != rhs.meaningKo.isEmpty {
             return lhs.meaningKo.isEmpty && rhs.meaningKo.isEmpty == false
         }
+        if lhs.version != rhs.version {
+            return lhs.version < rhs.version
+        }
+        return lhs.updatedAt < rhs.updatedAt
+    }
+
+    private static func lowerProgressPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
         if (lhs.recommendationStartedAt != nil) != (rhs.recommendationStartedAt != nil) {
             return lhs.recommendationStartedAt == nil && rhs.recommendationStartedAt != nil
         }
@@ -365,6 +407,22 @@ enum SyncBatchFactory {
         }
         if lhs.intervalDays != rhs.intervalDays {
             return lhs.intervalDays < rhs.intervalDays
+        }
+        if lhs.version != rhs.version {
+            return lhs.version < rhs.version
+        }
+        return lhs.updatedAt < rhs.updatedAt
+    }
+
+    private static func lowerContentPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
+        if lhs.meaningKo.isEmpty != rhs.meaningKo.isEmpty {
+            return lhs.meaningKo.isEmpty && rhs.meaningKo.isEmpty == false
+        }
+        if (lhs.definitionSourcePrimary == "user") != (rhs.definitionSourcePrimary == "user") {
+            return lhs.definitionSourcePrimary != "user" && rhs.definitionSourcePrimary == "user"
+        }
+        if lhs.wordbook != rhs.wordbook {
+            return lhs.wordbook != .user && rhs.wordbook == .user
         }
         if lhs.version != rhs.version {
             return lhs.version < rhs.version
