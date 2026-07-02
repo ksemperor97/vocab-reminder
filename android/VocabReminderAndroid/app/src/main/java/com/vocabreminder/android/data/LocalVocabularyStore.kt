@@ -383,11 +383,12 @@ class LocalVocabularyStore(context: Context) {
 
     fun importSyncBatchJson(raw: String) {
         val payload = SyncPayloadFactory.parse(raw)
-        saveCards(mergeCards(allCards(includeDeleted = true), payload.cards))
-        saveContexts(mergeById(contexts(), payload.contexts) { it.id })
-        saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id })
-        saveEvents(mergeById(events(), payload.reviewEvents) { it.id })
-        saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id })
+        val canonicalCards = canonicalizeDuplicateLemmas(mergeCards(allCards(includeDeleted = true), payload.cards))
+        saveCards(canonicalCards.cards)
+        saveContexts(mergeById(contexts(), payload.contexts) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
+        saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
+        saveEvents(mergeById(events(), payload.reviewEvents) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
+        saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
         payload.settings?.let { saveSettings(it) }
     }
 
@@ -492,6 +493,69 @@ class LocalVocabularyStore(context: Context) {
             }
         }
         return byId.values.toList()
+    }
+
+    private data class CanonicalCards(
+        val cards: List<VocabularyCard>,
+        val cardIdMap: Map<String, String>
+    )
+
+    private fun canonicalizeDuplicateLemmas(cards: List<VocabularyCard>): CanonicalCards {
+        val idMap = mutableMapOf<String, String>()
+        val duplicateIds = mutableSetOf<String>()
+        cards.filter { it.deletedAt == null }
+            .groupBy { it.lemma.trim().lowercase() }
+            .filterKeys { it.isNotBlank() }
+            .values
+            .filter { it.size > 1 }
+            .forEach { duplicates ->
+                val canonical = duplicates.maxWith(cardMergePriority)
+                duplicates.filterNot { it.id == canonical.id }.forEach { duplicate ->
+                    idMap[duplicate.id] = canonical.id
+                    duplicateIds += duplicate.id
+                }
+            }
+        return CanonicalCards(
+            cards = cards.filterNot { it.id in duplicateIds },
+            cardIdMap = idMap
+        )
+    }
+
+    private val cardMergePriority = compareBy<VocabularyCard>(
+        { if (it.wordbook == Wordbook.USER) 1 else 0 },
+        { if (it.meaningKo.isNotBlank()) 1 else 0 },
+        { if (it.recommendationStartedAt != null) 1 else 0 },
+        { statusProgressRank(it.status) },
+        { it.intervalDays },
+        { it.version },
+        { it.updatedAt }
+    )
+
+    private fun statusProgressRank(status: CardStatus): Int {
+        return when (status) {
+            CardStatus.NEW -> 0
+            CardStatus.LEARNING -> 1
+            CardStatus.RELEARNING -> 2
+            CardStatus.REVIEW -> 3
+            CardStatus.MASTERED -> 4
+            CardStatus.SUSPENDED -> 1
+        }
+    }
+
+    private fun StoredContext.remapCardId(idMap: Map<String, String>): StoredContext {
+        return idMap[cardId]?.let { copy(cardId = it) } ?: this
+    }
+
+    private fun StoredDefinitionCandidate.remapCardId(idMap: Map<String, String>): StoredDefinitionCandidate {
+        return idMap[cardId]?.let { copy(cardId = it) } ?: this
+    }
+
+    private fun StoredReviewEvent.remapCardId(idMap: Map<String, String>): StoredReviewEvent {
+        return idMap[cardId]?.let { copy(cardId = it) } ?: this
+    }
+
+    private fun RecommendationFeedback.remapCardId(idMap: Map<String, String>): RecommendationFeedback {
+        return idMap[cardId]?.let { copy(cardId = it) } ?: this
     }
 
     private fun <T> mergeById(local: List<T>, incoming: List<T>, idOf: (T) -> String): List<T> {

@@ -63,6 +63,7 @@ Current Android slice:
 - The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
 - Review events are stored append-only in local app storage.
 - Firestore-shaped sync batches can be exported and imported locally while real Firebase client configuration is pending.
+- Sync import folds active duplicate lemmas into one card and keeps their contexts attached to the surviving card.
 - A config-gated Android callable sync client can push `syncBatch` then pull `syncSnapshot` when given a Firebase Auth ID token and Functions base URL. It does not require `google-services.json` to build.
 
 Current backend slice:
@@ -88,6 +89,7 @@ Mac local MVP:
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`.
 - Shared scheduler parity check with `shared/test-vectors/scheduler.json`.
 - Local Firestore-shaped sync batch export/import while real Firebase client configuration is pending.
+- Sync import also folds active duplicate lemmas into one card while preserving contexts.
 
 Run:
 

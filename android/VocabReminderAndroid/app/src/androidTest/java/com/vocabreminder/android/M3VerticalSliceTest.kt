@@ -17,6 +17,8 @@ import com.vocabreminder.android.notifications.ReviewActionReceiver
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -101,6 +103,58 @@ class M3VerticalSliceTest {
         assertEquals(CardStatus.LEARNING, captured.status)
         assertEquals(3, captured.intervalDays)
         assertEquals(1, captured.lapseCount)
+    }
+
+    @Test
+    fun syncImportMergesDuplicateLemmaAndKeepsBothContexts() {
+        val now = Instant.now()
+        store.addCard(
+            displayWord = "tentative",
+            meaningKo = "temporary",
+            exampleSentence = "The local result is tentative.",
+            dueAt = now.plusSeconds(600),
+            now = now
+        )
+        val payload = JSONObject()
+            .put(
+                "cards",
+                JSONArray().put(
+                    JSONObject()
+                        .put("id", "remote-card")
+                        .put("lemma", "tentative")
+                        .put("display_word", "tentative")
+                        .put("meaning_ko", "잠정적인")
+                        .put("wordbook", "user")
+                        .put("status", "new")
+                        .put("due_at", now.plusSeconds(600).toString())
+                        .put("interval_days", 0)
+                        .put("lapse_count", 0)
+                        .put("created_at", now.plusSeconds(1).toString())
+                        .put("updated_at", now.plusSeconds(1).toString())
+                        .put("version", 1)
+                )
+            )
+            .put(
+                "contexts",
+                JSONArray().put(
+                    JSONObject()
+                        .put("id", "remote-context")
+                        .put("card_id", "remote-card")
+                        .put("source_sentence", "The remote result is tentative.")
+                        .put("capture_method", "mac_clipboard_hotkey")
+                        .put("created_at", now.plusSeconds(1).toString())
+                )
+            )
+
+        store.importSyncBatchJson(payload.toString())
+
+        val card = store.cards().single()
+        val importedContexts = store.contexts()
+        assertEquals("tentative", card.lemma)
+        assertEquals(2, importedContexts.size)
+        assertTrue(importedContexts.all { it.cardId == card.id })
+        assertTrue(importedContexts.map { it.sourceSentence }.contains("The local result is tentative."))
+        assertTrue(importedContexts.map { it.sourceSentence }.contains("The remote result is tentative."))
     }
 
     @Test

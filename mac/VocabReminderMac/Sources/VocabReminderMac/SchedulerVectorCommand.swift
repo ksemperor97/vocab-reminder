@@ -70,6 +70,61 @@ enum SchedulerVectorCommand {
         try require(importedSnapshot.cards.first?.status == .new, "Mac sync import should restore status")
         try require(importedSnapshot.cards.first?.wordbook == .user, "Mac sync import should restore wordbook")
         try require(importedSnapshot.settings.recommendationsIntroducedAt == Date(timeIntervalSince1970: 0), "Mac sync import should restore recommendation intro timestamp")
+
+        let duplicatePayload: [String: Any] = [
+            "cards": [
+                [
+                    "id": "mac-card",
+                    "lemma": "tentative",
+                    "display_word": "tentative",
+                    "meaning_ko": "잠정적인",
+                    "wordbook": "user",
+                    "status": "new",
+                    "due_at": "1970-01-01T00:10:00Z",
+                    "interval_days": 0,
+                    "lapse_count": 0,
+                    "created_at": "1970-01-01T00:00:00Z",
+                    "updated_at": "1970-01-01T00:00:00Z",
+                    "version": 1
+                ],
+                [
+                    "id": "android-card",
+                    "lemma": "tentative",
+                    "display_word": "tentative",
+                    "meaning_ko": "temporary",
+                    "wordbook": "user",
+                    "status": "learning",
+                    "due_at": "1970-01-02T00:00:00Z",
+                    "interval_days": 1,
+                    "lapse_count": 0,
+                    "created_at": "1970-01-01T00:01:00Z",
+                    "updated_at": "1970-01-01T00:01:00Z",
+                    "version": 2
+                ]
+            ],
+            "contexts": [
+                [
+                    "id": "mac-context",
+                    "card_id": "mac-card",
+                    "source_sentence": "The mac result is tentative.",
+                    "capture_method": "mac_clipboard_hotkey",
+                    "created_at": "1970-01-01T00:00:00Z"
+                ],
+                [
+                    "id": "android-context",
+                    "card_id": "android-card",
+                    "source_sentence": "The android result is tentative.",
+                    "capture_method": "android_process_text",
+                    "created_at": "1970-01-01T00:01:00Z"
+                ]
+            ],
+            "settings": ["daily_word_goal": 10]
+        ]
+        let duplicateData = try JSONSerialization.data(withJSONObject: duplicatePayload)
+        let duplicateSnapshot = try SyncBatchFactory.localSnapshot(from: duplicateData)
+        try require(duplicateSnapshot.cards.count == 1, "Mac sync import should merge duplicate lemma cards")
+        try require(duplicateSnapshot.contexts.count == 2, "Mac sync import should keep both duplicate contexts")
+        try require(duplicateSnapshot.contexts.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate contexts")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {

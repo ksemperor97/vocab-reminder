@@ -37,19 +37,19 @@ enum SyncBatchFactory {
 
     static func localSnapshot(from data: Data) throws -> StoreSnapshot {
         if let snapshot = try? JSONDecoder.vocab.decode(StoreSnapshot.self, from: data) {
-            return snapshot
+            return canonicalizeDuplicateLemmas(snapshot)
         }
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ImportError.invalidPayload
         }
 
-        return StoreSnapshot(
+        return canonicalizeDuplicateLemmas(StoreSnapshot(
             cards: array(payload["cards"]).map(cardPayload),
             contexts: array(payload["contexts"]).map(contextPayload),
             definitionCandidates: array(payload["definition_candidates"]).map(candidatePayload),
             reviewEvents: array(payload["review_events"]).map(reviewEventPayload),
             settings: settingsPayload(payload["settings"] as? [String: Any] ?? [:])
-        )
+        ))
     }
 
     private static func card(_ card: VocabularyCard) -> [String: Any] {
@@ -279,6 +279,85 @@ enum SyncBatchFactory {
         guard let value = payload[key], !(value is NSNull) else { return nil }
         guard let raw = value as? String else { return nil }
         return ISO8601DateFormatter().date(from: raw)
+    }
+
+    private static func canonicalizeDuplicateLemmas(_ snapshot: StoreSnapshot) -> StoreSnapshot {
+        var cardIdMap: [String: String] = [:]
+        var duplicateIds = Set<String>()
+        let activeByLemma = Dictionary(grouping: snapshot.cards.filter { card in
+            card.deletedAt == nil && card.lemma.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }) { card in
+            card.lemma.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+
+        for duplicates in activeByLemma.values where duplicates.count > 1 {
+            guard let canonical = duplicates.max(by: lowerPriority) else { continue }
+            for duplicate in duplicates where duplicate.id != canonical.id {
+                cardIdMap[duplicate.id] = canonical.id
+                duplicateIds.insert(duplicate.id)
+            }
+        }
+        guard cardIdMap.isEmpty == false else { return snapshot }
+
+        var normalized = snapshot
+        normalized.cards = snapshot.cards.filter { duplicateIds.contains($0.id) == false }
+        normalized.contexts = snapshot.contexts.map { context in
+            var copy = context
+            copy.cardId = cardIdMap[context.cardId] ?? context.cardId
+            return copy
+        }
+        normalized.definitionCandidates = snapshot.definitionCandidates.map { candidate in
+            var copy = candidate
+            copy.cardId = cardIdMap[candidate.cardId] ?? candidate.cardId
+            return copy
+        }
+        normalized.reviewEvents = snapshot.reviewEvents.map { event in
+            var copy = event
+            copy.cardId = cardIdMap[event.cardId] ?? event.cardId
+            return copy
+        }
+        return normalized
+    }
+
+    private static func lowerPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
+        if lhs.wordbook != rhs.wordbook {
+            return lhs.wordbook != .user && rhs.wordbook == .user
+        }
+        if lhs.meaningKo.isEmpty != rhs.meaningKo.isEmpty {
+            return lhs.meaningKo.isEmpty && rhs.meaningKo.isEmpty == false
+        }
+        if (lhs.recommendationStartedAt != nil) != (rhs.recommendationStartedAt != nil) {
+            return lhs.recommendationStartedAt == nil && rhs.recommendationStartedAt != nil
+        }
+        let lhsStatus = statusProgressRank(lhs.status)
+        let rhsStatus = statusProgressRank(rhs.status)
+        if lhsStatus != rhsStatus {
+            return lhsStatus < rhsStatus
+        }
+        if lhs.intervalDays != rhs.intervalDays {
+            return lhs.intervalDays < rhs.intervalDays
+        }
+        if lhs.version != rhs.version {
+            return lhs.version < rhs.version
+        }
+        return lhs.updatedAt < rhs.updatedAt
+    }
+
+    private static func statusProgressRank(_ status: CardStatus) -> Int {
+        switch status {
+        case .new:
+            return 0
+        case .learning:
+            return 1
+        case .relearning:
+            return 2
+        case .review:
+            return 3
+        case .mastered:
+            return 4
+        case .suspended:
+            return 1
+        }
     }
 }
 
