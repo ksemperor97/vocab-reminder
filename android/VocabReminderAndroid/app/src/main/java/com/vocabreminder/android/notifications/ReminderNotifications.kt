@@ -9,7 +9,11 @@ import android.content.Context.MODE_PRIVATE
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Build
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -17,6 +21,10 @@ import com.vocabreminder.android.MainActivity
 import com.vocabreminder.android.R
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.scheduler.ReviewResponse
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 object ReminderNotifications {
     const val CHANNEL_ID = "vocabulary_review"
@@ -33,6 +41,9 @@ object ReminderNotifications {
     private const val PREFS_NAME = "vocab_notification_queue"
     private const val KEY_ACTIVE_PROMPT_CARD_ID = "active_prompt_card_id"
     private const val KEY_ACTIVE_PROMPT_NOTIFICATION_ID = "active_prompt_notification_id"
+    private const val REVIEW_NOTIFICATION_COLOR = 0xFF4F6BED.toInt()
+    private const val RECOMMENDATION_NOTIFICATION_COLOR = 0xFF00897B.toInt()
+    private val notificationTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -70,24 +81,20 @@ object ReminderNotifications {
     }
 
     fun showRememberedConfirmation(context: Context, card: VocabularyCard) {
+        val nextReview = nextReviewLabel(card.dueAt)
         show(
             context = context,
             card = card,
             builder = baseBuilder(context, card)
                 .setContentTitle("${card.displayWord} ✓")
-                .setContentText(card.meaningKo)
-                .setStyle(NotificationCompat.BigTextStyle().bigText("${card.meaningKo}\n다음 복습: ${card.dueAt}"))
+                .setContentText("${card.meaningKo} · 다음 복습: $nextReview")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("${card.meaningKo}\n다음 복습: $nextReview"))
                 .setTimeoutAfter(5_000)
         )
     }
 
     fun showForgottenMeaning(context: Context, card: VocabularyCard) {
-        val body = buildString {
-            append("뜻: ${card.meaningKo}")
-            if (card.exampleSentence.isNotBlank()) {
-                append("\n예문: ${card.exampleSentence}")
-            }
-        }
+        val body = meaningExampleBody(card)
         show(
             context = context,
             card = card,
@@ -101,18 +108,12 @@ object ReminderNotifications {
     }
 
     fun showRecommendation(context: Context, card: VocabularyCard): Boolean {
-        val body = buildString {
-            append("뜻: ${card.meaningKo}")
-            if (card.exampleSentence.isNotBlank()) {
-                append("\n예문: ${card.exampleSentence}")
-            }
-            append("\n알고 있는 단어인가요?")
-        }
+        val body = meaningExampleBody(card, prompt = "알고 있는 단어인가요?")
         if (!claimActivePrompt(context, card)) return false
         return show(
             context = context,
             card = card,
-            builder = baseBuilder(context, card)
+            builder = recommendationBuilder(context, card)
                 .setContentTitle("오늘의 새 단어: ${card.displayWord}")
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -125,16 +126,11 @@ object ReminderNotifications {
     }
 
     fun showRecommendationMeaning(context: Context, card: VocabularyCard) {
-        val body = buildString {
-            append("뜻: ${card.meaningKo}")
-            if (card.exampleSentence.isNotBlank()) {
-                append("\n예문: ${card.exampleSentence}")
-            }
-        }
+        val body = meaningExampleBody(card)
         show(
             context = context,
             card = card,
-            builder = baseBuilder(context, card)
+            builder = recommendationBuilder(context, card)
                 .setContentTitle(card.displayWord)
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -153,7 +149,8 @@ object ReminderNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_notification_recommendation)
+            .setColor(RECOMMENDATION_NOTIFICATION_COLOR)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -237,11 +234,48 @@ object ReminderNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_notification_review)
+            .setColor(REVIEW_NOTIFICATION_COLOR)
             .setContentIntent(openIntent)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+    }
+
+    private fun recommendationBuilder(context: Context, card: VocabularyCard): NotificationCompat.Builder {
+        return baseBuilder(context, card)
+            .setSmallIcon(R.drawable.ic_notification_recommendation)
+            .setColor(RECOMMENDATION_NOTIFICATION_COLOR)
+    }
+
+    private fun meaningExampleBody(card: VocabularyCard, prompt: String? = null): CharSequence {
+        val builder = SpannableStringBuilder("뜻: ${card.meaningKo}")
+        if (card.exampleSentence.isNotBlank()) {
+            val exampleStart = builder.length
+            builder.append("\n예문: ${card.exampleSentence}")
+            builder.setSpan(
+                StyleSpan(Typeface.ITALIC),
+                exampleStart,
+                builder.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        if (prompt != null) {
+            builder.append("\n$prompt")
+        }
+        return builder
+    }
+
+    private fun nextReviewLabel(dueAt: Instant): String {
+        val zone = ZoneId.systemDefault()
+        val due = dueAt.atZone(zone)
+        val days = ChronoUnit.DAYS.between(Instant.now().atZone(zone).toLocalDate(), due.toLocalDate())
+        return when {
+            days < 0L -> "지금"
+            days == 0L -> "오늘 ${due.format(notificationTimeFormatter)}"
+            days == 1L -> "내일 ${due.format(notificationTimeFormatter)}"
+            else -> "${days}일 뒤"
+        }
     }
 
     private fun claimActivePrompt(context: Context, card: VocabularyCard): Boolean {

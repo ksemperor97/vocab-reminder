@@ -135,6 +135,10 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 - 앱 아이콘/알림 스몰 아이콘이 현재 기본값인지 확인 — 기본 아이콘이면 교체 필요
 ```
 
+완료(2026-07-03, Codex UI-M4): 복습 알림은 bookmark small icon과 파란색, 추천 알림은 sparkle small icon과 초록색으로 분리했다. 첫 복습 알림은 `tentative` / `무슨 뜻이었지?`만 표시하고 뜻은 숨긴다. 잠금 shade에서도 같은 내용만 보인다. [못외웠다] 후 같은 notification id가 뜻+예문 BigText로 교체되며, [외웠다] confirmation은 `tentative ✓`, 뜻, `다음 복습: 내일 HH:mm`를 표시한다. 추천 소개형 알림은 `오늘의 새 단어: mitigate`, 뜻, 예문, `알고 있는 단어인가요?`, `[시작하기] [알아요] [관심 없음]` action을 보여준다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M4/T13_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_lock_screen_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_forgotten_bigtext_expanded.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_remembered_confirmation.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_recommendation_expanded.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_first_review_dumpsys.txt`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_recommendation_intro_dumpsys.txt`
+
 ---
 
 ## 5. Mac 앱 (미관찰 — 방향만)
@@ -161,8 +165,8 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 ## 7. 미관찰 — 스크린샷 확보 후 이 문서에 추가할 것
 
 ```text
-[ ] 알림 3종 (첫 알림 / 못외웠다 교체 / 외웠다 confirmation) — 잠금 화면 포함
-[ ] 추천 소개형 알림
+[x] 알림 3종 (첫 알림 / 못외웠다 교체 / 외웠다 confirmation) — 잠금 화면 포함: `/tmp/vocab_ui_20260703_130300/UI-M4/T13_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_lock_screen_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_forgotten_bigtext_expanded.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_remembered_confirmation.png`
+[x] 추천 소개형 알림 — `/tmp/vocab_ui_20260703_130300/UI-M4/T13_recommendation_expanded.png`
 [x] 후보 선택 → 저장까지의 미리보기 실제 모습 (정상 단어로) — `/tmp/vocab_ui_20260703_130300/UI-M3/T7_candidate_chips.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T8_preview_card.png`
 [x] 다크 모드 전체 화면 — `/tmp/vocab_ui_20260703_130300/UI-M3/T11_dark_mode_user_tab.png`
 [ ] 폴더블(SM-F766N) 펼침 화면에서의 레이아웃 (좁은 화면 접힘 상태 vs 펼침)

@@ -125,14 +125,15 @@ UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260
 
 ## UI-M4 — 알림 비주얼 (리뷰 문서 4장)
 
-```text
-T12: 알림 스몰 아이콘이 기본값이면 전용 아이콘으로 교체 (복습용/추천용 시각 구분)
-T13: 실기기에서 알림 4종 screencap 확보 후 리뷰 4장의 원칙과 대조:
-     첫 알림(뜻 없음) / 못외웠다 교체(BigText 뜻+예문) / 외웠다 ✓ confirmation /
-     추천 소개형("오늘의 새 단어:") — 잠금 화면 버전 포함
-     원칙과 다르면 텍스트/스타일만 수정 (스케줄링 로직 금지)
-완료 기준: 4종+잠금화면 screencap이 리뷰 4장의 원칙과 일치
-```
+### [x] T12. 알림 small icon 분리
+
+완료(2026-07-03): 복습 알림은 bookmark 아이콘/파란색, 추천 알림은 sparkle 아이콘/초록색으로 분리했다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M4/T13_first_review_dumpsys.txt`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_recommendation_intro_dumpsys.txt`
+
+### [x] T13. 알림 4종 + 잠금 화면 캡처
+
+완료(2026-07-03): Galaxy SM-F766N에서 첫 알림, 못외웠다 BigText, 외웠다 confirmation, 추천 소개형, 잠금 shade를 실기기로 확인했다. 첫 알림은 뜻을 숨기고 `무슨 뜻이었지?`만 보이며, 못외웠다 교체는 같은 id에서 뜻+예문 BigText로 표시된다. 외웠다 confirmation은 `tentative ✓`, 뜻, `다음 복습: 내일 HH:mm`를 보여주고, 추천 소개형은 `오늘의 새 단어: mitigate`와 추천 전용 아이콘/action을 사용한다. 스케줄링 로직은 건드리지 않았다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M4/T13_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_lock_screen_first_review_shade.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_forgotten_bigtext_expanded.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_remembered_confirmation.png`, `/tmp/vocab_ui_20260703_130300/UI-M4/T13_recommendation_expanded.png`
 
 ## UI-M5 — Mac (리뷰 5장, Android 완료 후)
 
