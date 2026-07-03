@@ -40,6 +40,18 @@ object DictionaryResolver {
             partOfSpeech = "adjective",
             exampleSentence = "The model showed robust decoding performance."
         ),
+        "behemoth" to LocalEntry(
+            meaningKo = "거대한 것, 거대한 짐승",
+            definitionEn = "something enormous, powerful, or hard to control",
+            partOfSpeech = "noun",
+            exampleSentence = "The startup became a behemoth in the software industry."
+        ),
+        "look" to LocalEntry(
+            meaningKo = "보다, 바라보다; 찾아보다",
+            definitionEn = "to direct your eyes toward something; to search or check",
+            partOfSpeech = "verb",
+            exampleSentence = "She was looking for local dining spots."
+        ),
         "elicit" to LocalEntry(
             meaningKo = "이끌어내다, 유도하다",
             definitionEn = "to draw out a response, answer, or fact",

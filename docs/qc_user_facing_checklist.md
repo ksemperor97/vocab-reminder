@@ -186,30 +186,33 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 - [P] QC-H9. `swift run VocabReminderMac --check-scheduler-vectors` → 공유 벡터 전부 통과 (Kotlin과 동일 규칙 보증).
   - 증거: `/tmp/vocab_qc_20260703_094928/H9_mac_scheduler_vectors_after_h7_fix.txt`
 
-## I. 동기화 (UX 6장 — 현재 로컬 export/import + 수동 cloud)
+## I. 동기화 (UX 6장 — 자동 HTTPS tunnel sync)
 
-- [P] QC-I1. Android에서 export한 배치를 Mac에서 import → 카드/문맥/기록이 합쳐진다. 반대 방향도.
-  - 실패: Mac에는 `Sync 내보내기`/`Sync 가져오기` 버튼이 있으나 Android 사용자 UI에는 로컬 export/import가 없고 `Cloud sync` + Firebase 입력만 노출된다. 코드 레벨 `exportSyncBatchJson()`/`importSyncBatchJson()`만으로는 사용자 대면 QC 통과 증거가 될 수 없다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_android_current_ui.xml`, `/tmp/vocab_qc_20260703_094928/J3_after_swipe_to_top.xml`
-  - 수정 후 재검증: Android에 `Sync 내보내기`/`Sync 가져오기` 로컬 버튼을 추가하고, Android export → Mac import → Mac export → Android import 왕복을 실기기 UI로 수행했다. Mac import 후 active card 3개와 context 5개가 유지되고, Android import 후 UI에 `저장된 단어 3개` 및 `maconly`가 표시되었다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_recheck/android_export_sync.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_store_after_android_import.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_export_after_merge.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/android_store_after_import_mac_retry.xml`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/android_ui_after_import_mac_retry.xml`
-- [P] QC-I2. 같은 lemma를 양쪽에서 각각 저장 후 import → 카드 1개로 병합, 문맥 2개 유지. (UX 6)
-  - 실패: QC-I1과 동일하게 Android 로컬 import/export 사용자 경로가 없어 왕복 병합을 실행할 수 없다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_android_current_ui.xml`
-  - 수정 후 재검증: 양쪽에 `mergeword`를 각각 만든 뒤 import했다. 결과는 `android-merge-card` 1개로 합쳐졌고 `android-merge-context`, `mac-merge-context`가 모두 같은 카드에 보존되었다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_store_after_android_import.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/android_store_after_import_mac_retry.xml`
-- [P] QC-I3. 추천 카드와 사용자 카드가 중복될 때 import → 승격 + 진도 보존.
-  - 실패: Android 로컬 import/export 사용자 경로 부재로 실기기 왕복 검증 불가.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_android_current_ui.xml`
-  - 수정 후 재검증: Android 추천 카드 `promoteword`와 Mac 사용자 카드 `promoteword`를 import했다. 결과는 `mac-promote-user` 사용자 카드 1개로 승격/병합됐고 `interval_days=14`, `lapse_count=2`, review 상태, Android feedback이 보존되었다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_store_after_android_import.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/android_store_after_import_mac_retry.xml`
-- [P] QC-I4. import를 두 번 반복해도 중복 카드/이벤트가 생기지 않는다 (idempotency).
-  - 실패: Android 로컬 import/export 사용자 경로 부재로 반복 import 검증 불가.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_android_current_ui.xml`
-  - 수정 후 재검증: Mac에서 동일 Android export를 두 번 가져와도 active card 3개, context 5개, review event 1개, feedback 1개가 그대로 유지되었다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_store_after_android_import.json`, `/tmp/vocab_qc_20260703_094928/IJ_recheck/mac_store_after_android_import_repeat.json`
-- [B] QC-I5. 실 Firebase sync: Web API key + 테스트 계정 + Functions URL 필요. 발급 후: 로그인 → push → 다른 기기에서 pull → QC-I1~I4 재검증.
-  - 차단: Firebase Web API key, 테스트 계정, Functions URL이 제공되지 않았다.
+- [P] QC-I1. Android release UI에 서버 주소/토큰/VPN 안내가 보이지 않는다.
+  - 2026-07-03 운영 URL release APK 설치 후 확인. 설치된 패키지는 `run-as: package not debuggable`로 release 상태였다.
+  - Sync 화면에는 `자동 동기화: 준비됨`, `연결 테스트`, `지금 동기화`만 보이고 `서버 주소`, `토큰`, `VPN`, `WireGuard`, `sync_server_url_field`, `sync_auth_token_field`, endpoint 문자열은 UI dump에 없었다.
+  - 자동 재검증: `npm run sync:android-release-ui-smoke` 통과.
+  - 증거: `/tmp/vocab_sync_release_ui_real_20260703_201153/release_sync_panel.xml`
+- [P] QC-I2. Android에서 AdGuard VPN을 켠 상태 그대로 앱 실행 → 자동 sync 시도.
+  - 2026-07-03 `dumpsys connectivity`에서 `VPN:com.adguard.android`, `sessionId=AdGuard`, `tun0` 활성 상태를 확인했고, release 앱 실행 직후 `com.vocabreminder.android/androidx.work.impl.background.systemjob.SystemJobService` job 시작/종료 기록을 확인했다.
+  - 같은 상태에서 `synchronize` 저장 후 `지금 동기화`를 눌러 Worker snapshot이 6개에서 7개로 증가했다.
+  - 자동 재검증: `npm run sync:android-release-ui-smoke` 통과.
+  - 증거: `/tmp/vocab_sync_release_ui_real_20260703_201153/connectivity.txt`, `/tmp/vocab_sync_release_ui_real_20260703_201153/jobscheduler_vocab.txt`, `/tmp/vocab_sync_roundtrip_android_real_20260703_2028`
+- [P] QC-I3. Android에서 단어 저장 → 자동 sync → MacBook Air에서 같은 카드 확인.
+  - 2026-07-03 Android release에서 `synchronize` 저장 후 Worker snapshot 6 -> 7. MacBook Air release 앱 실행 후 Mac 로컬과 Worker가 10개로 merge됐고 Mac 로컬에 `synchronize`가 포함됨.
+  - 증거: `/tmp/vocab_sync_roundtrip_android_real_20260703_2028`
+- [ ] QC-I4. MacBook Air에서 뜻 수정 → 자동 sync → Android에 반영, 이전 뜻은 후보로 보존.
+- [ ] QC-I5. 같은 lemma를 Android/MacBook에서 저장 → sync 후 카드 1개 + 문맥 2개.
+- [ ] QC-I6. 같은 batch를 두 번 push해도 중복 없음 (idempotency).
+- [ ] QC-I7. Mac mini sync 서버/tunnel 꺼진 상태에서 복습/저장 → 앱 정상 동작, 오류 팝업 없음.
+- [ ] QC-I8. Mac mini sync 서버/tunnel 복구 후 누적 변경분 자동 반영.
+- [ ] QC-I9. 잘못된 토큰/401 → 동기화 상태 화면에 명확한 에러 표시.
+- [ ] QC-I10. 깨진 레코드 섞인 batch → 스킵 카운트가 동기화 화면에 표시, 기존 데이터 무손상.
+- [ ] QC-I11. Mac mini 재부팅 → sync 서버와 tunnel agent가 자동 복구 → Android/MacBook sync 성공.
+- [ ] QC-I12. 모바일 데이터에서도 VPN 변경 없이 Android sync 성공.
+- [P] QC-I13. MacBook Air 로컬 기존 단어 → 서버 sync → Android pull 확인.
+  - 2026-07-03 Mac 로컬 `promoteword`, `maconly`, `mergeword`가 Worker에 반영됐고 Android release에서 다시 `지금 동기화` 후 UI 스크롤로 세 단어가 표시됨.
+  - 증거: `/tmp/vocab_sync_roundtrip_android_pull_mac_20260703_2032`
 
 ## J. 파괴적 동작·엣지
 
@@ -245,7 +248,7 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 | 2026-07-03 | Codex | F. 하루 편성·부하 제어 | P: F1-F7 / F: 없음 / B: 없음 |
 | 2026-07-03 | Codex | G. 추천 단어장 | P: G1-G9 / F: 없음 / B: 없음 |
 | 2026-07-03 | Codex | H. Mac 앱 | P: H1-H9 / F: 없음 / B: 없음 |
-| 2026-07-03 | Codex | I. 동기화 | P: I1-I4 / F: 없음 / B: I5 |
+| 2026-07-03 | Codex | I. 동기화 | P: I1,I2,I3,I13 / F: 없음 / B: I4-I12 일부 세부 edge 미실행 |
 | 2026-07-03 | Codex | J. 파괴적 동작·엣지 | P: J1 / F: 없음 / B: J2-J5 |
 | | | | |
 

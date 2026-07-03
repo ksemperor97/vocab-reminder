@@ -1,12 +1,15 @@
 package com.vocabreminder.android.data
 
 import android.content.Context
+import com.vocabreminder.android.BuildConfig
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
 import com.vocabreminder.android.dictionary.DictionaryResult
 import com.vocabreminder.android.scheduler.CardStatus
+import com.vocabreminder.android.scheduler.DueTimeJitter
 import com.vocabreminder.android.scheduler.ReviewEventDraft
 import com.vocabreminder.android.scheduler.ReviewResponse
+import com.vocabreminder.android.scheduler.Scheduler
 import com.vocabreminder.android.scheduler.SchedulerCard
 import com.vocabreminder.android.scheduler.SchedulerSettings
 import com.vocabreminder.android.scheduler.Wordbook
@@ -126,7 +129,8 @@ data class UserSettingsData(
     val quietHoursEnd: LocalTime = LocalTime.of(9, 0),
     val timezone: ZoneId = ZoneId.of("Asia/Seoul"),
     val enableWordRecommendations: Boolean = true,
-    val recommendationsIntroducedAt: Instant? = null
+    val recommendationsIntroducedAt: Instant? = null,
+    val updatedAt: Instant = Instant.EPOCH
 ) {
     fun toSchedulerSettings(): SchedulerSettings {
         return SchedulerSettings(
@@ -142,9 +146,20 @@ data class UserSettingsData(
 }
 
 data class CloudSyncCredentials(
-    val firebaseWebApiKey: String = "",
-    val functionsBaseUrl: String = "",
-    val refreshToken: String = ""
+    val serverBaseUrl: String = BuildConfig.DEFAULT_SYNC_SERVER_URL,
+    val bearerToken: String = BuildConfig.DEFAULT_SYNC_BEARER_TOKEN
+)
+
+data class CloudSyncStatus(
+    val lastSuccessAt: Instant? = null,
+    val lastFailureAt: Instant? = null,
+    val lastError: String = "",
+    val lastSkippedSummary: String = ""
+)
+
+data class CloudSyncResult(
+    val snapshotJson: String,
+    val skippedSummary: String
 )
 
 class LocalVocabularyStore(context: Context) {
@@ -192,28 +207,62 @@ class LocalVocabularyStore(context: Context) {
     }
 
     fun cloudSyncCredentials(): CloudSyncCredentials {
-        val raw = prefs.getString(KEY_CLOUD_SYNC, null) ?: return CloudSyncCredentials()
+        val defaults = CloudSyncCredentials()
+        if (!BuildConfig.DEBUG) return defaults
+        val raw = prefs.getString(KEY_CLOUD_SYNC, null) ?: return defaults
         val json = JSONObject(raw)
         return CloudSyncCredentials(
-            firebaseWebApiKey = json.optString("firebase_web_api_key"),
-            functionsBaseUrl = json.optString("functions_base_url"),
-            refreshToken = json.optString("refresh_token")
+            serverBaseUrl = json.optString(
+                "server_base_url",
+                json.optString("functions_base_url", defaults.serverBaseUrl)
+            ).ifBlank { defaults.serverBaseUrl },
+            bearerToken = json.optString("bearer_token").ifBlank { defaults.bearerToken }
         )
     }
 
     fun saveCloudSyncCredentials(credentials: CloudSyncCredentials) {
+        if (!BuildConfig.DEBUG) return
         prefs.edit().putString(
             KEY_CLOUD_SYNC,
             JSONObject()
-                .put("firebase_web_api_key", credentials.firebaseWebApiKey)
-                .put("functions_base_url", credentials.functionsBaseUrl)
-                .put("refresh_token", credentials.refreshToken)
+                .put("server_base_url", credentials.serverBaseUrl)
+                .put("bearer_token", credentials.bearerToken)
                 .toString()
         ).apply()
     }
 
+    fun cloudSyncStatus(): CloudSyncStatus {
+        val raw = prefs.getString(KEY_CLOUD_SYNC_STATUS, null) ?: return CloudSyncStatus()
+        val json = JSONObject(raw)
+        return CloudSyncStatus(
+            lastSuccessAt = json.optNullableInstant("last_success_at"),
+            lastFailureAt = json.optNullableInstant("last_failure_at"),
+            lastError = json.optString("last_error"),
+            lastSkippedSummary = json.optString("last_skipped_summary")
+        )
+    }
+
+    fun recordCloudSyncSuccess(skippedSummary: String = "") {
+        saveCloudSyncStatus(
+            cloudSyncStatus().copy(
+                lastSuccessAt = Instant.now(),
+                lastError = "",
+                lastSkippedSummary = skippedSummary
+            )
+        )
+    }
+
+    fun recordCloudSyncFailure(error: String) {
+        saveCloudSyncStatus(
+            cloudSyncStatus().copy(
+                lastFailureAt = Instant.now(),
+                lastError = error
+            )
+        )
+    }
+
     fun saveSettings(settings: UserSettingsData) {
-        prefs.edit().putString(KEY_SETTINGS, settings.toJson().toString()).apply()
+        saveSettings(settings, preserveUpdatedAt = false)
     }
 
     fun markRecommendationsIntroduced(now: Instant) {
@@ -342,7 +391,9 @@ class LocalVocabularyStore(context: Context) {
 
     fun markRecommendationStarted(cardId: String, now: Instant) {
         val card = findCard(cardId) ?: return
-        updateCard(card.copy(recommendationStartedAt = now, dueAt = now.plusSeconds(10 * 60), updatedAt = now, version = card.version + 1))
+        val schedulerSettings = settings().toSchedulerSettings()
+        val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
+        updateCard(card.copy(recommendationStartedAt = now, dueAt = dueAt, updatedAt = now, version = card.version + 1))
         appendRecommendationFeedback(card, "started", now)
     }
 
@@ -420,7 +471,8 @@ class LocalVocabularyStore(context: Context) {
             definitionCandidates = definitionCandidates(),
             reviewEvents = events(),
             recommendationFeedback = recommendationFeedback(),
-            settings = settings()
+            settings = settings(),
+            deviceId = deviceId()
         ).toString()
     }
 
@@ -432,23 +484,27 @@ class LocalVocabularyStore(context: Context) {
         saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
         saveEvents(mergeById(events(), payload.reviewEvents) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
         saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
-        payload.settings?.let { saveSettings(it) }
+        payload.settings?.let { mergeSettings(it) }
     }
 
-    fun syncWithCloud(client: CloudSyncClient): String {
-        val snapshot = client.pushAndPull(
-            SyncPayloadFactory.build(
-                cards = allCards(includeDeleted = true),
-                contexts = contexts(),
-                definitionCandidates = definitionCandidates(),
-                reviewEvents = events(),
-                recommendationFeedback = recommendationFeedback(),
-                settings = settings()
-            )
+    fun syncWithCloud(client: CloudSyncClient): CloudSyncResult {
+        val localBatch = SyncPayloadFactory.build(
+            cards = allCards(includeDeleted = true),
+            contexts = contexts(),
+            definitionCandidates = definitionCandidates(),
+            reviewEvents = events(),
+            recommendationFeedback = recommendationFeedback(),
+            settings = settings(),
+            deviceId = deviceId()
         )
+        val pushResult = client.push(localBatch)
+        val snapshot = client.pullSnapshot()
         val rawSnapshot = snapshot.toString()
         importSyncBatchJson(rawSnapshot)
-        return rawSnapshot
+        return CloudSyncResult(
+            snapshotJson = rawSnapshot,
+            skippedSummary = skippedSummary(pushResult)
+        )
     }
 
     private fun appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Instant) {
@@ -523,6 +579,26 @@ class LocalVocabularyStore(context: Context) {
         val array = JSONArray()
         feedback.forEach { array.put(it.toJson()) }
         prefs.edit().putString(KEY_RECOMMENDATION_FEEDBACK, array.toString()).apply()
+    }
+
+    private fun saveSettings(settings: UserSettingsData, preserveUpdatedAt: Boolean) {
+        val storedSettings = if (preserveUpdatedAt) settings else settings.copy(updatedAt = Instant.now())
+        prefs.edit().putString(KEY_SETTINGS, storedSettings.toJson().toString()).apply()
+    }
+
+    private fun mergeSettings(incoming: UserSettingsData) {
+        val local = settings()
+        if (incoming.updatedAt > local.updatedAt || (incoming.updatedAt == Instant.EPOCH && local.updatedAt == Instant.EPOCH)) {
+            saveSettings(incoming, preserveUpdatedAt = true)
+        }
+    }
+
+    fun deviceId(): String {
+        val existing = prefs.getString(KEY_DEVICE_ID, null)
+        if (existing != null && DEVICE_ID_PATTERN.matches(existing)) return existing
+        val generated = "android-${UUID.randomUUID().toString().take(8)}"
+        prefs.edit().putString(KEY_DEVICE_ID, generated).apply()
+        return generated
     }
 
     private fun mergeCards(local: List<VocabularyCard>, incoming: List<VocabularyCard>): List<VocabularyCard> {
@@ -648,6 +724,7 @@ class LocalVocabularyStore(context: Context) {
             .put("timezone", timezone.id)
             .put("enable_word_recommendations", enableWordRecommendations)
             .put("recommendations_introduced_at", recommendationsIntroducedAt?.toString())
+            .put("settings_updated_at", updatedAt.toString())
     }
 
     private fun parseCard(json: JSONObject): VocabularyCard {
@@ -748,7 +825,8 @@ class LocalVocabularyStore(context: Context) {
             quietHoursEnd = LocalTime.parse(json.optString("quiet_hours_end", "09:00")),
             timezone = ZoneId.of(json.optString("timezone", "Asia/Seoul")),
             enableWordRecommendations = json.optBoolean("enable_word_recommendations", true),
-            recommendationsIntroducedAt = json.optInstant("recommendations_introduced_at")
+            recommendationsIntroducedAt = json.optInstant("recommendations_introduced_at"),
+            updatedAt = json.optInstant("settings_updated_at") ?: Instant.EPOCH
         )
     }
 
@@ -763,6 +841,37 @@ class LocalVocabularyStore(context: Context) {
         return getInt(name)
     }
 
+    private fun JSONObject.optNullableInstant(name: String): Instant? {
+        if (!has(name) || isNull(name)) return null
+        val value = optString(name)
+        return if (value.isBlank()) null else Instant.parse(value)
+    }
+
+    private fun saveCloudSyncStatus(status: CloudSyncStatus) {
+        prefs.edit().putString(
+            KEY_CLOUD_SYNC_STATUS,
+            JSONObject()
+                .put("last_success_at", status.lastSuccessAt?.toString() ?: JSONObject.NULL)
+                .put("last_failure_at", status.lastFailureAt?.toString() ?: JSONObject.NULL)
+                .put("last_error", status.lastError)
+                .put("last_skipped_summary", status.lastSkippedSummary)
+                .toString()
+        ).apply()
+    }
+
+    private fun skippedSummary(response: JSONObject): String {
+        val skipped = response.optJSONObject("skipped") ?: return ""
+        val parts = mutableListOf<String>()
+        val names = listOf("cards", "contexts", "definition_candidates", "review_events", "recommendation_feedback", "settings")
+        for (name in names) {
+            val count = skipped.optInt(name, 0)
+            if (count > 0) parts += "$name $count"
+        }
+        val reasonCount = skipped.optJSONArray("reasons")?.length() ?: 0
+        if (reasonCount > 0) parts += "reasons $reasonCount"
+        return parts.joinToString(", ")
+    }
+
     private companion object {
         const val KEY_CARDS = "cards"
         const val KEY_CONTEXTS = "contexts"
@@ -771,6 +880,9 @@ class LocalVocabularyStore(context: Context) {
         const val KEY_RECOMMENDATION_FEEDBACK = "recommendation_feedback"
         const val KEY_SETTINGS = "settings"
         const val KEY_CLOUD_SYNC = "cloud_sync"
+        const val KEY_CLOUD_SYNC_STATUS = "cloud_sync_status"
+        const val KEY_DEVICE_ID = "device_id"
+        val DEVICE_ID_PATTERN = Regex("^android-[0-9a-fA-F]{8}$")
     }
 }
 

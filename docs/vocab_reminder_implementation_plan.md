@@ -21,7 +21,10 @@ vocab_reminder_user_experience.md      ← 완성 기준. 구현 결과가 이 �
 ```text
 Mac:      Swift + SwiftUI, menu bar app (LSUIElement), SwiftData 또는 SQLite
 Android:  Kotlin + Jetpack Compose, Room, WorkManager (exact alarm 사용 금지)
-Backend:  Firebase (Auth + Firestore + Cloud Functions + FCM)
+Backend:  [2026-07-03 개정] Firebase 폐기. 단독 사용자 확정에 따라
+          Mac mini 자가호스팅 sync 서버(Node+SQLite)로 대체.
+          스펙/마일스톤은 docs/local_sync_server_plan.md가 정본.
+          외부 클라우드/유료 API 의존 금지가 기본값.
 Scheduler: 단순 간격 스케줄러 (FSRS 아님. 단, review_events가 append-only라 후일 전환 가능)
 알림 주 담당: Android / 캡처·관리 주 담당: Mac
 브라우저 확장: 만들지 않는다 (guide 2.1)
@@ -178,7 +181,7 @@ definition_candidates: 자동/수동 뜻은 전부 후보로 보존, user 소스
 모든 id: client 생성 UUID v4 (idempotent write)
 ```
 
-### 4.6 Firestore 레이아웃과 규칙 (guide 4.4)
+### 4.6 Firestore 레이아웃과 규칙 (guide 4.4) — [폐기: docs/local_sync_server_plan.md로 대체]
 
 ```text
 users/{uid}/cards | contexts | definition_candidates | review_events | devices
@@ -228,9 +231,10 @@ AC:   guide 19.1~19.3, 19.7~19.9, 19.11, 19.12가 자동 테스트로 존재하�
 ### M2 — Backend 최소
 
 ```text
-할 일: Firestore 보안 규칙(4.6), Functions에 dictionary proxy 스텁
-       (Free Dictionary API + 번역 fallback, API key는 Functions 환경변수)
-AC:   에뮬레이터에서 규칙 테스트 통과 (review_events update 시도가 거부되는 것 포함)
+대체됨: Firebase/Functions backend 계획은 폐기.
+현재 정본: docs/local_sync_server_plan.md 및 docs/automatic_sync_tunnel_plan.md.
+할 일: Mac mini Node+SQLite sync 서버 + outbound HTTPS tunnel 운영.
+AC:   Android/MacBook release 앱이 server URL/token/VPN 설정 없이 자동 sync.
 ```
 
 ### M3 — Android 핵심 vertical slice ★ 제품의 심장
@@ -333,12 +337,12 @@ M1에서 guide 6장·13장·19장의 모든 규칙을 벡터로 옮긴다(최소
 ## 8. 사용자에게 물어야 할 차단 질문 (해당 시점에만)
 
 ```text
-M0: Firebase 프로젝트 생성/키 발급 (사용자 계정 필요)
-M2: 사전 API 최종 선택 — 무료(Free Dictionary API) 품질로 시작할지,
-    유료(Oxford/Merriam-Webster) 키를 발급받을지
-M2: LLM resolver 사용 여부와 비용 한도 (모델/월 예산)
+[2026-07-03 개정: Firebase 프로젝트/외부 사전 API/LLM 예산 항목 폐기 —
+ 외부 서비스를 쓰지 않기로 확정 (docs/local_sync_server_plan.md 참조)]
 M5: Apple Developer 계정 (Developer ID 서명/notarization에 필요)
 M7: 단어 빈도 데이터 소스 라이선스 확인 (SUBTLEX 등)
+S1~S6: Mac mini 서버 설치 시점, stable HTTPS tunnel hostname/provider,
+       release 앱에 주입할 sync endpoint/token 전달 방식
 ```
 
 이 외의 모든 결정은 guide 20.2 기본값으로 진행한다.

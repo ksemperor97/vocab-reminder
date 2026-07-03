@@ -66,6 +66,7 @@ import com.vocabreminder.android.capture.CaptureAnalysis
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
 import com.vocabreminder.android.data.CloudSyncCredentials
+import com.vocabreminder.android.data.CloudSyncStatus
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.StoredContext
 import com.vocabreminder.android.data.StoredReviewEvent
@@ -79,13 +80,13 @@ import com.vocabreminder.android.notifications.QuietHoursWorker
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReminderScheduler
 import com.vocabreminder.android.scheduler.CardStatus
+import com.vocabreminder.android.scheduler.DueTimeJitter
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Scheduler
 import com.vocabreminder.android.scheduler.Wordbook
 import com.vocabreminder.android.sync.CloudSyncClient
 import com.vocabreminder.android.sync.CloudSyncConfig
-import com.vocabreminder.android.sync.FirebaseAuthRestClient
-import com.vocabreminder.android.sync.FirebasePasswordAuthConfig
+import com.vocabreminder.android.sync.SyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -190,13 +191,10 @@ private fun VocabReminderApp(
     var captureMethod by remember { mutableStateOf(initialMethod) }
     var sourceApp by remember { mutableStateOf(initialSourceApp) }
     var settings by remember { mutableStateOf(store.settings()) }
-    var firebaseWebApiKey by remember { mutableStateOf(initialCloudCredentials.firebaseWebApiKey) }
-    var firebaseEmail by remember { mutableStateOf("") }
-    var firebasePassword by remember { mutableStateOf("") }
-    var firebaseRefreshToken by remember { mutableStateOf(initialCloudCredentials.refreshToken) }
-    var cloudFunctionsUrl by remember { mutableStateOf(initialCloudCredentials.functionsBaseUrl) }
-    var cloudAuthToken by remember { mutableStateOf("") }
-    var firebaseAuthRunning by remember { mutableStateOf(false) }
+    var syncServerUrl by remember { mutableStateOf(initialCloudCredentials.serverBaseUrl) }
+    var syncBearerToken by remember { mutableStateOf(initialCloudCredentials.bearerToken) }
+    var syncStatus by remember { mutableStateOf(store.cloudSyncStatus()) }
+    var syncConnectionTestRunning by remember { mutableStateOf(false) }
     var cloudSyncRunning by remember { mutableStateOf(false) }
     var notificationPermissionGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     var showNotificationPermissionDialog by remember { mutableStateOf(!notificationPermissionGranted) }
@@ -253,7 +251,8 @@ private fun VocabReminderApp(
 
     fun saveResolved(result: DictionaryResult, method: CaptureMethod): Boolean {
         val now = Instant.now()
-        val dueAt = Scheduler.initialDueAt(now, settings.toSchedulerSettings())
+        val schedulerSettings = settings.toSchedulerSettings()
+        val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
         val normalizedLemma = result.lemma.ifBlank { CaptureNormalizer.lemma(result.displayWord) }
         val existingBefore = store.cards().firstOrNull { it.lemma.equals(normalizedLemma, ignoreCase = true) }
         val editedExample = previewExample.trim()
@@ -292,6 +291,7 @@ private fun VocabReminderApp(
         preview = null
         pendingAnalysis = null
         reload()
+        SyncWorker.enqueueDebounced(context)
         finishExternalCaptureIfNeeded(context, method)
         return true
     }
@@ -307,7 +307,8 @@ private fun VocabReminderApp(
             return false
         }
         val now = Instant.now()
-        val dueAt = Scheduler.initialDueAt(now, settings.toSchedulerSettings())
+        val schedulerSettings = settings.toSchedulerSettings()
+        val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
         val card = store.addCard(
             displayWord = trimmedWord,
             meaningKo = meaning,
@@ -326,42 +327,88 @@ private fun VocabReminderApp(
         manualFieldsVisible = false
         message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
         reload()
+        SyncWorker.enqueueDebounced(context)
         return true
     }
 
     fun runCloudSync() {
-        val functionsUrl = cloudFunctionsUrl.trim()
-        val token = cloudAuthToken.trim()
-        if (functionsUrl.isBlank() || token.isBlank()) {
-            message = "Functions URL과 Firebase Auth ID token을 입력하세요."
+        val serverUrl = syncServerUrl.trim()
+        val token = syncBearerToken.trim()
+        if (serverUrl.isBlank() || token.isBlank()) {
+            message = syncMissingConfigurationMessage()
             return
         }
-        if (firebaseRefreshToken.isNotBlank() || firebaseWebApiKey.isNotBlank() || functionsUrl.isNotBlank()) {
-            store.saveCloudSyncCredentials(
-                CloudSyncCredentials(
-                    firebaseWebApiKey = firebaseWebApiKey.trim(),
-                    functionsBaseUrl = functionsUrl,
-                    refreshToken = firebaseRefreshToken
-                )
+        store.saveCloudSyncCredentials(
+            CloudSyncCredentials(
+                serverBaseUrl = serverUrl,
+                bearerToken = token
             )
-        }
+        )
         cloudSyncRunning = true
         message = "동기화 중..."
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    store.syncWithCloud(CloudSyncClient(CloudSyncConfig(functionsUrl, token)))
+                    store.syncWithCloud(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
                 }
             }
             cloudSyncRunning = false
             result.fold(
-                onSuccess = { snapshot ->
-                    message = "Cloud sync 완료 · snapshot ${snapshot.length}자"
+                onSuccess = { syncResult ->
+                    store.recordCloudSyncSuccess(syncResult.skippedSummary)
+                    syncStatus = store.cloudSyncStatus()
+                    message = if (syncResult.skippedSummary.isBlank()) {
+                        "동기화 완료 · snapshot ${syncResult.snapshotJson.length}자"
+                    } else {
+                        "동기화 완료 · 스킵 ${syncResult.skippedSummary}"
+                    }
                     reload()
+                    ReminderNotifications.clearStalePrompt(context, store)
                     DailyReviewPlanner.planAndSchedule(context)
                 },
                 onFailure = { error ->
-                    message = "Cloud sync 실패: ${error.message ?: error::class.java.simpleName}"
+                    val errorMessage = error.message ?: error::class.java.simpleName
+                    store.recordCloudSyncFailure(errorMessage)
+                    syncStatus = store.cloudSyncStatus()
+                    message = "동기화 실패: $errorMessage"
+                }
+            )
+        }
+    }
+
+    fun testSyncConnection() {
+        val serverUrl = syncServerUrl.trim()
+        val token = syncBearerToken.trim()
+        if (serverUrl.isBlank() || token.isBlank()) {
+            message = syncMissingConfigurationMessage()
+            return
+        }
+        store.saveCloudSyncCredentials(
+            CloudSyncCredentials(
+                serverBaseUrl = serverUrl,
+                bearerToken = token
+            )
+        )
+        syncConnectionTestRunning = true
+        message = "연결 테스트 중..."
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    CloudSyncClient(CloudSyncConfig(serverUrl, token)).health()
+                }
+            }
+            syncConnectionTestRunning = false
+            result.fold(
+                onSuccess = { health ->
+                    store.recordCloudSyncSuccess()
+                    syncStatus = store.cloudSyncStatus()
+                    message = "동기화 연결 성공 · 카드 ${health.optInt("cards")}개"
+                },
+                onFailure = { error ->
+                    val errorMessage = error.message ?: error::class.java.simpleName
+                    store.recordCloudSyncFailure(errorMessage)
+                    syncStatus = store.cloudSyncStatus()
+                    message = "동기화 연결 실패: $errorMessage"
                 }
             )
         }
@@ -422,105 +469,15 @@ private fun VocabReminderApp(
         ReminderScheduler.cancel(context, deleted)
         ReminderNotifications.cancel(context, deleted)
         reload()
+        SyncWorker.enqueueDebounced(context)
         message = "${card.displayWord} 삭제됨"
-    }
-
-    fun signInFirebase() {
-        val apiKey = firebaseWebApiKey.trim()
-        val emailValue = firebaseEmail.trim()
-        val passwordValue = firebasePassword
-        if (apiKey.isBlank() || emailValue.isBlank() || passwordValue.isBlank()) {
-            message = "Firebase Web API key, email, password를 입력하세요."
-            return
-        }
-        firebaseAuthRunning = true
-        message = "Firebase 로그인 중..."
-        scope.launch {
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    FirebaseAuthRestClient().signInWithPassword(
-                        FirebasePasswordAuthConfig(
-                            webApiKey = apiKey,
-                            email = emailValue,
-                            password = passwordValue
-                        )
-                    )
-                }
-            }
-            firebaseAuthRunning = false
-            result.fold(
-                onSuccess = { session ->
-                    cloudAuthToken = session.idToken
-                    firebaseRefreshToken = session.refreshToken
-                    store.saveCloudSyncCredentials(
-                        CloudSyncCredentials(
-                            firebaseWebApiKey = apiKey,
-                            functionsBaseUrl = cloudFunctionsUrl.trim(),
-                            refreshToken = session.refreshToken
-                        )
-                    )
-                    firebasePassword = ""
-                    message = "Firebase 로그인 완료 · ID token ${session.expiresInSeconds}초 유효"
-                },
-                onFailure = { error ->
-                    message = "Firebase 로그인 실패: ${error.message ?: error::class.java.simpleName}"
-                }
-            )
-        }
-    }
-
-    fun refreshFirebaseToken() {
-        val apiKey = firebaseWebApiKey.trim()
-        val refreshToken = firebaseRefreshToken.trim()
-        if (apiKey.isBlank() || refreshToken.isBlank()) {
-            message = "저장된 Firebase Web API key와 refresh token이 필요합니다."
-            return
-        }
-        firebaseAuthRunning = true
-        message = "ID token 갱신 중..."
-        scope.launch {
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    FirebaseAuthRestClient().refreshIdToken(apiKey, refreshToken)
-                }
-            }
-            firebaseAuthRunning = false
-            result.fold(
-                onSuccess = { session ->
-                    cloudAuthToken = session.idToken
-                    firebaseRefreshToken = session.refreshToken
-                    store.saveCloudSyncCredentials(
-                        CloudSyncCredentials(
-                            firebaseWebApiKey = apiKey,
-                            functionsBaseUrl = cloudFunctionsUrl.trim(),
-                            refreshToken = session.refreshToken
-                        )
-                    )
-                    message = "ID token 갱신 완료 · ${session.expiresInSeconds}초 유효"
-                },
-                onFailure = { error ->
-                    message = "ID token 갱신 실패: ${error.message ?: error::class.java.simpleName}"
-                }
-            )
-        }
-    }
-
-    fun logoutFirebase() {
-        firebaseRefreshToken = ""
-        cloudAuthToken = ""
-        store.saveCloudSyncCredentials(
-            CloudSyncCredentials(
-                firebaseWebApiKey = firebaseWebApiKey.trim(),
-                functionsBaseUrl = cloudFunctionsUrl.trim(),
-                refreshToken = ""
-            )
-        )
-        message = "로그아웃됨"
     }
 
     LaunchedEffect(Unit) {
         reload()
         DailyReviewPlanner.planAndSchedule(context)
+        SyncWorker.ensureScheduled(context)
+        SyncWorker.enqueueImmediate(context)
         if (initialText.isNotBlank()) {
             showPreview(initialText, initialMethod, initialSourceApp)
         }
@@ -627,27 +584,21 @@ private fun VocabReminderApp(
                             message = "복습 재조정 ${count}개"
                             reload()
                         },
-                        onOpenSync = { showSyncSettings = true },
+                        onOpenSync = {
+                            syncStatus = store.cloudSyncStatus()
+                            showSyncSettings = true
+                        },
                         onBackFromSync = { showSyncSettings = false },
                         syncContent = {
                             CloudSyncPanel(
-                                firebaseWebApiKey = firebaseWebApiKey,
-                                firebaseEmail = firebaseEmail,
-                                firebasePassword = firebasePassword,
-                                functionsUrl = cloudFunctionsUrl,
-                                authToken = cloudAuthToken,
-                                authRunning = firebaseAuthRunning,
+                                serverUrl = syncServerUrl,
+                                authToken = syncBearerToken,
+                                status = syncStatus,
+                                connectionTestRunning = syncConnectionTestRunning,
                                 running = cloudSyncRunning,
-                                hasRefreshToken = firebaseRefreshToken.isNotBlank(),
-                                debugFields = BuildConfig.DEBUG,
-                                onFirebaseWebApiKeyChange = { firebaseWebApiKey = it },
-                                onFirebaseEmailChange = { firebaseEmail = it },
-                                onFirebasePasswordChange = { firebasePassword = it },
-                                onFunctionsUrlChange = { cloudFunctionsUrl = it },
-                                onAuthTokenChange = { cloudAuthToken = it },
-                                onSignIn = { signInFirebase() },
-                                onSignOut = { logoutFirebase() },
-                                onRefreshToken = { refreshFirebaseToken() },
+                                onServerUrlChange = { syncServerUrl = it },
+                                onAuthTokenChange = { syncBearerToken = it },
+                                onTestConnection = { testSyncConnection() },
                                 onSync = { runCloudSync() },
                                 onLocalExport = { exportLocalSync() },
                                 onLocalImport = { importLocalSync() }
@@ -1016,23 +967,14 @@ private fun AddWordSheetContent(
 
 @Composable
 private fun CloudSyncPanel(
-    firebaseWebApiKey: String,
-    firebaseEmail: String,
-    firebasePassword: String,
-    functionsUrl: String,
+    serverUrl: String,
     authToken: String,
-    authRunning: Boolean,
+    status: CloudSyncStatus,
+    connectionTestRunning: Boolean,
     running: Boolean,
-    hasRefreshToken: Boolean,
-    debugFields: Boolean,
-    onFirebaseWebApiKeyChange: (String) -> Unit,
-    onFirebaseEmailChange: (String) -> Unit,
-    onFirebasePasswordChange: (String) -> Unit,
-    onFunctionsUrlChange: (String) -> Unit,
+    onServerUrlChange: (String) -> Unit,
     onAuthTokenChange: (String) -> Unit,
-    onSignIn: () -> Unit,
-    onSignOut: () -> Unit,
-    onRefreshToken: () -> Unit,
+    onTestConnection: () -> Unit,
     onSync: () -> Unit,
     onLocalExport: () -> Unit,
     onLocalImport: () -> Unit
@@ -1046,29 +988,31 @@ private fun CloudSyncPanel(
         ) {
             Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                text = if (hasRefreshToken) "로그인 상태: refresh token 저장됨" else "로그인 상태: 로그인 필요",
+                text = cloudSyncStatusText(serverUrl, authToken),
                 style = MaterialTheme.typography.bodyMedium
             )
-            Text("마지막 동기화: 아직 없음", style = MaterialTheme.typography.bodySmall)
+            Text("마지막 성공: ${status.lastSuccessAt?.toString() ?: "없음"}", style = MaterialTheme.typography.bodySmall)
+            if (status.lastSkippedSummary.isNotBlank()) {
+                Text("스킵: ${status.lastSkippedSummary}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (status.lastError.isNotBlank()) {
+                Text("마지막 오류: ${status.lastError}", style = MaterialTheme.typography.bodySmall)
+            }
+            DebugCloudSyncControls(
+                serverUrl = serverUrl,
+                authToken = authToken,
+                onServerUrlChange = onServerUrlChange,
+                onAuthTokenChange = onAuthTokenChange,
+                onLocalExport = onLocalExport,
+                onLocalImport = onLocalImport
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    modifier = Modifier.testTag("firebase_sign_in_button"),
-                    enabled = !authRunning,
-                    onClick = {
-                        if (hasRefreshToken) {
-                            onSignOut()
-                        } else {
-                            onSignIn()
-                        }
-                    }
+                    modifier = Modifier.testTag("sync_connection_test_button"),
+                    enabled = !connectionTestRunning,
+                    onClick = onTestConnection
                 ) {
-                    Text(
-                        when {
-                            authRunning -> "로그인 중"
-                            hasRefreshToken -> "로그아웃"
-                            else -> "로그인"
-                        }
-                    )
+                    Text(if (connectionTestRunning) "확인 중" else "연결 테스트")
                 }
                 Button(
                     modifier = Modifier.testTag("cloud_sync_button"),
@@ -1077,75 +1021,6 @@ private fun CloudSyncPanel(
                 ) {
                     Text(if (running) "동기화 중" else "지금 동기화")
                 }
-            }
-            if (debugFields) {
-                Text("Debug sync fields", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        modifier = Modifier.testTag("local_sync_export_button"),
-                        onClick = onLocalExport
-                    ) {
-                        Text("Sync 내보내기")
-                    }
-                    Button(
-                        modifier = Modifier.testTag("local_sync_import_button"),
-                        onClick = onLocalImport
-                    ) {
-                        Text("Sync 가져오기")
-                    }
-                }
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_web_api_key_field"),
-                    value = firebaseWebApiKey,
-                    onValueChange = onFirebaseWebApiKeyChange,
-                    label = { Text("Firebase Web API key") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_email_field"),
-                    value = firebaseEmail,
-                    onValueChange = onFirebaseEmailChange,
-                    label = { Text("Firebase email") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("firebase_password_field"),
-                    value = firebasePassword,
-                    onValueChange = onFirebasePasswordChange,
-                    label = { Text("Firebase password") },
-                    singleLine = true
-                )
-                Button(
-                    modifier = Modifier.testTag("firebase_refresh_button"),
-                    enabled = !authRunning && hasRefreshToken,
-                    onClick = onRefreshToken
-                ) {
-                    Text(if (authRunning) "갱신 중" else "ID token 갱신")
-                }
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("sync_functions_url_field"),
-                    value = functionsUrl,
-                    onValueChange = onFunctionsUrlChange,
-                    label = { Text("Functions URL") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("sync_auth_token_field"),
-                    value = authToken,
-                    onValueChange = onAuthTokenChange,
-                    label = { Text("Firebase Auth ID token") },
-                    singleLine = true
-                )
             }
         }
     }

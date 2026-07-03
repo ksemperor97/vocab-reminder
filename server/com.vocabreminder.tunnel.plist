@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vocabreminder.tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd "__SERVER_DIR__" &amp;&amp; if [ -f "__SERVER_DIR__/tunnel/.env" ]; then set -a; . "__SERVER_DIR__/tunnel/.env"; set +a; fi; provider="${TUNNEL_PROVIDER:-cloudflare_quick_worker}"; case "$provider" in cloudflare_quick_worker|cloudflare-worker|quick-worker) export CLOUDFLARED_BIN="__CLOUDFLARED_BIN__"; exec "__NODE_BIN__" "__SERVER_DIR__/tunnel/run_cloudflare_quick_worker.mjs" ;; cloudflare_named|cloudflared|cloudflare) if [ -n "${CLOUDFLARED_CONFIG:-}" ]; then exec "__CLOUDFLARED_BIN__" --config "$CLOUDFLARED_CONFIG" tunnel run; fi; if [ -n "${CLOUDFLARED_TUNNEL_TOKEN:-}" ] &amp;&amp; [ "$CLOUDFLARED_TUNNEL_TOKEN" != "replace-with-cloudflare-tunnel-token" ]; then exec "__CLOUDFLARED_BIN__" tunnel run --token "$CLOUDFLARED_TUNNEL_TOKEN"; fi; echo "Missing CLOUDFLARED_TUNNEL_TOKEN or CLOUDFLARED_CONFIG in __SERVER_DIR__/tunnel/.env" &gt;&amp;2; exit 78 ;; *) echo "Unsupported TUNNEL_PROVIDER=$provider" &gt;&amp;2; exit 78 ;; esac</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>WorkingDirectory</key>
+  <string>__SERVER_DIR__</string>
+  <key>StandardOutPath</key>
+  <string>__SERVER_DIR__/logs/tunnel.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__SERVER_DIR__/logs/tunnel.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NO_AUTOUPDATE</key>
+    <string>true</string>
+  </dict>
+</dict>
+</plist>

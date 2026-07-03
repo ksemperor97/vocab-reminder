@@ -264,24 +264,29 @@ Android 앱의 역할:
 
 ### 4.3 Backend
 
-MVP는 Firebase 계열을 기본값으로 둔다.
+> **[2026-07-03 개정]** 단독 사용자 + 24시간 Mac mini 보유가 확정되어 Firebase를 쓰지 않는다.
+> sync 백엔드는 Mac mini 자가호스팅 서버(Node+SQLite)다 — `docs/local_sync_server_plan.md`가 정본.
+> 아래 Firebase 서술은 훗날 다사용자 제품화 시의 legacy 참고용으로만 남긴다.
+
+현재 MVP 기본값은 Mac mini local sync 서버 + outbound HTTPS tunnel이다.
 
 ```text
-Auth: Firebase Auth
-DB: Firestore
-Cloud functions: Dictionary/LLM proxy, optional scheduling support
-Push: FCM
+Auth: shared bearer token
+DB: Mac mini SQLite
+Server: Node HTTP sync server on 127.0.0.1:8787
+Remote access: stable public HTTPS URL -> outbound tunnel -> 127.0.0.1:8787
+Push: 없음. Android/Mac 로컬 알림 + pull/push sync trigger
 ```
 
 이유:
 
-1. Mac/Android SDK가 있다.
-2. 오프라인 persistence와 sync를 빠르게 붙일 수 있다.
-3. 개인 프로젝트/MVP에서 구현 속도가 빠르다.
+1. 이 앱은 단독 사용자용이다.
+2. Mac mini가 24시간 켜져 있어 자가호스팅이 가능하다.
+3. Android 사용자는 VPN/공유기/서버 주소/토큰 설정 없이 앱만 실행해야 한다.
 
-단, 제품화 단계에서 데이터 통제와 비용 예측이 중요해지면 Supabase/Postgres로 옮기는 것을 고려할 수 있다.
+단, 다사용자 제품화 단계에서는 Firebase/Supabase/Postgres 같은 외부 backend를 다시 검토할 수 있다.
 
-Claude는 처음부터 Supabase/Postgres로 복잡한 offline sync를 직접 구현하려 하지 말고, 사용자가 별도 요청하지 않는 한 MVP에서는 Firebase를 우선 고려한다.
+Claude/Codex는 이 repo의 MVP에서 Firebase를 되살리지 않는다. 원격 접속은 `docs/automatic_sync_tunnel_plan.md`와 `docs/sync_tunnel_runbook.md`를 따른다.
 
 ### 4.4 Firestore 데이터 레이아웃 (권장)
 
@@ -1457,7 +1462,7 @@ Claude는 한 번에 전체를 만들려고 하지 말고, vertical slice 중심
 - 기존 repo가 있는지 확인
 - 없으면 monorepo 구조 제안
 - domain model 문서화
-- Firebase/Supabase 중 하나 선택
+- Mac mini local sync 서버와 outbound HTTPS tunnel 기준으로 backend 구성
 - 환경변수 구조 정리
 ```
 
@@ -1853,7 +1858,7 @@ Claude는 구현할 때 아래 원칙을 따른다.
 기본값:
 
 ```text
-- Backend: Firebase
+- Backend: Mac mini Node+SQLite sync server + outbound HTTPS tunnel
 - Mac: SwiftUI native app
 - Android: Kotlin + Jetpack Compose
 - Notification primary device: Android

@@ -1,6 +1,47 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+fun syncBuildValue(name: String): String {
+    return ((findProperty(name) as String?) ?: System.getenv(name).orEmpty()).trim()
+}
+
+val defaultSyncServerUrl = syncBuildValue("VOCAB_SYNC_DEFAULT_URL")
+val defaultSyncBearerToken = syncBuildValue("VOCAB_SYNC_DEFAULT_TOKEN")
+val allowSyncReleaseDryRun = syncBuildValue("ALLOW_SYNC_RELEASE_DRY_RUN") == "1"
+
+fun buildConfigString(value: String): String {
+    return "\"" + value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"") + "\""
+}
+
+fun validateReleaseSyncConfig() {
+    if (defaultSyncServerUrl.isBlank()) {
+        throw GradleException("Release builds require VOCAB_SYNC_DEFAULT_URL.")
+    }
+    if (!defaultSyncServerUrl.startsWith("https://")) {
+        throw GradleException("Release builds require an HTTPS VOCAB_SYNC_DEFAULT_URL: $defaultSyncServerUrl")
+    }
+    val host = runCatching { URI(defaultSyncServerUrl).host.orEmpty() }.getOrDefault("")
+    val placeholderHost = host == "example.com" ||
+        host.endsWith(".example.com") ||
+        host == "example.net" ||
+        host.endsWith(".example.net") ||
+        host == "example.org" ||
+        host.endsWith(".example.org") ||
+        host == "example.invalid" ||
+        host.endsWith(".example.invalid") ||
+        host.endsWith(".invalid")
+    if (placeholderHost && !allowSyncReleaseDryRun) {
+        throw GradleException("Placeholder sync URLs require ALLOW_SYNC_RELEASE_DRY_RUN=1: $defaultSyncServerUrl")
+    }
+    if (defaultSyncBearerToken.isBlank()) {
+        throw GradleException("Release builds require VOCAB_SYNC_DEFAULT_TOKEN.")
+    }
 }
 
 android {
@@ -14,10 +55,23 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "DEFAULT_SYNC_SERVER_URL", buildConfigString(defaultSyncServerUrl))
+        buildConfigField("String", "DEFAULT_SYNC_BEARER_TOKEN", buildConfigString(defaultSyncBearerToken))
     }
 
     buildFeatures {
         compose = true
+    }
+
+    buildTypes {
+        create("deviceQa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            matchingFallbacks += listOf("debug")
+        }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
@@ -31,6 +85,20 @@ android {
 
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    sourceSets {
+        getByName("deviceQa") {
+            java.srcDir("src/debug/java")
+            res.srcDir("src/debug/res")
+            manifest.srcFile("src/debug/AndroidManifest.xml")
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    doFirst {
+        validateReleaseSyncConfig()
     }
 }
 

@@ -109,6 +109,54 @@ struct UserSettingsData: Codable, Equatable {
     var timezone: String = "Asia/Seoul"
     var enableWordRecommendations: Bool = true
     var recommendationsIntroducedAt: Date?
+    var updatedAt: Date = Date(timeIntervalSince1970: 0)
+
+    init(
+        dailyWordGoal: Int = 10,
+        maxQueueSize: Int = 20,
+        snoozeDurationMinutes: Int = 60,
+        quietHoursStart: String = "23:00",
+        quietHoursEnd: String = "09:00",
+        timezone: String = "Asia/Seoul",
+        enableWordRecommendations: Bool = true,
+        recommendationsIntroducedAt: Date? = nil,
+        updatedAt: Date = Date(timeIntervalSince1970: 0)
+    ) {
+        self.dailyWordGoal = dailyWordGoal
+        self.maxQueueSize = maxQueueSize
+        self.snoozeDurationMinutes = snoozeDurationMinutes
+        self.quietHoursStart = quietHoursStart
+        self.quietHoursEnd = quietHoursEnd
+        self.timezone = timezone
+        self.enableWordRecommendations = enableWordRecommendations
+        self.recommendationsIntroducedAt = recommendationsIntroducedAt
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case dailyWordGoal
+        case maxQueueSize
+        case snoozeDurationMinutes
+        case quietHoursStart
+        case quietHoursEnd
+        case timezone
+        case enableWordRecommendations
+        case recommendationsIntroducedAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dailyWordGoal = try container.decodeIfPresent(Int.self, forKey: .dailyWordGoal) ?? 10
+        maxQueueSize = try container.decodeIfPresent(Int.self, forKey: .maxQueueSize) ?? 20
+        snoozeDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .snoozeDurationMinutes) ?? 60
+        quietHoursStart = try container.decodeIfPresent(String.self, forKey: .quietHoursStart) ?? "23:00"
+        quietHoursEnd = try container.decodeIfPresent(String.self, forKey: .quietHoursEnd) ?? "09:00"
+        timezone = try container.decodeIfPresent(String.self, forKey: .timezone) ?? "Asia/Seoul"
+        enableWordRecommendations = try container.decodeIfPresent(Bool.self, forKey: .enableWordRecommendations) ?? true
+        recommendationsIntroducedAt = try container.decodeIfPresent(Date.self, forKey: .recommendationsIntroducedAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date(timeIntervalSince1970: 0)
+    }
 }
 
 struct DictionaryResult: Equatable {

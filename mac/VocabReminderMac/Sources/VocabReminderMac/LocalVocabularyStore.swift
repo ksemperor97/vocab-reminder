@@ -77,7 +77,9 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     func persistSettings() {
+        settings.updatedAt = Date()
         save()
+        enqueueAutoSync()
     }
 
     func refreshNotifications() {
@@ -89,6 +91,7 @@ final class LocalVocabularyStore: ObservableObject {
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: Date())
         message = generated > 0 ? "추천 채우기 완료" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced) : "추천 조건 또는 빈자리가 없습니다."
+        if generated > 0 { enqueueAutoSync() }
     }
 
     @discardableResult
@@ -128,6 +131,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
         if settings.recommendationsIntroducedAt == nil {
             settings.recommendationsIntroducedAt = now
+            settings.updatedAt = now
             save()
         }
         return selected.count
@@ -136,18 +140,25 @@ final class LocalVocabularyStore: ObservableObject {
     func savePreview(meaningOverride: String, exampleOverride: String, method: CaptureMethod = .macClipboardHotkey) {
         guard var result = preview else { return }
         let now = Date()
+        let schedulerSettings = schedulerSettings()
         result.meaningKo = meaningOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         result.exampleSentence = exampleOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         result.sourceSentence = result.exampleSentence.isEmpty ? result.sourceSentence : result.exampleSentence
         if result.meaningKo != preview?.meaningKo {
             result.sourceType = "user"
         }
-        let card = addResolvedCard(result, captureMethod: method, dueAt: Scheduler.initialDueAt(now: now, settings: schedulerSettings()), now: now)
+        let dueAt = DueTimeJitter.apply(
+            to: Scheduler.initialDueAt(now: now, settings: schedulerSettings),
+            now: now,
+            settings: schedulerSettings
+        )
+        let card = addResolvedCard(result, captureMethod: method, dueAt: dueAt, now: now)
         preview = nil
         pendingAnalysis = nil
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
         message = (card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨") + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
+        enqueueAutoSync()
     }
 
     func review(card: VocabularyCard, response: ReviewResponse) {
@@ -162,11 +173,51 @@ final class LocalVocabularyStore: ObservableObject {
             recentResponses: Array(recent),
             forgottenCountToday: forgottenCountToday(cardId: card.id, settings: schedulerSettings, now: now)
         )
-        update(card: card.applying(result.card, now: now))
-        append(event: result.event, now: now)
+        let jittered = DueTimeJitter.apply(to: result, now: now, settings: schedulerSettings)
+        update(card: card.applying(jittered.card, now: now))
+        append(event: jittered.event, now: now)
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
         message = "복습 기록됨" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
+        enqueueAutoSync()
+    }
+
+    @discardableResult
+    func review(cardId: String, response: ReviewResponse) -> VocabularyCard? {
+        guard let card = cards.first(where: { $0.id == cardId }) else { return nil }
+        review(card: card, response: response)
+        return cards.first { $0.id == cardId }
+    }
+
+    func updateCardDetails(
+        cardId: String,
+        displayWord: String,
+        lemma: String,
+        meaningKo: String,
+        definitionEn: String,
+        partOfSpeech: String,
+        exampleSentence: String
+    ) {
+        guard let index = cards.firstIndex(where: { $0.id == cardId && $0.deletedAt == nil }) else { return }
+        let now = Date()
+        let trimmedDisplayWord = displayWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLemma = lemma.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMeaning = meaningKo.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updated = cards[index]
+        updated.displayWord = trimmedDisplayWord.isEmpty ? updated.displayWord : trimmedDisplayWord
+        updated.lemma = (trimmedLemma.isEmpty ? updated.displayWord : trimmedLemma).lowercased()
+        updated.meaningKo = trimmedMeaning
+        updated.definitionEn = definitionEn.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.partOfSpeech = partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.exampleSentence = exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        if updated.meaningKo != cards[index].meaningKo {
+            updated.definitionSourcePrimary = "user"
+        }
+        updated.updatedAt = now
+        updated.version += 1
+        update(card: updated)
+        message = "\(updated.displayWord) 수정됨"
+        enqueueAutoSync()
     }
 
     func rebalanceDueCards() {
@@ -182,19 +233,26 @@ final class LocalVocabularyStore: ObservableObject {
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
         message = "복습 재조정 \(results.count)개" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
+        if !results.isEmpty || generated > 0 { enqueueAutoSync() }
     }
 
     func markRecommendationStarted(_ card: VocabularyCard) {
         guard card.wordbook == .recommended, card.deletedAt == nil else { return }
         let now = Date()
+        let schedulerSettings = schedulerSettings()
         var updated = card
         updated.recommendationStartedAt = now
-        updated.dueAt = Scheduler.initialDueAt(now: now, settings: schedulerSettings())
+        updated.dueAt = DueTimeJitter.apply(
+            to: Scheduler.initialDueAt(now: now, settings: schedulerSettings),
+            now: now,
+            settings: schedulerSettings
+        )
         updated.updatedAt = now
         updated.version += 1
         update(card: updated)
         appendRecommendationFeedback(card: updated, action: "started", now: now)
         message = "\(card.displayWord) 복습 시작"
+        enqueueAutoSync()
     }
 
     func markRecommendationStarted(cardId: String) {
@@ -212,6 +270,7 @@ final class LocalVocabularyStore: ObservableObject {
         updated.version += 1
         update(card: updated)
         message = action == "known" ? "\(card.displayWord) 알고 있음으로 처리" : "\(card.displayWord) 관심 없음으로 처리"
+        enqueueAutoSync()
     }
 
     func softDeleteRecommendation(cardId: String, action: String) {
@@ -229,6 +288,7 @@ final class LocalVocabularyStore: ObservableObject {
         update(card: updated)
         MacNotificationScheduler.shared.cancel(card: updated)
         message = "\(card.displayWord) 삭제됨"
+        enqueueAutoSync()
     }
 
     func exportSyncSnapshot() {
@@ -275,12 +335,13 @@ final class LocalVocabularyStore: ObservableObject {
             settings = merged.settings
             save()
             message = "Sync batch imported · cards \(activeCards.count)"
+            enqueueAutoSync()
         } catch {
             message = "Sync batch import failed: \(error.localizedDescription)"
         }
     }
 
-    func syncWithCloud(functionsBaseURL: String, authToken: String) async throws -> CloudSyncSummary {
+    func syncWithServer(serverBaseURL: String, authToken: String) async throws -> CloudSyncSummary {
         save()
         let payload = SyncBatchFactory.build(
             cards: cards,
@@ -290,9 +351,11 @@ final class LocalVocabularyStore: ObservableObject {
             recommendationFeedback: recommendationFeedback,
             settings: settings
         )
-        let snapshotData = try await CloudSyncClient(
-            config: CloudSyncConfig(functionsBaseURL: functionsBaseURL, bearerToken: authToken)
-        ).pushAndPull(localBatch: payload)
+        let client = CloudSyncClient(
+            config: CloudSyncConfig(serverBaseURL: serverBaseURL, bearerToken: authToken)
+        )
+        let pushResult = try await client.push(localBatch: payload)
+        let snapshotData = try await client.pullSnapshot()
         let snapshot = try SyncBatchFactory.localSnapshot(from: snapshotData)
         let merged = SyncBatchFactory.merge(
             local: StoreSnapshot(
@@ -312,7 +375,7 @@ final class LocalVocabularyStore: ObservableObject {
         recommendationFeedback = merged.recommendationFeedback
         settings = merged.settings
         save()
-        return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count)
+        return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count, skippedSummary: skippedSummary(pushResult))
     }
 
     private func addResolvedCard(_ result: DictionaryResult, captureMethod: CaptureMethod, dueAt: Date, now: Date, wordbook: Wordbook = .user) -> VocabularyCard {
@@ -482,11 +545,31 @@ final class LocalVocabularyStore: ObservableObject {
         }
         refreshNotifications()
     }
+
+    private func enqueueAutoSync() {
+        guard scheduleNotifications else { return }
+        MacAutoSyncController.shared.enqueueDebounced()
+    }
+
+    private func skippedSummary(_ response: [String: Any]) -> String {
+        guard let skipped = response["skipped"] as? [String: Any] else { return "" }
+        let names = ["cards", "contexts", "definition_candidates", "review_events", "recommendation_feedback", "settings"]
+        var parts: [String] = []
+        for name in names {
+            let count = skipped[name] as? Int ?? 0
+            if count > 0 { parts.append("\(name) \(count)") }
+        }
+        if let reasons = skipped["reasons"] as? [Any], reasons.isEmpty == false {
+            parts.append("reasons \(reasons.count)")
+        }
+        return parts.joined(separator: ", ")
+    }
 }
 
 struct CloudSyncSummary {
     var cards: Int
     var reviewEvents: Int
+    var skippedSummary: String = ""
 }
 
 struct StoreSnapshot: Codable {

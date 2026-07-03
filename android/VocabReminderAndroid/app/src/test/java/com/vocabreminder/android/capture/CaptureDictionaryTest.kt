@@ -24,6 +24,12 @@ class CaptureDictionaryTest {
             if (then.has("candidates")) {
                 assertEquals(vector.getString("name"), readStringList(then.getJSONArray("candidates")), analysis.candidates)
             }
+            if (then.has("display_word")) {
+                assertEquals(vector.getString("name"), then.getString("display_word"), analysis.displayWord)
+            }
+            if (then.has("lemma")) {
+                assertEquals(vector.getString("name"), then.getString("lemma"), analysis.lemma)
+            }
             assertCandidateIncludes(vector, then, analysis)
             assertCandidateExcludes(vector, then, analysis)
         }
@@ -55,6 +61,23 @@ class CaptureDictionaryTest {
 
         assertEquals("mitigate", result.lemma)
         assertEquals("완화하다, 줄이다", result.meaningKo)
+        assertEquals("local_dictionary", result.sourceType)
+    }
+
+    @Test
+    fun inflectedLookingResolvesToLookMeaning() {
+        val result = DictionaryResolver.resolve("looking", sourceApp = "test")
+
+        assertEquals("look", result.lemma)
+        assertEquals("보다, 바라보다; 찾아보다", result.meaningKo)
+    }
+
+    @Test
+    fun behemothResolvesToLocalMeaning() {
+        val result = DictionaryResolver.resolve("behemoth", sourceApp = "test")
+
+        assertEquals("behemoth", result.lemma)
+        assertEquals("거대한 것, 거대한 짐승", result.meaningKo)
         assertEquals("local_dictionary", result.sourceType)
     }
 

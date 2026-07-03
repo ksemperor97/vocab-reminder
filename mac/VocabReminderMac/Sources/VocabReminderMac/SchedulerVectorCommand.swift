@@ -8,6 +8,9 @@ enum SchedulerVectorCommand {
         if CommandLine.arguments.contains("--check-notification-status") {
             runNotificationStatusAndExit()
         }
+        if CommandLine.arguments.contains("--check-cloud-sync-smoke") {
+            runCloudSyncSmokeAndExit()
+        }
         guard CommandLine.arguments.contains("--check-scheduler-vectors") else { return }
         do {
             try run()
@@ -58,6 +61,87 @@ enum SchedulerVectorCommand {
         exit(0)
     }
 
+    private static func runCloudSyncSmokeAndExit() {
+        let env = ProcessInfo.processInfo.environment
+        guard let serverURL = env["VOCAB_SYNC_SMOKE_URL"], serverURL.isEmpty == false else {
+            fputs("VOCAB_SYNC_SMOKE_URL is required\n", stderr)
+            exit(64)
+        }
+        guard let token = env["VOCAB_SYNC_SMOKE_TOKEN"], token.isEmpty == false else {
+            fputs("VOCAB_SYNC_SMOKE_TOKEN is required\n", stderr)
+            exit(64)
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let result = CloudSyncSmokeResultBox()
+        Task.detached {
+            do {
+                try await runCloudSyncSmoke(serverURL: serverURL, token: token)
+                result.message = "Mac cloud sync smoke passed"
+                result.exitCode = 0
+            } catch {
+                result.message = "Mac cloud sync smoke failed: \(error)"
+                result.exitCode = 1
+            }
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + 20) == .timedOut {
+            fputs("Mac cloud sync smoke timed out\n", stderr)
+            exit(1)
+        }
+        if result.exitCode == 0 {
+            print(result.message)
+        } else {
+            fputs("\(result.message)\n", stderr)
+        }
+        exit(Int32(result.exitCode))
+    }
+
+    private static func runCloudSyncSmoke(serverURL: String, token: String) async throws {
+        let client = CloudSyncClient(config: CloudSyncConfig(serverBaseURL: serverURL, bearerToken: token))
+        let health = try await client.health()
+        try require(health["ok"] as? Bool == true, "Mac cloud sync health should return ok=true")
+        try require(health["cards"] as? Int == 0, "Mac cloud sync smoke should start with zero cards")
+
+        do {
+            _ = try await CloudSyncClient(
+                config: CloudSyncConfig(serverBaseURL: serverURL, bearerToken: "wrong-token")
+            ).health()
+            throw CheckError("Mac cloud sync wrong token should fail")
+        } catch CloudSyncError.http(let status, _) {
+            try require(status == 401, "Mac cloud sync wrong token should return 401")
+        }
+
+        let pushResult = try await client.push(localBatch: cloudSyncSmokeBatch())
+        let applied = pushResult["applied"] as? [String: Any]
+        try require(applied?["cards"] as? Int == 1, "Mac cloud sync push should apply one card")
+        try require(applied?["review_events"] as? Int == 1, "Mac cloud sync push should apply one review event")
+
+        let snapshotData = try await client.pullSnapshot()
+        let snapshot = try JSONSerialization.jsonObject(with: snapshotData) as? [String: Any]
+        let cards = snapshot?["cards"] as? [[String: Any]]
+        try require(cards?.first?["lemma"] as? String == "resilient", "Mac cloud sync snapshot should return pushed card")
+
+        let duplicate = try await client.push(localBatch: [
+            "review_events": cloudSyncSmokeBatch()["review_events"] as! [[String: Any]]
+        ])
+        let duplicateApplied = duplicate["applied"] as? [String: Any]
+        try require(duplicateApplied?["review_events"] as? Int == 0, "Mac cloud sync duplicate review event should be idempotent")
+
+        var badCard = (cloudSyncSmokeBatch()["cards"] as! [[String: Any]])[0]
+        badCard["id"] = "bad-card"
+        badCard["due_at"] = "not-a-date"
+        let broken = try await client.push(localBatch: ["cards": [badCard]])
+        let skipped = broken["skipped"] as? [String: Any]
+        try require(skipped?["cards"] as? Int == 1, "Mac cloud sync broken card should be skipped")
+    }
+
+    private final class CloudSyncSmokeResultBox: @unchecked Sendable {
+        var message = ""
+        var exitCode = 1
+    }
+
     private static func describeNotificationRequest(_ request: UNNotificationRequest) -> String {
         [
             request.identifier,
@@ -65,6 +149,68 @@ enum SchedulerVectorCommand {
             request.content.body.replacingOccurrences(of: "\n", with: " / "),
             request.content.categoryIdentifier
         ].joined(separator: "|")
+    }
+
+    private static func cloudSyncSmokeBatch() -> [String: Any] {
+        [
+            "cards": [
+                [
+                    "id": "mac-smoke-card",
+                    "lemma": "resilient",
+                    "display_word": "resilient",
+                    "language": "en",
+                    "wordbook": "user",
+                    "meaning_ko": "회복력 있는",
+                    "definition_en": "Able to recover quickly.",
+                    "part_of_speech": "adjective",
+                    "source_sentence_primary": "A resilient system recovers quickly.",
+                    "source_app_primary": "mac-smoke",
+                    "definition_source_primary": "user",
+                    "status": "new",
+                    "due_at": "2026-07-03T00:00:00.000Z",
+                    "interval_days": 0,
+                    "lapse_count": 0,
+                    "created_device_id": "mac-smoke",
+                    "created_at": "2026-07-03T00:00:00.000Z",
+                    "updated_at": "2026-07-03T00:00:00.000Z",
+                    "version": 1
+                ]
+            ],
+            "review_events": [
+                [
+                    "id": "mac-smoke-event",
+                    "card_id": "mac-smoke-card",
+                    "device_id": "mac-smoke",
+                    "response": "remembered",
+                    "previous_status": "new",
+                    "next_status": "review",
+                    "previous_due_at": "2026-07-03T00:00:00.000Z",
+                    "next_due_at": "2026-07-04T00:00:00.000Z",
+                    "previous_interval_days": 0,
+                    "next_interval_days": 1,
+                    "client_created_at": "2026-07-03T00:00:00.000Z",
+                    "server_created_at": "2026-07-03T00:00:00.000Z",
+                    "metadata": [:]
+                ]
+            ],
+            "settings": [
+                "max_queue_size": 20,
+                "snooze_duration_minutes": 60,
+                "daily_word_goal": 8,
+                "quiet_hours_start": "23:00",
+                "quiet_hours_end": "09:00",
+                "timezone": "Asia/Seoul",
+                "enable_android_notifications": true,
+                "enable_mac_notifications": true,
+                "show_meaning_on_lockscreen": false,
+                "show_meaning_after_remembered": true,
+                "auto_generate_korean_meaning": true,
+                "save_source_url": true,
+                "save_surrounding_text": false,
+                "enable_word_recommendations": true,
+                "recommendations_introduced_at": NSNull()
+            ]
+        ]
     }
 
     private final class NotificationStatusBox: @unchecked Sendable {
@@ -98,6 +244,12 @@ enum SchedulerVectorCommand {
         let robust = DictionaryResolver.resolve("Robustly,")
         try require(robust.lemma == "robust", "Expected robust lemma, got \(robust.lemma)")
         try require(robust.meaningKo == "견고한, 안정적인", "Unexpected robust meaning")
+        let behemoth = DictionaryResolver.resolve("behemoth")
+        try require(behemoth.lemma == "behemoth", "Expected behemoth lemma, got \(behemoth.lemma)")
+        try require(behemoth.meaningKo == "거대한 것, 거대한 짐승", "Unexpected behemoth meaning")
+        let looking = DictionaryResolver.resolve("looking")
+        try require(looking.lemma == "look", "Expected look lemma, got \(looking.lemma)")
+        try require(looking.meaningKo == "보다, 바라보다; 찾아보다", "Unexpected looking meaning")
         let syncPayload = try SyncBatchFactory.jsonData(
             cards: [
                 VocabularyCard(
@@ -136,15 +288,19 @@ enum SchedulerVectorCommand {
         let syncJson = try JSONSerialization.jsonObject(with: syncPayload) as! [String: Any]
         let cards = syncJson["cards"] as! [[String: Any]]
         try require(cards.first?["status"] as? String == "new", "Mac sync card status should be lowercase")
+        try require((cards.first?["created_device_id"] as? String)?.range(of: #"^mac-[0-9a-fA-F]{8}$"#, options: .regularExpression) != nil, "Mac sync should export persistent mac device id")
         let feedbackJson = syncJson["recommendation_feedback"] as! [[String: Any]]
         try require(feedbackJson.first?["action"] as? String == "known", "Mac sync should export recommendation feedback")
         let settingsJson = syncJson["settings"] as! [String: Any]
         try require(settingsJson["recommendations_introduced_at"] as? String == "1970-01-01T00:00:00Z", "Mac sync should export recommendation intro timestamp")
+        try require(settingsJson["settings_updated_at"] as? String == "1970-01-01T00:00:00Z", "Mac sync should export settings update timestamp")
         let importedSnapshot = try SyncBatchFactory.localSnapshot(from: syncPayload)
         try require(importedSnapshot.cards.first?.status == .new, "Mac sync import should restore status")
         try require(importedSnapshot.cards.first?.wordbook == .user, "Mac sync import should restore wordbook")
         try require(importedSnapshot.recommendationFeedback.first?.action == "known", "Mac sync import should restore recommendation feedback")
         try require(importedSnapshot.settings.recommendationsIntroducedAt == Date(timeIntervalSince1970: 0), "Mac sync import should restore recommendation intro timestamp")
+        try require(importedSnapshot.settings.updatedAt == Date(timeIntervalSince1970: 0), "Mac sync import should restore settings update timestamp")
+        try assertMacDeviceIdPersistence()
 
         let duplicatePayload: [String: Any] = [
             "cards": [
@@ -263,6 +419,7 @@ enum SchedulerVectorCommand {
         let idempotentSnapshot = SyncBatchFactory.merge(local: mergedSnapshot, incoming: duplicateSnapshot)
         try require(idempotentSnapshot.cards.count == mergedSnapshot.cards.count, "Mac sync UI import should be idempotent for cards")
         try require(idempotentSnapshot.contexts.count == mergedSnapshot.contexts.count, "Mac sync UI import should be idempotent for contexts")
+        try assertSettingsTimestampMerge()
         try assertLocalRecommendedCapturePromotion()
 
         let notificationNow = Date()
@@ -276,42 +433,61 @@ enum SchedulerVectorCommand {
             cards: notificationCards,
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3)
         )
-        try require(enabledMacNotifications.map(\.id) == ["user-due", "rec-unstarted", "rec-started"], "Mac notifications should not let future user cards displace due recommendation alerts")
+        try require(enabledMacNotifications.map(\.id) == ["user-due"], "Mac notifications should show one active prompt at a time")
         let disabledMacNotifications = MacNotificationPlan.scheduledCards(
             cards: notificationCards,
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)
         )
-        try require(disabledMacNotifications.map(\.id) == ["user-due", "user-future"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
+        try require(disabledMacNotifications.map(\.id) == ["user-due"], "Mac notifications should keep one active prompt when recommendations are disabled")
+        try assertMacNotificationReviewAction()
+        try assertDueTimeJitter()
 
         try assertRecommendationEngine()
+    }
 
-        let signInURL = try FirebaseAuthRequestFactory.signInURL(webApiKey: "api key")
-        try require(signInURL.absoluteString == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=api%20key", "Mac Firebase sign-in URL should include encoded Web API key")
-        let signInBody = try JSONSerialization.jsonObject(
-            with: FirebaseAuthRequestFactory.signInBody(email: "user@example.com", password: "secret")
-        ) as! [String: Any]
-        try require(signInBody["returnSecureToken"] as? Bool == true, "Mac Firebase sign-in should request secure token")
-        let signInSession = try FirebaseAuthRequestFactory.parseSignIn([
-            "idToken": "id-token",
-            "refreshToken": "refresh-token",
-            "expiresIn": "3600",
-            "email": "user@example.com",
-            "localId": "uid-1"
-        ], fallbackEmail: "")
-        try require(signInSession.idToken == "id-token", "Mac Firebase sign-in should parse idToken")
-        try require(signInSession.refreshToken == "refresh-token", "Mac Firebase sign-in should parse refreshToken")
-        let refreshURL = try FirebaseAuthRequestFactory.refreshURL(webApiKey: "api key")
-        try require(refreshURL.absoluteString == "https://securetoken.googleapis.com/v1/token?key=api%20key", "Mac Firebase refresh URL should include encoded Web API key")
-        let refreshBody = String(data: FirebaseAuthRequestFactory.refreshBody(refreshToken: "refresh token"), encoding: .utf8)
-        try require(refreshBody == "grant_type=refresh_token&refresh_token=refresh+token", "Mac Firebase refresh body should be form encoded")
-        let refreshedSession = try FirebaseAuthRequestFactory.parseRefresh([
-            "id_token": "fresh-id-token",
-            "refresh_token": "fresh-refresh-token",
-            "expires_in": "3600",
-            "user_id": "uid-1"
-        ], existingRefreshToken: "refresh-token")
-        try require(refreshedSession.idToken == "fresh-id-token", "Mac Firebase refresh should parse id_token")
-        try require(refreshedSession.refreshToken == "fresh-refresh-token", "Mac Firebase refresh should parse refresh_token")
+    @MainActor
+    private static func assertMacDeviceIdPersistence() throws {
+        let suiteName = "VocabReminderMacDeviceIdTest-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw CheckError("Could not create device id defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = SyncBatchFactory.deviceId(defaults: defaults)
+        let second = SyncBatchFactory.deviceId(defaults: defaults)
+
+        try require(first == second, "Mac device id should persist across reads")
+        try require(first.range(of: #"^mac-[0-9a-fA-F]{8}$"#, options: .regularExpression) != nil, "Mac device id should use mac-XXXXXXXX format")
+    }
+
+    private static func assertSettingsTimestampMerge() throws {
+        let local = StoreSnapshot(
+            cards: [],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            recommendationFeedback: [],
+            settings: UserSettingsData(dailyWordGoal: 5, updatedAt: Date(timeIntervalSince1970: 200))
+        )
+        let olderIncoming = StoreSnapshot(
+            cards: [],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            recommendationFeedback: [],
+            settings: UserSettingsData(dailyWordGoal: 9, updatedAt: Date(timeIntervalSince1970: 100))
+        )
+        let newerIncoming = StoreSnapshot(
+            cards: [],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            recommendationFeedback: [],
+            settings: UserSettingsData(dailyWordGoal: 12, updatedAt: Date(timeIntervalSince1970: 300))
+        )
+
+        try require(SyncBatchFactory.merge(local: local, incoming: olderIncoming).settings.dailyWordGoal == 5, "Mac sync should keep newer local settings")
+        try require(SyncBatchFactory.merge(local: local, incoming: newerIncoming).settings.dailyWordGoal == 12, "Mac sync should apply newer incoming settings")
     }
 
     @MainActor
@@ -372,6 +548,126 @@ enum SchedulerVectorCommand {
         store.softDeleteCard(promoted)
         try require(store.activeCards.isEmpty, "Mac delete should remove card from active list")
         try require(store.cards.first?.deletedAt != nil, "Mac delete should mark deletedAt")
+    }
+
+    @MainActor
+    private static func assertMacNotificationReviewAction() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "VocabReminderSelfCheck-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reviewPayload: [String: Any] = [
+            "cards": [
+                [
+                    "id": "review-card",
+                    "lemma": "review-card",
+                    "display_word": "review-card",
+                    "meaning_ko": "meaning",
+                    "definition_en": "",
+                    "part_of_speech": "",
+                    "source_sentence_primary": "A review-card example.",
+                    "definition_source_primary": "test",
+                    "wordbook": "user",
+                    "status": "new",
+                    "due_at": "1970-01-01T00:00:00Z",
+                    "interval_days": 0,
+                    "lapse_count": 0,
+                    "created_at": "1970-01-01T00:00:00Z",
+                    "updated_at": "1970-01-01T00:00:00Z",
+                    "version": 1
+                ]
+            ],
+            "contexts": [],
+            "definition_candidates": [],
+            "review_events": [],
+            "recommendation_feedback": [],
+            "settings": [
+                "daily_word_goal": 10,
+                "enable_word_recommendations": false
+            ]
+        ]
+        let syncURL = tempDir.appending(path: "vocab-reminder-sync.json")
+        try JSONSerialization.data(withJSONObject: reviewPayload).write(to: syncURL)
+
+        let store = LocalVocabularyStore(appSupportURL: tempDir, scheduleNotifications: false)
+        store.importSyncSnapshot()
+        try require(store.activeCards.count == 1, "Mac notification review setup should import one user card")
+
+        store.updateCardDetails(
+            cardId: "review-card",
+            displayWord: "edited-card",
+            lemma: "Edited",
+            meaningKo: "edited meaning",
+            definitionEn: "edited definition",
+            partOfSpeech: "noun",
+            exampleSentence: "Edited example."
+        )
+        guard let editedCard = store.activeCards.first(where: { $0.id == "review-card" }) else {
+            throw CheckError("Mac card edit should keep the edited card active")
+        }
+        try require(editedCard.displayWord == "edited-card", "Mac card edit should update display word")
+        try require(editedCard.lemma == "edited", "Mac card edit should normalize lemma")
+        try require(editedCard.meaningKo == "edited meaning", "Mac card edit should update meaning")
+        try require(editedCard.definitionSourcePrimary == "user", "Mac card edit should mark edited meaning as user source")
+        try require(editedCard.exampleSentence == "Edited example.", "Mac card edit should update example sentence")
+
+        guard let updatedCard = MacNotificationScheduler.handleAction(MacNotificationAction.forgotten, cardId: "review-card", store: store) else {
+            throw CheckError("Mac notification forgotten action should return the updated card")
+        }
+        try require(store.reviewEvents.count == 1, "Mac notification forgotten action should record one review event")
+        try require(store.reviewEvents[0].response == .forgotten, "Mac notification forgotten action should map to forgotten response")
+        try require(store.message.hasPrefix("복습 기록됨"), "Mac notification review action should use normal review feedback")
+        let feedback = MacNotificationScheduler.feedbackContent(for: MacNotificationAction.forgotten, card: updatedCard)
+        try require(feedback?.body.contains("뜻: edited meaning") == true, "Mac notification forgotten action should show the meaning")
+        try require(feedback?.body.contains("예문: Edited example.") == true, "Mac notification forgotten action should show the example sentence")
+        try require(MacNotificationScheduler.producesFeedback(action: MacNotificationAction.forgotten), "Mac notification forgotten action should hold the queue for feedback")
+        try require(MacNotificationScheduler.producesFeedback(action: MacNotificationAction.remembered), "Mac notification remembered action should hold the queue for feedback")
+        try require(!MacNotificationScheduler.producesFeedback(action: MacNotificationAction.unavailable), "Mac notification unavailable action should not hold the queue for feedback")
+        try require(
+            MacNotificationScheduler.shouldAcknowledgeFeedback(
+                action: MacNotificationAction.feedbackAcknowledge,
+                category: MacNotificationAction.feedbackCategory
+            ),
+            "Mac notification feedback acknowledge action should release the queue"
+        )
+        try require(
+            MacNotificationScheduler.shouldAcknowledgeFeedback(
+                action: UNNotificationDismissActionIdentifier,
+                category: MacNotificationAction.feedbackCategory
+            ),
+            "Mac notification feedback dismissal should release the queue"
+        )
+        try require(
+            !MacNotificationScheduler.shouldAcknowledgeFeedback(
+                action: MacNotificationAction.feedbackAcknowledge,
+                category: MacNotificationAction.reviewCategory
+            ),
+            "Mac notification acknowledge action should only apply to feedback notifications"
+        )
+    }
+
+    private static func assertDueTimeJitter() throws {
+        let now = Date(timeIntervalSince1970: 0)
+        let settings = SchedulerSettings()
+        let baseDueAt = Scheduler.initialDueAt(now: now, settings: settings)
+        let earliest = DueTimeJitter.apply(to: baseDueAt, now: now, settings: settings) { range in
+            range.lowerBound
+        }
+        let latest = DueTimeJitter.apply(to: baseDueAt, now: now, settings: settings) { range in
+            range.upperBound
+        }
+        try require(earliest != latest, "Due jitter should spread identical base due times")
+        try require(earliest >= now.addingTimeInterval(60), "Due jitter should not schedule immediate follow-ups")
+
+        let card = SchedulerCard(id: "jitter-review", status: .new, intervalDays: 0, dueAt: now)
+        let result = Scheduler.applyReview(card: card, response: .remembered, now: now)
+        let jittered = DueTimeJitter.apply(to: result, now: now, settings: settings) { range in
+            range.upperBound
+        }
+        try require(jittered.card.dueAt > result.card.dueAt, "Review jitter should shift next due time")
+        try require(jittered.event.nextDueAt == jittered.card.dueAt, "Review jitter should keep event and card due times aligned")
+        try require(jittered.event.metadata["due_jitter_seconds"] != nil, "Review jitter should record jitter metadata")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {
@@ -692,6 +988,12 @@ enum SchedulerVectorCommand {
             }
             if let candidates = then["candidates"] as? [String] {
                 try require(analysis.candidates == candidates, "\(name): candidates")
+            }
+            if let displayWord = then["display_word"] as? String {
+                try require(analysis.displayWord == displayWord, "\(name): display_word \(analysis.displayWord)")
+            }
+            if let lemma = then["lemma"] as? String {
+                try require(analysis.lemma == lemma, "\(name): lemma \(analysis.lemma)")
             }
             for candidate in then["candidates_include"] as? [String] ?? [] {
                 try require(analysis.candidates.contains(candidate), "\(name): missing \(candidate)")

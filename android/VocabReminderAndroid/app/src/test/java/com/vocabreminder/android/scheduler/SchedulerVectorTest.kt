@@ -29,6 +29,29 @@ class SchedulerVectorTest {
         }
     }
 
+    @Test
+    fun dueTimeJitterSpreadsBaseDueTimes() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        val settings = SchedulerSettings()
+        val baseDueAt = Scheduler.initialDueAt(now, settings)
+        val earliest = DueTimeJitter.apply(baseDueAt, now, settings) { it.first }
+        val latest = DueTimeJitter.apply(baseDueAt, now, settings) { it.last }
+
+        assertFalse(earliest == latest)
+        assertTrue(!earliest.isBefore(now.plusSeconds(60)))
+
+        val result = Scheduler.applyReview(
+            card = SchedulerCard(id = "jitter-review", status = CardStatus.NEW, intervalDays = 0, dueAt = now),
+            response = ReviewResponse.REMEMBERED,
+            now = now
+        )
+        val jittered = DueTimeJitter.apply(result, now, settings) { it.last }
+
+        assertTrue(jittered.card.dueAt.isAfter(result.card.dueAt))
+        assertEquals(jittered.card.dueAt, jittered.event.nextDueAt)
+        assertTrue(jittered.event.metadata.containsKey("due_jitter_seconds"))
+    }
+
     private fun assertApplyReviewVector(vector: JSONObject) {
         val now = Instant.parse(vector.getString("now"))
         val settings = parseSettings(vector.optJSONObject("settings"))

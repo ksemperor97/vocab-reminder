@@ -9,7 +9,7 @@ import org.junit.Test
 
 class CloudSyncClientTest {
     @Test
-    fun sendsCallableEnvelopeAndPullsSnapshot() {
+    fun sendsRawBatchAndPullsSnapshot() {
         val snapshot = JSONObject()
             .put(
                 "cards",
@@ -35,13 +35,13 @@ class CloudSyncClientTest {
             .put("settings", JSONObject().put("daily_word_goal", 8))
         val transport = FakeTransport(
             mutableListOf(
-                JSONObject().put("result", JSONObject().put("updated", JSONObject().put("cards", 1))),
-                JSONObject().put("result", snapshot)
+                JSONObject().put("applied", JSONObject().put("cards", 1)),
+                snapshot
             )
         )
         val client = CloudSyncClient(
             CloudSyncConfig(
-                functionsBaseUrl = "https://us-central1-demo.cloudfunctions.net/",
+                serverBaseUrl = "https://vocab-sync.example.invalid/",
                 bearerToken = "token-123"
             ),
             transport
@@ -51,11 +51,13 @@ class CloudSyncClientTest {
         val parsed = SyncPayloadFactory.parse(pulled)
 
         assertEquals(2, transport.requests.size)
-        assertEquals("https://us-central1-demo.cloudfunctions.net/syncBatch", transport.requests[0].url)
-        assertEquals("https://us-central1-demo.cloudfunctions.net/syncSnapshot", transport.requests[1].url)
+        assertEquals("POST", transport.requests[0].method)
+        assertEquals("GET", transport.requests[1].method)
+        assertEquals("https://vocab-sync.example.invalid/sync/batch", transport.requests[0].url)
+        assertEquals("https://vocab-sync.example.invalid/sync/snapshot", transport.requests[1].url)
         assertEquals("token-123", transport.requests[0].bearerToken)
-        assertEquals(0, transport.requests[0].body.getJSONObject("data").getJSONArray("cards").length())
-        assertEquals(0, transport.requests[1].body.getJSONObject("data").length())
+        assertEquals(0, transport.requests[0].body?.getJSONArray("cards")?.length())
+        assertEquals(null, transport.requests[1].body)
         assertEquals(Wordbook.RECOMMENDED, parsed.cards.first().wordbook)
         assertEquals(8, parsed.settings?.dailyWordGoal)
     }
@@ -69,7 +71,7 @@ class CloudSyncClientTest {
         )
         val client = CloudSyncClient(
             CloudSyncConfig(
-                functionsBaseUrl = "https://us-central1-demo.cloudfunctions.net",
+                serverBaseUrl = "https://vocab-sync.example.invalid",
                 bearerToken = "token-123"
             ),
             transport
@@ -83,8 +85,9 @@ class CloudSyncClientTest {
     }
 
     private data class Request(
+        val method: String,
         val url: String,
-        val body: JSONObject,
+        val body: JSONObject?,
         val bearerToken: String
     )
 
@@ -94,7 +97,12 @@ class CloudSyncClientTest {
         val requests = mutableListOf<Request>()
 
         override fun postJson(url: String, body: JSONObject, bearerToken: String): JSONObject {
-            requests += Request(url = url, body = body, bearerToken = bearerToken)
+            requests += Request(method = "POST", url = url, body = body, bearerToken = bearerToken)
+            return responses.removeAt(0)
+        }
+
+        override fun getJson(url: String, bearerToken: String): JSONObject {
+            requests += Request(method = "GET", url = url, body = null, bearerToken = bearerToken)
             return responses.removeAt(0)
         }
     }

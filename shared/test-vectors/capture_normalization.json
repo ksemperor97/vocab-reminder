@@ -24,5 +24,35 @@
       "candidates_include": ["read", "tentative", "result", "before", "saving", "robust"],
       "candidates_exclude": ["https", "ppomppu", "new", "bbs", "view", "php", "extref"]
     }
+  },
+  {
+    "name": "inflected word keeps display and resolves lemma",
+    "raw": "looking",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "looking",
+      "lemma": "look",
+      "candidates": ["looking"]
+    }
+  },
+  {
+    "name": "short phrase with stop word uses content word",
+    "raw": "looking for",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "looking",
+      "lemma": "look",
+      "candidates": ["looking"]
+    }
+  },
+  {
+    "name": "short phrase with clipped trailing token uses content word",
+    "raw": "looking fo",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "looking",
+      "lemma": "look",
+      "candidates": ["looking"]
+    }
   }
 ]

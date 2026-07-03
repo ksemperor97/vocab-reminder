@@ -110,7 +110,8 @@ $ADB shell run-as $PKG cp /sdcard/store.json files/<store>.json
    - C/D/E의 "n분 뒤" 항목: jobscheduler run -f로 강제 실행하되,
      최소 1회는 실제 대기(10분)로 자연 발화도 확인한다 (QC-C1)
 3. Mac: H 구간 (.app 번들로. swift run은 알림 검증 불가)
-4. 동기화: I 구간 (로컬 export/import 왕복. 실 Firebase는 자격증명 나오면)
+4. 동기화: I 구간 (자동 HTTPS tunnel release 배포 후 서버 경유로 검증.
+   로컬 export/import 왕복은 과거 임시 검증이며 최종 통과로 치지 않는다)
 5. J 구간 (강제 종료/재부팅/비행기 모드 — 재부팅 리스케줄 미구현이면 [F]로 기록 후 구현)
 6. 전체 실패 목록 정리 → 수정 → 실패 항목만 재검증 → STATUS.md 갱신
 ```

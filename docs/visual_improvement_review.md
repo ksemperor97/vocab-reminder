@@ -59,13 +59,13 @@
 
 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/recommendation_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_preview_visible.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/share_entry_sheet.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_return.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_post_patch_after_save.png`
 
-### V-4. Cloud sync(Firebase key/token 입력)가 메인 화면 한복판에 노출
+### V-4. Cloud sync 설정 입력이 메인 화면 한복판에 노출
 
-관찰: Web API key, email/password, ID token, Functions URL 필드가 단어 목록보다 위에 있다.
+관찰(과거 Firebase 설계 시점): Web API key, email/password, ID token, Functions URL 필드가 단어 목록보다 위에 있었다.
 
-제안: 설정 > "동기화" 하위 화면으로 이동. 토큰/URL 직접 붙여넣기 필드는 디버그 빌드에서만 노출. 릴리스 사용자에게 보일 것은 "로그인 상태 + 마지막 동기화 시각" 한 줄이면 된다.
+제안: 설정 > "동기화" 하위 화면으로 이동. server URL/token 직접 입력 필드는 디버그 빌드에서만 노출. 릴리스 사용자에게 보일 것은 자동 동기화 준비 상태와 마지막 동기화 상태뿐이면 된다.
 
-완료(2026-07-03, Codex UI-M2): Cloud sync UI를 설정 탭의 `동기화` 하위 화면으로 이동했다. 메인/내 단어장과 설정 메인 화면에는 Firebase 입력 필드가 없고, debug 빌드에서만 동기화 화면의 `Debug sync fields` 아래에 Web API key, ID token, Functions URL, local export/import 버튼이 보인다.
+완료(2026-07-03, Codex UI-M2): Cloud sync UI를 설정 탭의 `동기화` 하위 화면으로 이동했다. 메인/내 단어장과 설정 메인 화면에는 sync 설정 입력 필드가 없고, debug 빌드에서만 동기화 화면의 `Debug sync fields` 아래에 server URL/token, local export/import 버튼이 보인다.
 
 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.xml`
 
@@ -149,7 +149,7 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 - Cloud sync 필드 노출 문제(V-4)는 Mac에도 동일하게 적용.
 ```
 
-완료(2026-07-03, Codex UI-M5): Mac `.app`를 다시 패키징해 실제 앱에서 확인했다. 메뉴바 팝오버는 15.2 mockup의 3개 요약 + 3버튼 구조로 축소했고, 캡처 preview는 `tentative`를 크게 보여준 뒤 뜻, 예문, 출처 순서로 배치했다. 설정의 동기화 영역은 로그인 상태와 마지막 동기화만 기본 노출하고, Firebase key/token/Functions URL/local sync import-export는 debug disclosure 아래로 이동했다.
+완료(2026-07-03, Codex UI-M5): Mac `.app`를 다시 패키징해 실제 앱에서 확인했다. 메뉴바 팝오버는 15.2 mockup의 3개 요약 + 3버튼 구조로 축소했고, 캡처 preview는 `tentative`를 크게 보여준 뒤 뜻, 예문, 출처 순서로 배치했다. 설정의 동기화 영역은 자동 동기화 준비 상태와 마지막 동기화만 기본 노출하고, server URL/token/local sync import-export는 debug disclosure 아래로 이동했다.
 
 증거: `/tmp/vocab_ui_20260703_130300/UI-M5/menu_bar_popover_ax_refreshed.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/menu_names_after_reopen.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_window.png`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_ax.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/main_window_initial_ax.txt`
 

@@ -19,7 +19,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.vocabreminder.android.MainActivity
 import com.vocabreminder.android.R
+import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
+import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
 import java.time.Instant
 import java.time.ZoneId
@@ -200,6 +202,25 @@ object ReminderNotifications {
                 .remove(KEY_ACTIVE_PROMPT_NOTIFICATION_ID)
                 .apply()
         }
+    }
+
+    fun clearStalePrompt(context: Context, store: LocalVocabularyStore, now: Instant = Instant.now()): Boolean {
+        val activeCardId = activePromptCardId(context) ?: return false
+        val prefs = context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val notificationId = prefs.getInt(KEY_ACTIVE_PROMPT_NOTIFICATION_ID, -1)
+        val card = store.allCards(includeDeleted = true).firstOrNull { it.id == activeCardId }
+        val stale = card == null ||
+            card.deletedAt != null ||
+            card.status == CardStatus.SUSPENDED ||
+            card.dueAt.isAfter(now)
+        if (!stale) return false
+        if (notificationId >= 0) {
+            NotificationManagerCompat.from(context).cancel(notificationId)
+        } else if (card != null) {
+            cancel(context, card)
+        }
+        clearActivePrompt(context, activeCardId)
+        return true
     }
 
     fun scheduleQueueAdvance(context: Context, delayMillis: Long = 0L) {

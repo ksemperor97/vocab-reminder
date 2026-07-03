@@ -32,13 +32,14 @@ object SyncPayloadFactory {
         definitionCandidates: List<StoredDefinitionCandidate>,
         reviewEvents: List<StoredReviewEvent>,
         recommendationFeedback: List<RecommendationFeedback>,
-        settings: UserSettingsData
+        settings: UserSettingsData,
+        deviceId: String
     ): JSONObject {
         return JSONObject()
-            .put("cards", JSONArray(cards.map { it.toSyncJson() }))
-            .put("contexts", JSONArray(contexts.map { it.toSyncJson() }))
+            .put("cards", JSONArray(cards.map { it.toSyncJson(deviceId) }))
+            .put("contexts", JSONArray(contexts.map { it.toSyncJson(deviceId) }))
             .put("definition_candidates", JSONArray(definitionCandidates.map { it.toSyncJson() }))
-            .put("review_events", JSONArray(reviewEvents.map { it.toSyncJson() }))
+            .put("review_events", JSONArray(reviewEvents.map { it.toSyncJson(deviceId) }))
             .put("recommendation_feedback", JSONArray(recommendationFeedback.map { it.toSyncJson() }))
             .put("settings", settings.toSyncJson())
     }
@@ -58,7 +59,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun VocabularyCard.toSyncJson(): JSONObject {
+    private fun VocabularyCard.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("lemma", lemma)
@@ -83,13 +84,13 @@ object SyncPayloadFactory {
             .put("lapse_count", lapseCount)
             .put("interval_before_lapse", intervalBeforeLapse ?: JSONObject.NULL)
             .put("deleted_at", deletedAt?.toString() ?: JSONObject.NULL)
-            .put("created_device_id", "android-local")
+            .put("created_device_id", deviceId)
             .put("created_at", createdAt.toString())
             .put("updated_at", updatedAt.toString())
             .put("version", version)
     }
 
-    private fun StoredContext.toSyncJson(): JSONObject {
+    private fun StoredContext.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
@@ -99,7 +100,7 @@ object SyncPayloadFactory {
             .put("page_title", JSONObject.NULL)
             .put("source_app", sourceApp.ifBlank { JSONObject.NULL })
             .put("capture_method", captureMethod.wireName)
-            .put("created_device_id", "android-local")
+            .put("created_device_id", deviceId)
             .put("created_at", createdAt.toString())
     }
 
@@ -119,11 +120,11 @@ object SyncPayloadFactory {
             .put("created_at", createdAt.toString())
     }
 
-    private fun StoredReviewEvent.toSyncJson(): JSONObject {
+    private fun StoredReviewEvent.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
-            .put("device_id", "android-local")
+            .put("device_id", deviceId)
             .put("response", response.name.lowercase())
             .put("previous_status", previousStatus.name.lowercase())
             .put("next_status", nextStatus.name.lowercase())
@@ -162,6 +163,7 @@ object SyncPayloadFactory {
             .put("save_surrounding_text", false)
             .put("enable_word_recommendations", enableWordRecommendations)
             .put("recommendations_introduced_at", recommendationsIntroducedAt?.toString() ?: JSONObject.NULL)
+            .put("settings_updated_at", updatedAt.toString())
     }
 
     private fun JSONObject.toCard(): VocabularyCard {
@@ -261,7 +263,8 @@ object SyncPayloadFactory {
             quietHoursEnd = LocalTime.parse(string("quiet_hours_end", "09:00")),
             timezone = ZoneId.of(string("timezone", "Asia/Seoul")),
             enableWordRecommendations = optBoolean("enable_word_recommendations", true),
-            recommendationsIntroducedAt = nullableInstant("recommendations_introduced_at")
+            recommendationsIntroducedAt = nullableInstant("recommendations_introduced_at"),
+            updatedAt = nullableInstant("settings_updated_at") ?: Instant.EPOCH
         )
     }
 

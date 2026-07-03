@@ -16,15 +16,18 @@ enum CaptureNormalizer {
         let normalized = normalize(rawText)
         let tokenSource = normalized.replacingOccurrences(of: urlLikeSpanPattern, with: " ", options: [.regularExpression, .caseInsensitive])
         let tokens = tokenSource.matches(of: /[A-Za-z][A-Za-z'-]*/).map { normalize(String($0.output)) }
+        let contentTokens = tokens.filter { $0.count > 2 && !stopWords.contains($0.lowercased()) }
         let displayWord: String
         if tokens.isEmpty {
             displayWord = normalized
+        } else if tokens.count <= 3, contentTokens.count == 1 {
+            displayWord = contentTokens[0]
         } else if tokens.count <= 3 {
             displayWord = tokens.joined(separator: " ")
         } else {
             displayWord = tokens[0]
         }
-        let candidates = Array(NSOrderedSet(array: tokens.map { $0.lowercased() }.filter { $0.count > 2 && !stopWords.contains($0) })) as? [String] ?? []
+        let candidates = Array(NSOrderedSet(array: contentTokens.map { $0.lowercased() })) as? [String] ?? []
         return CaptureAnalysis(
             rawText: rawText,
             normalizedText: normalized,
@@ -68,6 +71,9 @@ enum CaptureNormalizer {
         }
         if normalized.hasSuffix("ies"), normalized.count > 4 { return String(normalized.dropLast(3)) + "y" }
         if normalized.hasSuffix("ied"), normalized.count > 4 { return String(normalized.dropLast(3)) + "y" }
+        if normalized.hasSuffix("ing"), normalized.count > 5 { return trimTrailingDoubleConsonant(String(normalized.dropLast(3))) }
+        if normalized.hasSuffix("ated"), normalized.count > 5 { return String(normalized.dropLast()) }
+        if normalized.hasSuffix("ed"), normalized.count > 4 { return trimTrailingDoubleConsonant(String(normalized.dropLast(2))) }
         if normalized.hasSuffix("ly"), normalized.count > 5 { return String(normalized.dropLast(2)) }
         if normalized.hasSuffix("s"),
            !normalized.hasSuffix("ss"),
@@ -77,6 +83,17 @@ enum CaptureNormalizer {
             return String(normalized.dropLast())
         }
         return normalized
+    }
+
+    private static func trimTrailingDoubleConsonant(_ value: String) -> String {
+        guard value.count >= 2,
+              let last = value.last,
+              last == value.dropLast().last,
+              !"aeiou".contains(last)
+        else {
+            return value
+        }
+        return String(value.dropLast())
     }
 }
 
@@ -91,6 +108,8 @@ enum DictionaryResolver {
     private static let localEntries: [String: LocalEntry] = [
         "tentative": LocalEntry(meaningKo: "잠정적인, 임시의", definitionEn: "not certain or fixed", partOfSpeech: "adjective", exampleSentence: "The results are tentative."),
         "robust": LocalEntry(meaningKo: "견고한, 안정적인", definitionEn: "strong and unlikely to fail", partOfSpeech: "adjective", exampleSentence: "The model showed robust decoding performance."),
+        "behemoth": LocalEntry(meaningKo: "거대한 것, 거대한 짐승", definitionEn: "something enormous, powerful, or hard to control", partOfSpeech: "noun", exampleSentence: "The startup became a behemoth in the software industry."),
+        "look": LocalEntry(meaningKo: "보다, 바라보다; 찾아보다", definitionEn: "to direct your eyes toward something; to search or check", partOfSpeech: "verb", exampleSentence: "She was looking for local dining spots."),
         "elicit": LocalEntry(meaningKo: "이끌어내다, 유도하다", definitionEn: "to draw out a response, answer, or fact", partOfSpeech: "verb", exampleSentence: "The stimulus elicited a strong response."),
         "ubiquitous": LocalEntry(meaningKo: "어디에나 있는, 아주 흔한", definitionEn: "present or found everywhere", partOfSpeech: "adjective", exampleSentence: "Smartphones are ubiquitous these days."),
         "salient": LocalEntry(meaningKo: "두드러진, 현저한", definitionEn: "most noticeable or important", partOfSpeech: "adjective", exampleSentence: "The salient feature was the delayed response."),

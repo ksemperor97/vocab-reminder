@@ -31,5 +31,13 @@ GoogleService-Info.plist
 # Generated local artifacts
 dist/
 tmp/
+mac/VocabReminderMac/VocabReminder.app/
+server/data/
+server/backups/
+server/logs/
+server/tunnel/.env
+server/tunnel/cloudflare_worker/wrangler.toml
+server/wireguard/generated/
+tools/scrcpy.app/
 shared/recommendations/recommendation_enriched_candidates.json
 shared/recommendations/recommendation_definition_cache.json

@@ -1,0 +1,8 @@
+name = "vocab-sync"
+main = "worker.js"
+compatibility_date = "2026-07-03"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "SYNC_UPSTREAM"
+id = "replace-with-kv-namespace-id"

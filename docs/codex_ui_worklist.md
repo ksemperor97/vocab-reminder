@@ -71,12 +71,12 @@ UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260
 ```text
 할 일:
 - 설정 탭 > "동기화" 화면으로 이동
-- 릴리스 노출: 로그인 상태 1줄 + 마지막 동기화 시각 + [로그인/로그아웃] [지금 동기화]
-- Web API key / Functions URL / ID token 직접 입력 필드는 BuildConfig.DEBUG에서만 노출
-완료 기준: 메인(내 단어장) 화면에 Firebase 관련 필드가 전혀 없음 screencap
+- 릴리스 노출: 자동 동기화 준비 상태 + 마지막 동기화 시각 + [연결 테스트] [지금 동기화]
+- server URL / bearer token 직접 입력 필드는 BuildConfig.DEBUG에서만 노출
+완료 기준: 메인(내 단어장) 화면에 sync 설정 입력 필드가 전혀 없음 screencap
 ```
 
-완료(2026-07-03): Cloud sync는 설정 탭의 `동기화` 하위 화면으로 이동했다. `내 단어장`/설정 메인 화면에는 Firebase Web API key, ID token, Functions URL 직접 입력 필드가 보이지 않고, debug 빌드의 sync 화면에서만 `Debug sync fields` 아래에 노출된다.
+완료(2026-07-03): Cloud sync는 설정 탭의 `동기화` 하위 화면으로 이동했다. `내 단어장`/설정 메인 화면에는 server URL/token 직접 입력 필드가 보이지 않고, debug 빌드의 sync 화면에서만 `Debug sync fields` 아래에 노출된다.
 
 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.xml`
 
@@ -151,7 +151,7 @@ UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260
 
 ### [x] T16. Cloud sync 필드 디버그 게이팅
 
-완료(2026-07-03): 설정의 동기화 영역은 로그인 상태, 마지막 동기화, [로그인] [로그아웃] [지금 동기화]만 기본 노출하고, Firebase Web API key / email / password / Functions URL / ID token / local sync import-export는 `#if DEBUG`의 `Debug sync fields` disclosure 아래로 이동했다. SwiftPM debug 빌드에서만 `DEBUG`가 켜지도록 `Package.swift`에 조건을 명시했다.
+완료(2026-07-03): 설정의 동기화 영역은 자동 동기화 준비 상태, 마지막 동기화, [연결 테스트] [지금 동기화]만 기본 노출하고, server URL/token/local sync import-export는 `#if DEBUG`의 `Debug sync fields` disclosure 아래로 이동했다. SwiftPM debug 빌드에서만 `DEBUG`가 켜지도록 `Package.swift`에 조건을 명시했다.
 
 검증: `swift build`, `swift run VocabReminderMac --check-scheduler-vectors`, `swift build -c release`, `./package_app.sh`, `codesign --verify --deep --strict --verbose=2 mac/VocabReminderMac/VocabReminder.app`
 

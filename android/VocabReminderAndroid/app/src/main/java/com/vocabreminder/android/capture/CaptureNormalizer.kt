@@ -37,14 +37,15 @@ object CaptureNormalizer {
         val normalized = normalizeText(rawText)
         val tokenSource = urlLikeSpanRegex.replace(normalized, " ")
         val tokens = tokenRegex.findAll(tokenSource).map { normalizeText(it.value) }.filter { it.isNotBlank() }.toList()
+        val contentTokens = tokens.filter { it.length > 2 && it.lowercase() !in stopWords }
         val displayWord = when {
             tokens.isEmpty() -> normalized
+            tokens.size <= 3 && contentTokens.size == 1 -> contentTokens.first()
             tokens.size <= 3 -> tokens.joinToString(" ")
             else -> tokens.first()
         }
-        val candidates = tokens
-            .map { normalizeText(it).lowercase() }
-            .filter { it.length > 2 && it !in stopWords }
+        val candidates = contentTokens
+            .map { it.lowercase() }
             .distinct()
             .take(8)
 

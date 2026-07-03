@@ -53,12 +53,15 @@ Legend: `[ ]` not run, `[x]` passed, `[!]` failed/blocked, `[-]` manual only or 
 - [ ] E7. Recommendation `[관심 없음]` soft-deletes card and records dismissed feedback.
 - [ ] E8. Capturing a recommended lemma promotes it to `wordbook=user` and preserves progress.
 
-## F. Sync UI
+## F. Automatic HTTPS Tunnel Sync
 
-- [ ] F1. Local Firestore-shaped sync import merges duplicate lemmas and keeps contexts.
-- [ ] F2. Cloud sync panel accepts Functions URL and Firebase Auth token.
-- [-] F3. Firebase email/password sign-in works with real project credentials.
-- [-] F4. Manual callable sync push/pull works with real Functions base URL and ID token.
+- [ ] F1. Android release UI shows no server URL, token, VPN, WireGuard, router, or DDNS setup fields.
+- [ ] F2. With AdGuard VPN left on, launching the app enqueues automatic sync.
+- [ ] F3. Connection test or sync status reaches `GET /health` through the stable HTTPS tunnel endpoint.
+- [ ] F4. Saving a word pushes through `POST /sync/batch` and later pulls through `GET /sync/snapshot`.
+- [ ] F5. Mac mini sync server/tunnel down does not block local save/review and does not show a popup.
+- [ ] F6. After Mac mini sync server/tunnel recovers, queued local changes sync automatically.
+- [ ] F7. Mobile data sync succeeds without changing Android VPN settings.
 
 ## Notes
 

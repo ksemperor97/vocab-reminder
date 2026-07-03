@@ -7,13 +7,14 @@ enum SyncBatchFactory {
         definitionCandidates: [StoredDefinitionCandidate],
         reviewEvents: [StoredReviewEvent],
         recommendationFeedback: [RecommendationFeedback] = [],
-        settings: UserSettingsData
+        settings: UserSettingsData,
+        deviceId: String = SyncBatchFactory.deviceId()
     ) -> [String: Any] {
         [
-            "cards": cards.map(card),
-            "contexts": contexts.map(context),
+            "cards": cards.map { card($0, deviceId: deviceId) },
+            "contexts": contexts.map { context($0, deviceId: deviceId) },
             "definition_candidates": definitionCandidates.map(candidate),
-            "review_events": reviewEvents.map(reviewEvent),
+            "review_events": reviewEvents.map { reviewEvent($0, deviceId: deviceId) },
             "recommendation_feedback": recommendationFeedback.map(feedback),
             "settings": settingsPayload(settings)
         ]
@@ -25,7 +26,8 @@ enum SyncBatchFactory {
         definitionCandidates: [StoredDefinitionCandidate],
         reviewEvents: [StoredReviewEvent],
         recommendationFeedback: [RecommendationFeedback] = [],
-        settings: UserSettingsData
+        settings: UserSettingsData,
+        deviceId: String = SyncBatchFactory.deviceId()
     ) throws -> Data {
         let payload = build(
             cards: cards,
@@ -33,7 +35,8 @@ enum SyncBatchFactory {
             definitionCandidates: definitionCandidates,
             reviewEvents: reviewEvents,
             recommendationFeedback: recommendationFeedback,
-            settings: settings
+            settings: settings,
+            deviceId: deviceId
         )
         return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
     }
@@ -63,11 +66,21 @@ enum SyncBatchFactory {
             definitionCandidates: mergeById(local.definitionCandidates, incoming.definitionCandidates),
             reviewEvents: mergeById(local.reviewEvents, incoming.reviewEvents),
             recommendationFeedback: mergeById(local.recommendationFeedback, incoming.recommendationFeedback),
-            settings: incoming.settings
+            settings: mergeSettings(local.settings, incoming.settings)
         ))
     }
 
-    private static func card(_ card: VocabularyCard) -> [String: Any] {
+    static func deviceId(defaults: UserDefaults = .standard) -> String {
+        let key = "deviceId"
+        if let existing = defaults.string(forKey: key), existing.range(of: #"^mac-[0-9a-fA-F]{8}$"#, options: .regularExpression) != nil {
+            return existing
+        }
+        let generated = "mac-\(UUID().uuidString.prefix(8).lowercased())"
+        defaults.set(generated, forKey: key)
+        return generated
+    }
+
+    private static func card(_ card: VocabularyCard, deviceId: String) -> [String: Any] {
         [
             "id": card.id,
             "lemma": card.lemma,
@@ -92,14 +105,14 @@ enum SyncBatchFactory {
             "lapse_count": card.lapseCount,
             "interval_before_lapse": card.intervalBeforeLapse.map { $0 as Any } ?? NSNull(),
             "deleted_at": card.deletedAt.map { iso($0) as Any } ?? NSNull(),
-            "created_device_id": "mac-local",
+            "created_device_id": deviceId,
             "created_at": iso(card.createdAt),
             "updated_at": iso(card.updatedAt),
             "version": card.version
         ]
     }
 
-    private static func context(_ context: StoredContext) -> [String: Any] {
+    private static func context(_ context: StoredContext, deviceId: String) -> [String: Any] {
         [
             "id": context.id,
             "card_id": context.cardId,
@@ -109,7 +122,7 @@ enum SyncBatchFactory {
             "page_title": NSNull(),
             "source_app": nullable(context.sourceApp),
             "capture_method": context.captureMethod.rawValue,
-            "created_device_id": "mac-local",
+            "created_device_id": deviceId,
             "created_at": iso(context.createdAt)
         ]
     }
@@ -131,11 +144,11 @@ enum SyncBatchFactory {
         ]
     }
 
-    private static func reviewEvent(_ event: StoredReviewEvent) -> [String: Any] {
+    private static func reviewEvent(_ event: StoredReviewEvent, deviceId: String) -> [String: Any] {
         [
             "id": event.id,
             "card_id": event.cardId,
-            "device_id": "mac-local",
+            "device_id": deviceId,
             "response": event.response.rawValue,
             "previous_status": event.previousStatus.rawValue,
             "next_status": event.nextStatus.rawValue,
@@ -175,7 +188,8 @@ enum SyncBatchFactory {
             "save_source_url": true,
             "save_surrounding_text": false,
             "enable_word_recommendations": settings.enableWordRecommendations,
-            "recommendations_introduced_at": settings.recommendationsIntroducedAt.map { iso($0) as Any } ?? NSNull()
+            "recommendations_introduced_at": settings.recommendationsIntroducedAt.map { iso($0) as Any } ?? NSNull(),
+            "settings_updated_at": iso(settings.updatedAt)
         ]
     }
 
@@ -203,6 +217,16 @@ enum SyncBatchFactory {
             byId[item.id] = item
         }
         return Array(byId.values)
+    }
+
+    private static func mergeSettings(_ local: UserSettingsData, _ incoming: UserSettingsData) -> UserSettingsData {
+        if incoming.updatedAt > local.updatedAt {
+            return incoming
+        }
+        if incoming.updatedAt == Date(timeIntervalSince1970: 0), local.updatedAt == Date(timeIntervalSince1970: 0) {
+            return incoming
+        }
+        return local
     }
 
     private static func iso(_ date: Date) -> String {
@@ -299,7 +323,8 @@ enum SyncBatchFactory {
             quietHoursEnd: string(payload, "quiet_hours_end", fallback: "09:00"),
             timezone: string(payload, "timezone", fallback: "Asia/Seoul"),
             enableWordRecommendations: bool(payload, "enable_word_recommendations", fallback: true),
-            recommendationsIntroducedAt: optionalDate(payload, "recommendations_introduced_at")
+            recommendationsIntroducedAt: optionalDate(payload, "recommendations_introduced_at"),
+            updatedAt: optionalDate(payload, "settings_updated_at") ?? Date(timeIntervalSince1970: 0)
         )
     }
 

@@ -237,7 +237,8 @@
         "save_source_url": { "type": "boolean", "default": true },
         "save_surrounding_text": { "type": "boolean", "default": false },
         "enable_word_recommendations": { "type": "boolean", "default": true },
-        "recommendations_introduced_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] }
+        "recommendations_introduced_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "settings_updated_at": { "$ref": "#/$defs/timestamp" }
       }
     },
     "device": {
