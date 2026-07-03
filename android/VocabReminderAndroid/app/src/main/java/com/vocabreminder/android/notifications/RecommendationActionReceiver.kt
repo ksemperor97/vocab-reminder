@@ -18,10 +18,10 @@ class RecommendationActionReceiver : BroadcastReceiver() {
 
         when (action) {
             ReminderNotifications.RECOMMENDATION_START -> {
-                // guide 24.3: [시작하기] moves the recommendation into the normal review cycle.
+                // [시작하기] reveals the meaning, then moves the recommendation into review.
                 store.markRecommendationStarted(card.id, now)
                 val updated = store.findCard(card.id) ?: return
-                ReminderNotifications.cancel(context, card)
+                ReminderNotifications.showRecommendationMeaning(context, updated)
                 ReminderScheduler.schedule(context, updated, now)
             }
             ReminderNotifications.RECOMMENDATION_KNOWN -> {

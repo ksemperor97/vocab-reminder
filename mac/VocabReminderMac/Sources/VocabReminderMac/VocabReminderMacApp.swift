@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct VocabReminderMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var store = LocalVocabularyStore.shared
     @StateObject private var hotKey = GlobalHotKeyController.shared
 
@@ -12,9 +13,15 @@ struct VocabReminderMacApp: App {
 
     var body: some Scene {
         MenuBarExtra("Vocabulary Reminder", systemImage: "text.book.closed") {
-            MenuBarView(store: store)
+            MenuBarView(
+                store: store,
+                openMainWindow: {
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            )
         }
-        WindowGroup("Vocabulary Reminder") {
+        WindowGroup("Vocabulary Reminder", id: "main") {
             ContentView(store: store)
                 .frame(minWidth: 720, minHeight: 560)
                 .onAppear {
@@ -44,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuBarView: View {
     @ObservedObject var store: LocalVocabularyStore
+    var openMainWindow: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -63,7 +71,7 @@ struct MenuBarView: View {
             Button("복습 재조정") { store.rebalanceDueCards() }
             Button("추천 채우기") { store.fillRecommendations() }
             Divider()
-            Button("창 열기") { NSApp.activate(ignoringOtherApps: true) }
+            Button("창 열기") { openMainWindow() }
             Button("종료") { NSApp.terminate(nil) }
         }
         .padding(10)
@@ -368,6 +376,7 @@ struct CardRow: View {
                     Button("외웠다") { store.review(card: card, response: .remembered) }
                     Button("못외웠다") { store.review(card: card, response: .forgotten) }
                     Button("나중에") { store.review(card: card, response: .unavailable) }
+                    Button("삭제") { store.softDeleteCard(card) }
                 }
             }
         }

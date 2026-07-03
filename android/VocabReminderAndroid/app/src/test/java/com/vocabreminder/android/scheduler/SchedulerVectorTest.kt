@@ -44,7 +44,8 @@ class SchedulerVectorTest {
             settings = settings,
             now = now,
             recentResponses = recentResponses,
-            unavailableCountToday = vector.optInt("unavailable_count_today", 0)
+            unavailableCountToday = vector.optInt("unavailable_count_today", 0),
+            forgottenCountToday = vector.optInt("forgotten_count_today", 0)
         )
 
         val then = vector.getJSONObject("then")

@@ -5,6 +5,7 @@ import CoreServices
 #endif
 
 enum CaptureNormalizer {
+    private static let urlLikeSpanPattern = #"\b(?:https?://|www\.)\S+|\b[A-Za-z0-9.-]+\.(?:com|net|org|edu|gov|io|dev|app|co|kr|jp|cn|uk|de|fr|php|html?)\S*"#
     private static let stopWords: Set<String> = [
         "the", "a", "an", "and", "or", "but", "if", "then", "than", "to", "of", "in", "on",
         "for", "with", "from", "by", "at", "as", "is", "are", "was", "were", "be", "been",
@@ -13,7 +14,8 @@ enum CaptureNormalizer {
 
     static func analyze(_ rawText: String) -> CaptureAnalysis {
         let normalized = normalize(rawText)
-        let tokens = normalized.matches(of: /[A-Za-z][A-Za-z'-]*/).map { normalize(String($0.output)) }
+        let tokenSource = normalized.replacingOccurrences(of: urlLikeSpanPattern, with: " ", options: [.regularExpression, .caseInsensitive])
+        let tokens = tokenSource.matches(of: /[A-Za-z][A-Za-z'-]*/).map { normalize(String($0.output)) }
         let displayWord: String
         if tokens.isEmpty {
             displayWord = normalized

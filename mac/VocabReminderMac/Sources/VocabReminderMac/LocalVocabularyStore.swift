@@ -153,12 +153,14 @@ final class LocalVocabularyStore: ObservableObject {
     func review(card: VocabularyCard, response: ReviewResponse) {
         let now = Date()
         let recent = reviewEvents.filter { $0.cardId == card.id }.suffix(2).map(\.response)
+        let schedulerSettings = schedulerSettings()
         let result = Scheduler.applyReview(
             card: card.schedulerCard,
             response: response,
-            settings: schedulerSettings(),
+            settings: schedulerSettings,
             now: now,
-            recentResponses: Array(recent)
+            recentResponses: Array(recent),
+            forgottenCountToday: forgottenCountToday(cardId: card.id, settings: schedulerSettings, now: now)
         )
         update(card: card.applying(result.card, now: now))
         append(event: result.event, now: now)
@@ -217,6 +219,18 @@ final class LocalVocabularyStore: ObservableObject {
         softDeleteRecommendation(card, action: action)
     }
 
+    func softDeleteCard(_ card: VocabularyCard) {
+        guard card.deletedAt == nil else { return }
+        let now = Date()
+        var updated = card
+        updated.deletedAt = now
+        updated.updatedAt = now
+        updated.version += 1
+        update(card: updated)
+        MacNotificationScheduler.shared.cancel(card: updated)
+        message = "\(card.displayWord) 삭제됨"
+    }
+
     func exportSyncSnapshot() {
         save()
         do {
@@ -242,14 +256,25 @@ final class LocalVocabularyStore: ObservableObject {
         }
         do {
             let snapshot = try SyncBatchFactory.localSnapshot(from: Data(contentsOf: syncURL))
-            cards = snapshot.cards
-            contexts = snapshot.contexts
-            definitionCandidates = snapshot.definitionCandidates
-            reviewEvents = snapshot.reviewEvents
-            recommendationFeedback = snapshot.recommendationFeedback
-            settings = snapshot.settings
+            let merged = SyncBatchFactory.merge(
+                local: StoreSnapshot(
+                    cards: cards,
+                    contexts: contexts,
+                    definitionCandidates: definitionCandidates,
+                    reviewEvents: reviewEvents,
+                    recommendationFeedback: recommendationFeedback,
+                    settings: settings
+                ),
+                incoming: snapshot
+            )
+            cards = merged.cards
+            contexts = merged.contexts
+            definitionCandidates = merged.definitionCandidates
+            reviewEvents = merged.reviewEvents
+            recommendationFeedback = merged.recommendationFeedback
+            settings = merged.settings
             save()
-            message = "Sync batch imported"
+            message = "Sync batch imported · cards \(activeCards.count)"
         } catch {
             message = "Sync batch import failed: \(error.localizedDescription)"
         }
@@ -269,12 +294,23 @@ final class LocalVocabularyStore: ObservableObject {
             config: CloudSyncConfig(functionsBaseURL: functionsBaseURL, bearerToken: authToken)
         ).pushAndPull(localBatch: payload)
         let snapshot = try SyncBatchFactory.localSnapshot(from: snapshotData)
-        cards = snapshot.cards
-        contexts = snapshot.contexts
-        definitionCandidates = snapshot.definitionCandidates
-        reviewEvents = snapshot.reviewEvents
-        recommendationFeedback = snapshot.recommendationFeedback
-        settings = snapshot.settings
+        let merged = SyncBatchFactory.merge(
+            local: StoreSnapshot(
+                cards: cards,
+                contexts: contexts,
+                definitionCandidates: definitionCandidates,
+                reviewEvents: reviewEvents,
+                recommendationFeedback: recommendationFeedback,
+                settings: settings
+            ),
+            incoming: snapshot
+        )
+        cards = merged.cards
+        contexts = merged.contexts
+        definitionCandidates = merged.definitionCandidates
+        reviewEvents = merged.reviewEvents
+        recommendationFeedback = merged.recommendationFeedback
+        settings = merged.settings
         save()
         return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count)
     }
@@ -402,6 +438,16 @@ final class LocalVocabularyStore: ObservableObject {
             timezone: settings.timezone,
             enableWordRecommendations: settings.enableWordRecommendations
         )
+    }
+
+    private func forgottenCountToday(cardId: String, settings: SchedulerSettings, now: Date) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: settings.timezone) ?? .current
+        return reviewEvents.filter {
+            $0.cardId == cardId &&
+                $0.response == .forgotten &&
+                calendar.isDate($0.clientCreatedAt, inSameDayAs: now)
+        }.count
     }
 
     private func recommendationMessageSuffix(generated: Int, wasIntroduced: Bool) -> String {

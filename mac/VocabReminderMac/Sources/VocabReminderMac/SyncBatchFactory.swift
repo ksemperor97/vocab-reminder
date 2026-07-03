@@ -56,6 +56,17 @@ enum SyncBatchFactory {
         ))
     }
 
+    static func merge(local: StoreSnapshot, incoming: StoreSnapshot) -> StoreSnapshot {
+        canonicalizeDuplicateLemmas(StoreSnapshot(
+            cards: mergeCards(local.cards, incoming.cards),
+            contexts: mergeById(local.contexts, incoming.contexts),
+            definitionCandidates: mergeById(local.definitionCandidates, incoming.definitionCandidates),
+            reviewEvents: mergeById(local.reviewEvents, incoming.reviewEvents),
+            recommendationFeedback: mergeById(local.recommendationFeedback, incoming.recommendationFeedback),
+            settings: incoming.settings
+        ))
+    }
+
     private static func card(_ card: VocabularyCard) -> [String: Any] {
         [
             "id": card.id,
@@ -170,6 +181,28 @@ enum SyncBatchFactory {
 
     private static func nullable(_ value: String) -> Any {
         value.isEmpty ? NSNull() : value
+    }
+
+    private static func mergeCards(_ local: [VocabularyCard], _ incoming: [VocabularyCard]) -> [VocabularyCard] {
+        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        for card in incoming {
+            guard let existing = byId[card.id] else {
+                byId[card.id] = card
+                continue
+            }
+            if card.updatedAt > existing.updatedAt || card.version > existing.version {
+                byId[card.id] = card
+            }
+        }
+        return Array(byId.values)
+    }
+
+    private static func mergeById<T: Identifiable>(_ local: [T], _ incoming: [T]) -> [T] where T.ID == String {
+        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        for item in incoming where byId[item.id] == nil {
+            byId[item.id] = item
+        }
+        return Array(byId.values)
     }
 
     private static func iso(_ date: Date) -> String {

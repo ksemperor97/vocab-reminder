@@ -5,17 +5,27 @@ import Foundation
 final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
     static let shared = MacNotificationScheduler()
 
-    private let center = UNUserNotificationCenter.current()
+    // UNUserNotificationCenter는 앱 번들이 없는 프로세스(`swift run` 직접 실행)에서
+    // 접근하는 순간 크래시한다 (bundleProxyForCurrentProcess is nil).
+    // 번들이 없으면 알림 기능만 끄고 앱은 계속 동작하게 한다. (QC-H1 수정)
+    private static var hasAppBundle: Bool { Bundle.main.bundleIdentifier != nil }
+
+    private let center: UNUserNotificationCenter?
     private let identifierPrefix = "vocab-reminder.card."
 
     private override init() {
+        center = Self.hasAppBundle ? UNUserNotificationCenter.current() : nil
         super.init()
-        center.delegate = self
+        center?.delegate = self
+        if center == nil {
+            print("Local notifications disabled: no app bundle (running via `swift run`). Package as .app to enable notifications.")
+        }
         registerCategories()
     }
 
     func requestAuthorization() {
         registerCategories()
+        guard let center else { return }
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
                 print("Notification authorization failed: \(error.localizedDescription)")
@@ -26,9 +36,10 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
     }
 
     func reschedule(cards: [VocabularyCard], settings: UserSettingsData) {
+        guard let center else { return }
         let scheduledCards = MacNotificationPlan.scheduledCards(cards: cards, settings: settings)
 
-        center.getPendingNotificationRequests { [center, identifierPrefix] requests in
+        center.getPendingNotificationRequests { [identifierPrefix] requests in
             let oldIdentifiers = requests
                 .map(\.identifier)
                 .filter { $0.hasPrefix(identifierPrefix) }
@@ -68,6 +79,13 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
+    func cancel(card: VocabularyCard) {
+        guard let center else { return }
+        let identifier = identifierPrefix + card.id
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
+
     private func registerCategories() {
         let start = UNNotificationAction(
             identifier: MacNotificationAction.start,
@@ -94,7 +112,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
             actions: [],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([recommendation, review])
+        center?.setNotificationCategories([recommendation, review])
     }
 
     nonisolated func userNotificationCenter(
@@ -127,18 +145,27 @@ enum MacNotificationPlan {
     static func scheduledCards(cards: [VocabularyCard], settings: UserSettingsData) -> [VocabularyCard] {
         let limit = max(0, min(settings.maxQueueSize, settings.dailyWordGoal))
         guard limit > 0 else { return [] }
+        let now = Date()
         let userCards = cards
             .filter { $0.wordbook == .user && isNotificationEligible($0) }
             .sorted { $0.dueAt < $1.dueAt }
-        let selectedUsers = Array(userCards.prefix(limit))
-        let remaining = limit - selectedUsers.count
-        guard remaining > 0, settings.enableWordRecommendations else { return selectedUsers }
+        var selected = Array(userCards.filter { $0.dueAt <= now }.prefix(limit))
+        var remaining = limit - selected.count
+        guard remaining > 0 else { return selected }
 
-        let recommendations = cards
-            .filter { $0.wordbook == .recommended && isNotificationEligible($0) }
-            .sorted { $0.dueAt < $1.dueAt }
-            .prefix(remaining)
-        return selectedUsers + recommendations
+        if settings.enableWordRecommendations {
+            let recommendations = cards
+                .filter { $0.wordbook == .recommended && isNotificationEligible($0) }
+                .sorted { $0.dueAt < $1.dueAt }
+                .prefix(remaining)
+            selected += recommendations
+            remaining = limit - selected.count
+        }
+
+        if remaining > 0 {
+            selected += userCards.filter { $0.dueAt > now }.prefix(remaining)
+        }
+        return selected
     }
 
     private static func isNotificationEligible(_ card: VocabularyCard) -> Bool {

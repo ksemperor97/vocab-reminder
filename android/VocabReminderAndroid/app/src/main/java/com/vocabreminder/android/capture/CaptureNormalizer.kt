@@ -24,6 +24,9 @@ data class CaptureAnalysis(
 object CaptureNormalizer {
     private val edgePunctuation = Regex("""^[\s"'“”‘’\[\]{}()<>.,;:!?]+|[\s"'“”‘’\[\]{}()<>.,;:!?]+$""")
     private val tokenRegex = Regex("""[A-Za-z][A-Za-z'-]*""")
+    private val urlLikeSpanRegex = Regex(
+        """(?i)\b(?:https?://|www\.)\S+|\b[A-Za-z0-9.-]+\.(?:com|net|org|edu|gov|io|dev|app|co|kr|jp|cn|uk|de|fr|php|html?)\S*"""
+    )
     private val stopWords = setOf(
         "the", "a", "an", "and", "or", "but", "if", "then", "than", "to", "of", "in", "on",
         "for", "with", "from", "by", "at", "as", "is", "are", "was", "were", "be", "been",
@@ -32,7 +35,8 @@ object CaptureNormalizer {
 
     fun analyze(rawText: String): CaptureAnalysis {
         val normalized = normalizeText(rawText)
-        val tokens = tokenRegex.findAll(normalized).map { normalizeText(it.value) }.filter { it.isNotBlank() }.toList()
+        val tokenSource = urlLikeSpanRegex.replace(normalized, " ")
+        val tokens = tokenRegex.findAll(tokenSource).map { normalizeText(it.value) }.filter { it.isNotBlank() }.toList()
         val displayWord = when {
             tokens.isEmpty() -> normalized
             tokens.size <= 3 -> tokens.joinToString(" ")

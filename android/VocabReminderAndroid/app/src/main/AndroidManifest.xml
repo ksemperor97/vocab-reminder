@@ -29,6 +29,12 @@
             android:name=".notifications.ReviewActionReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notifications.ReviewAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.QuietHoursReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notifications.RecommendationActionReceiver"
             android:exported="false" />
     </application>

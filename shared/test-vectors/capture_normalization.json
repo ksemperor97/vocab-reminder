@@ -1,0 +1,28 @@
+[
+  {
+    "name": "sentence candidate selection",
+    "raw": "The results are tentative, but the pattern is robust.",
+    "then": {
+      "needs_word_selection": true,
+      "candidates_include": ["tentative", "robust"]
+    }
+  },
+  {
+    "name": "url share ignores url tokens",
+    "raw": "https://m.ppomppu.co.kr/new/bbs_view.php?id=freeboard&no=123&extref=1",
+    "then": {
+      "needs_word_selection": false,
+      "candidates": [],
+      "candidates_exclude": ["https", "ppomppu", "new", "bbs", "view", "php", "extref"]
+    }
+  },
+  {
+    "name": "words around url remain candidates",
+    "raw": "Read the tentative result at https://m.ppomppu.co.kr/new/bbs_view.php?id=freeboard&extref=1 before saving robust notes.",
+    "then": {
+      "needs_word_selection": true,
+      "candidates_include": ["read", "tentative", "result", "before", "saving", "robust"],
+      "candidates_exclude": ["https", "ppomppu", "new", "bbs", "view", "php", "extref"]
+    }
+  }
+]

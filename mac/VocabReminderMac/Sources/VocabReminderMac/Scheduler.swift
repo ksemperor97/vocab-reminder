@@ -50,6 +50,7 @@ enum Scheduler {
     private static let maxReviewIntervalDays = 90
     private static let firstNotificationDelayMinutes: TimeInterval = 10 * 60
     private static let forgottenRecheckMinutes: TimeInterval = 20 * 60
+    private static let maxForgottenPerCardPerDay = 3
     private static let quietReleaseOffsetMinutes = 30
 
     static func initialDueAt(now: Date, settings: SchedulerSettings = SchedulerSettings()) -> Date {
@@ -63,14 +64,15 @@ enum Scheduler {
         settings: SchedulerSettings = SchedulerSettings(),
         now: Date,
         recentResponses: [ReviewResponse] = [],
-        unavailableCountToday: Int = 0
+        unavailableCountToday: Int = 0,
+        forgottenCountToday: Int = 0
     ) -> ReviewResult {
         let updated: SchedulerCard
         switch response {
         case .remembered:
             updated = remembered(card: card, settings: settings, now: now, recentResponses: recentResponses)
         case .forgotten:
-            updated = forgotten(card: card, settings: settings, now: now)
+            updated = forgotten(card: card, settings: settings, now: now, forgottenCountToday: forgottenCountToday)
         case .unavailable:
             updated = unavailable(card: card, settings: settings, now: now, unavailableCountToday: unavailableCountToday)
         case .reveal:
@@ -166,7 +168,7 @@ enum Scheduler {
         endComponents.hour = end / 60
         endComponents.minute = end % 60
         var release = calendar.date(from: endComponents) ?? candidate
-        if !(current < end && start > end) {
+        if !(start < end || current < end) {
             release = calendar.date(byAdding: .day, value: 1, to: release) ?? release
         }
         return calendar.date(byAdding: .minute, value: quietReleaseOffsetMinutes, to: release) ?? release
@@ -214,14 +216,25 @@ enum Scheduler {
         )
     }
 
-    private static func forgotten(card: SchedulerCard, settings: SchedulerSettings, now: Date) -> SchedulerCard {
+    private static func forgotten(card: SchedulerCard, settings: SchedulerSettings, now: Date, forgottenCountToday: Int) -> SchedulerCard {
         // guide 6.3, 13.2: forgotten preserves the previous interval and rechecks after 10-30 minutes.
-        let previousInterval = card.status == .mastered ? maxReviewIntervalDays : card.intervalDays
+        let previousInterval: Int
+        switch card.status {
+        case .mastered:
+            previousInterval = maxReviewIntervalDays
+        case .relearning:
+            previousInterval = card.intervalBeforeLapse ?? card.intervalDays
+        default:
+            previousInterval = card.intervalDays
+        }
+        let delay = forgottenCountToday + 1 >= maxForgottenPerCardPerDay
+            ? TimeInterval(24 * 60 * 60)
+            : forgottenRecheckMinutes
         return copy(
             card,
             status: .relearning,
             intervalDays: 0,
-            dueAt: avoidQuietHours(now.addingTimeInterval(forgottenRecheckMinutes), settings: settings),
+            dueAt: avoidQuietHours(now.addingTimeInterval(delay), settings: settings),
             lapseCount: card.lapseCount + 1,
             intervalBeforeLapse: previousInterval
         )

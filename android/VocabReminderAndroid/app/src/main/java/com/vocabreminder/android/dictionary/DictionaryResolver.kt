@@ -72,7 +72,7 @@ object DictionaryResolver {
 
     fun resolve(analysis: CaptureAnalysis, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
         val entry = localEntries[analysis.lemma] ?: localEntries[analysis.displayWord.lowercase()]
-        val sourceSentence = analysis.sourceSentence.ifBlank { entry?.exampleSentence.orEmpty() }
+        val exampleSentence = analysis.sourceSentence.ifBlank { entry?.exampleSentence.orEmpty() }
         return if (entry != null) {
             // guide 10.4: Android uses app/local dictionary before cloud fallback.
             DictionaryResult(
@@ -81,11 +81,11 @@ object DictionaryResolver {
                 meaningKo = entry.meaningKo,
                 definitionEn = entry.definitionEn,
                 partOfSpeech = entry.partOfSpeech,
-                exampleSentence = sourceSentence,
+                exampleSentence = exampleSentence,
                 rawSource = "${entry.partOfSpeech}: ${entry.definitionEn}",
                 sourceType = "local_dictionary",
                 confidence = 0.82,
-                sourceSentence = sourceSentence,
+                sourceSentence = analysis.sourceSentence,
                 sourceApp = sourceApp,
                 sourceUrl = sourceUrl
             )

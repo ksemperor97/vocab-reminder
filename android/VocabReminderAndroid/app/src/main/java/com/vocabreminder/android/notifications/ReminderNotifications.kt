@@ -96,8 +96,8 @@ object ReminderNotifications {
             if (card.exampleSentence.isNotBlank()) {
                 append("\n예문: ${card.exampleSentence}")
             }
+            append("\n알고 있는 단어인가요?")
         }
-        // guide 24.3: recommended first notification is an introduction, not a recall quiz.
         show(
             context = context,
             card = card,
@@ -108,6 +108,24 @@ object ReminderNotifications {
                 .addAction(recommendationAction(context, card, RECOMMENDATION_START, "시작하기"))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_KNOWN, "알아요"))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_DISMISS, "관심 없음"))
+        )
+    }
+
+    fun showRecommendationMeaning(context: Context, card: VocabularyCard) {
+        val body = buildString {
+            append("뜻: ${card.meaningKo}")
+            if (card.exampleSentence.isNotBlank()) {
+                append("\n예문: ${card.exampleSentence}")
+            }
+        }
+        show(
+            context = context,
+            card = card,
+            builder = baseBuilder(context, card)
+                .setContentTitle(card.displayWord)
+                .setContentText("뜻: ${card.meaningKo}")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         )
     }
 
@@ -139,6 +157,10 @@ object ReminderNotifications {
 
     fun cancel(context: Context, card: VocabularyCard) {
         NotificationManagerCompat.from(context).cancel(card.notificationId)
+    }
+
+    fun cancelRecommendationIntro(context: Context) {
+        NotificationManagerCompat.from(context).cancel(RECOMMENDATION_INTRO_NOTIFICATION_ID)
     }
 
     private fun show(context: Context, card: VocabularyCard, builder: NotificationCompat.Builder) {

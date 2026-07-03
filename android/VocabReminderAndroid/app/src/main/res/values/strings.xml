@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Vocabulary Reminder</string>
+    <string name="settings_title">설정</string>
+    <string name="settings_daily_goal_label">하루 목표(개)</string>
+    <string name="settings_queue_cap_label">큐 상한(개)</string>
+    <string name="settings_snooze_label">미루기(분)</string>
+    <string name="settings_quiet_start_label">잠자는 시작</string>
+    <string name="settings_quiet_end_label">잠자는 끝</string>
+    <string name="settings_timezone_label">시간대</string>
+    <string name="settings_recommendations_label">추천 단어</string>
+    <string name="settings_save_button">설정 저장</string>
+    <string name="settings_plan_today_button">오늘 편성</string>
+    <string name="settings_rebalance_button">복습 재조정</string>
 </resources>

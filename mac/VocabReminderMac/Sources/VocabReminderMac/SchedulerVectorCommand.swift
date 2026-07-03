@@ -1,9 +1,13 @@
 import Darwin
 import Foundation
+@preconcurrency import UserNotifications
 
 enum SchedulerVectorCommand {
     @MainActor
     static func runAndExitIfRequested() {
+        if CommandLine.arguments.contains("--check-notification-status") {
+            runNotificationStatusAndExit()
+        }
         guard CommandLine.arguments.contains("--check-scheduler-vectors") else { return }
         do {
             try run()
@@ -13,6 +17,62 @@ enum SchedulerVectorCommand {
             fputs("Scheduler vector check failed: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    private static func runNotificationStatusAndExit() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            print("bundleIdentifier=nil")
+            exit(2)
+        }
+
+        let center = UNUserNotificationCenter.current()
+        let semaphore = DispatchSemaphore(value: 0)
+        let status = NotificationStatusBox()
+
+        center.getNotificationSettings { settings in
+            status.settingsStatus = String(describing: settings.authorizationStatus)
+            center.getPendingNotificationRequests { requests in
+                status.pending = requests.map(\.identifier).sorted()
+                status.pendingDetails = requests.map(Self.describeNotificationRequest).sorted()
+                center.getDeliveredNotifications { notifications in
+                    status.delivered = notifications.map(\.request.identifier).sorted()
+                    status.deliveredDetails = notifications.map { Self.describeNotificationRequest($0.request) }.sorted()
+                    semaphore.signal()
+                }
+            }
+        }
+
+        _ = semaphore.wait(timeout: .now() + 5)
+        let pendingText = status.pending.joined(separator: ",")
+        let deliveredText = status.delivered.joined(separator: ",")
+        print("bundleIdentifier=\(bundleIdentifier)")
+        print("authorizationStatus=\(status.settingsStatus)")
+        print("pending=\(pendingText)")
+        print("delivered=\(deliveredText)")
+        for detail in status.pendingDetails {
+            print("pendingDetail=\(detail)")
+        }
+        for detail in status.deliveredDetails {
+            print("deliveredDetail=\(detail)")
+        }
+        exit(0)
+    }
+
+    private static func describeNotificationRequest(_ request: UNNotificationRequest) -> String {
+        [
+            request.identifier,
+            request.content.title,
+            request.content.body.replacingOccurrences(of: "\n", with: " / "),
+            request.content.categoryIdentifier
+        ].joined(separator: "|")
+    }
+
+    private final class NotificationStatusBox: @unchecked Sendable {
+        var settingsStatus = "unknown"
+        var pending: [String] = []
+        var delivered: [String] = []
+        var pendingDetails: [String] = []
+        var deliveredDetails: [String] = []
     }
 
     @MainActor
@@ -34,6 +94,7 @@ enum SchedulerVectorCommand {
         try require(sentence.needsWordSelection, "Sentence should require word selection")
         try require(sentence.candidates.contains("tentative"), "Missing tentative candidate")
         try require(sentence.candidates.contains("robust"), "Missing robust candidate")
+        try assertCaptureVectors()
         let robust = DictionaryResolver.resolve("Robustly,")
         try require(robust.lemma == "robust", "Expected robust lemma, got \(robust.lemma)")
         try require(robust.meaningKo == "견고한, 안정적인", "Unexpected robust meaning")
@@ -161,24 +222,66 @@ enum SchedulerVectorCommand {
         try require(duplicateSnapshot.contexts.count == 2, "Mac sync import should keep both duplicate contexts")
         try require(duplicateSnapshot.contexts.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate contexts")
         try require(duplicateSnapshot.recommendationFeedback.allSatisfy { $0.cardId == duplicateSnapshot.cards[0].id }, "Mac sync import should remap duplicate feedback")
+        let localOnlyCard = VocabularyCard(
+            id: "local-only-card",
+            lemma: "coherent",
+            displayWord: "coherent",
+            meaningKo: "일관된",
+            definitionEn: "",
+            partOfSpeech: "",
+            exampleSentence: "The local note is coherent.",
+            definitionSourcePrimary: "user",
+            status: .new,
+            wordbook: .user,
+            dueAt: Date(timeIntervalSince1970: 0),
+            intervalDays: 0,
+            lapseCount: 0,
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 0),
+            version: 1
+        )
+        let localSnapshot = StoreSnapshot(
+            cards: [localOnlyCard],
+            contexts: [
+                StoredContext(
+                    id: "local-only-context",
+                    cardId: "local-only-card",
+                    sourceSentence: "The local note is coherent.",
+                    sourceApp: "Mac",
+                    captureMethod: .manual,
+                    createdAt: Date(timeIntervalSince1970: 0)
+                )
+            ],
+            definitionCandidates: [],
+            reviewEvents: [],
+            recommendationFeedback: [],
+            settings: UserSettingsData()
+        )
+        let mergedSnapshot = SyncBatchFactory.merge(local: localSnapshot, incoming: duplicateSnapshot)
+        try require(mergedSnapshot.cards.count == 2, "Mac sync UI import should merge incoming cards without dropping local-only cards")
+        try require(mergedSnapshot.contexts.count == 3, "Mac sync UI import should merge local and incoming contexts")
+        let idempotentSnapshot = SyncBatchFactory.merge(local: mergedSnapshot, incoming: duplicateSnapshot)
+        try require(idempotentSnapshot.cards.count == mergedSnapshot.cards.count, "Mac sync UI import should be idempotent for cards")
+        try require(idempotentSnapshot.contexts.count == mergedSnapshot.contexts.count, "Mac sync UI import should be idempotent for contexts")
         try assertLocalRecommendedCapturePromotion()
 
+        let notificationNow = Date()
         let notificationCards = [
-            notificationCard(id: "rec-unstarted", wordbook: .recommended, dueAt: Date(timeIntervalSince1970: 0)),
-            notificationCard(id: "user-due", wordbook: .user, dueAt: Date(timeIntervalSince1970: 60)),
-            notificationCard(id: "rec-started", wordbook: .recommended, dueAt: Date(timeIntervalSince1970: 120), recommendationStartedAt: Date(timeIntervalSince1970: 30)),
-            notificationCard(id: "user-overflow", wordbook: .user, dueAt: Date(timeIntervalSince1970: 180))
+            notificationCard(id: "rec-unstarted", wordbook: .recommended, dueAt: notificationNow),
+            notificationCard(id: "user-due", wordbook: .user, dueAt: notificationNow),
+            notificationCard(id: "rec-started", wordbook: .recommended, dueAt: notificationNow.addingTimeInterval(120), recommendationStartedAt: notificationNow),
+            notificationCard(id: "user-future", wordbook: .user, dueAt: notificationNow.addingTimeInterval(86_400))
         ]
         let enabledMacNotifications = MacNotificationPlan.scheduledCards(
             cards: notificationCards,
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3)
         )
-        try require(enabledMacNotifications.map(\.id) == ["user-due", "user-overflow", "rec-unstarted"], "Mac notifications should prioritize user cards before recommendation intro alerts")
+        try require(enabledMacNotifications.map(\.id) == ["user-due", "rec-unstarted", "rec-started"], "Mac notifications should not let future user cards displace due recommendation alerts")
         let disabledMacNotifications = MacNotificationPlan.scheduledCards(
             cards: notificationCards,
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)
         )
-        try require(disabledMacNotifications.map(\.id) == ["user-due", "user-overflow"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
+        try require(disabledMacNotifications.map(\.id) == ["user-due", "user-future"], "Mac notifications should stop recommendation alerts when recommendations are disabled")
 
         try assertRecommendationEngine()
 
@@ -266,6 +369,9 @@ enum SchedulerVectorCommand {
         try require(promoted.intervalDays == 3, "Mac local capture should preserve recommended interval")
         try require(promoted.lapseCount == 1, "Mac local capture should preserve recommended lapse count")
         try require(store.contexts.count == 1, "Mac local capture should attach a real context to promoted recommendation")
+        store.softDeleteCard(promoted)
+        try require(store.activeCards.isEmpty, "Mac delete should remove card from active list")
+        try require(store.cards.first?.deletedAt != nil, "Mac delete should mark deletedAt")
     }
 
     private static func assertApplyReview(_ vector: [String: Any]) throws {
@@ -275,7 +381,8 @@ enum SchedulerVectorCommand {
         let response = parseResponse(vector["response"] as! String)
         let recentResponses = (vector["recent_responses"] as? [String] ?? []).map(parseResponse)
         let unavailableCount = vector["unavailable_count_today"] as? Int ?? 0
-        let result = Scheduler.applyReview(card: card, response: response, settings: settings, now: now, recentResponses: recentResponses, unavailableCountToday: unavailableCount)
+        let forgottenCount = vector["forgotten_count_today"] as? Int ?? 0
+        let result = Scheduler.applyReview(card: card, response: response, settings: settings, now: now, recentResponses: recentResponses, unavailableCountToday: unavailableCount, forgottenCountToday: forgottenCount)
         let then = vector["then"] as! [String: Any]
         let name = vector["name"] as! String
         try require(result.card.status == parseStatus(then["status"] as! String), "\(name): status")
@@ -556,6 +663,43 @@ enum SchedulerVectorCommand {
             return url
         }
         throw CheckError("Could not find shared/test-vectors/recommendations.json")
+    }
+
+    private static func captureVectorURL() throws -> URL {
+        let candidates = [
+            URL(filePath: "../../../shared/test-vectors/capture_normalization.json"),
+            URL(filePath: "../../shared/test-vectors/capture_normalization.json"),
+            URL(filePath: "../shared/test-vectors/capture_normalization.json"),
+            URL(filePath: "shared/test-vectors/capture_normalization.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../../shared/test-vectors/capture_normalization.json"),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../shared/test-vectors/capture_normalization.json")
+        ]
+        if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return url
+        }
+        throw CheckError("Could not find shared/test-vectors/capture_normalization.json")
+    }
+
+    private static func assertCaptureVectors() throws {
+        let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: captureVectorURL())) as! [[String: Any]]
+        try require(vectors.count >= 3, "Expected capture vectors")
+        for vector in vectors {
+            let name = vector["name"] as! String
+            let analysis = CaptureNormalizer.analyze(vector["raw"] as! String)
+            let then = vector["then"] as! [String: Any]
+            if let expected = then["needs_word_selection"] as? Bool {
+                try require(analysis.needsWordSelection == expected, "\(name): needs_word_selection")
+            }
+            if let candidates = then["candidates"] as? [String] {
+                try require(analysis.candidates == candidates, "\(name): candidates")
+            }
+            for candidate in then["candidates_include"] as? [String] ?? [] {
+                try require(analysis.candidates.contains(candidate), "\(name): missing \(candidate)")
+            }
+            for candidate in then["candidates_exclude"] as? [String] ?? [] {
+                try require(!analysis.candidates.contains(candidate), "\(name): included \(candidate)")
+            }
+        }
     }
 
     private static func localMinutes(_ date: Date, settings: SchedulerSettings) -> Int {

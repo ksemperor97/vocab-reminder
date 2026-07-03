@@ -83,6 +83,7 @@ object Scheduler {
     private const val MAX_REVIEW_INTERVAL_DAYS = 90
     private const val FIRST_NOTIFICATION_DELAY_MINUTES = 10L
     private const val FORGOTTEN_RECHECK_MINUTES = 20L
+    private const val MAX_FORGOTTEN_PER_CARD_PER_DAY = 3
     private const val QUIET_HOURS_RELEASE_OFFSET_MINUTES = 30L
 
     fun initialDueAt(now: Instant, settings: SchedulerSettings = SchedulerSettings()): Instant {
@@ -96,11 +97,12 @@ object Scheduler {
         settings: SchedulerSettings = SchedulerSettings(),
         now: Instant,
         recentResponses: List<ReviewResponse> = emptyList(),
-        unavailableCountToday: Int = 0
+        unavailableCountToday: Int = 0,
+        forgottenCountToday: Int = 0
     ): ReviewResult {
         val updated = when (response) {
             ReviewResponse.REMEMBERED -> remembered(card, settings, now, recentResponses)
-            ReviewResponse.FORGOTTEN -> forgotten(card, settings, now)
+            ReviewResponse.FORGOTTEN -> forgotten(card, settings, now, forgottenCountToday)
             ReviewResponse.UNAVAILABLE -> unavailable(card, settings, now, unavailableCountToday)
             ReviewResponse.REVEAL -> reveal(card, settings, now)
             ReviewResponse.SUSPEND -> card.copy(status = CardStatus.SUSPENDED, dueAt = now)
@@ -200,7 +202,7 @@ object Scheduler {
         }
 
         val endToday = local.toLocalDate().atTime(settings.quietHoursEnd)
-        val release = if (time < settings.quietHoursEnd && settings.quietHoursStart > settings.quietHoursEnd) {
+        val release = if (settings.quietHoursStart < settings.quietHoursEnd || time < settings.quietHoursEnd) {
             endToday
         } else {
             endToday.plusDays(1)
@@ -247,15 +249,29 @@ object Scheduler {
         )
     }
 
-    private fun forgotten(card: SchedulerCard, settings: SchedulerSettings, now: Instant): SchedulerCard {
+    private fun forgotten(
+        card: SchedulerCard,
+        settings: SchedulerSettings,
+        now: Instant,
+        forgottenCountToday: Int
+    ): SchedulerCard {
         // guide 6.3, 13.2: forgotten preserves the previous interval and rechecks after 10-30 minutes.
-        val previousInterval = if (card.status == CardStatus.MASTERED) MAX_REVIEW_INTERVAL_DAYS else card.intervalDays
+        val previousInterval = when (card.status) {
+            CardStatus.MASTERED -> MAX_REVIEW_INTERVAL_DAYS
+            CardStatus.RELEARNING -> card.intervalBeforeLapse ?: card.intervalDays
+            else -> card.intervalDays
+        }
+        val delay = if (forgottenCountToday + 1 >= MAX_FORGOTTEN_PER_CARD_PER_DAY) {
+            Duration.ofDays(1)
+        } else {
+            Duration.ofMinutes(FORGOTTEN_RECHECK_MINUTES)
+        }
         return card.copy(
             status = CardStatus.RELEARNING,
             intervalDays = 0,
             intervalBeforeLapse = previousInterval,
             lapseCount = card.lapseCount + 1,
-            dueAt = avoidQuietHours(now.plus(Duration.ofMinutes(FORGOTTEN_RECHECK_MINUTES)), settings)
+            dueAt = avoidQuietHours(now.plus(delay), settings)
         )
     }
 

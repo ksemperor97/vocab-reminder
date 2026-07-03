@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -15,6 +16,7 @@ import com.vocabreminder.android.notifications.DailyReviewPlanner
 import com.vocabreminder.android.notifications.RecommendationActionReceiver
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReviewActionReceiver
+import com.vocabreminder.android.notifications.ReviewAlarmReceiver
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
@@ -29,6 +31,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Duration
 import java.time.Instant
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class M3VerticalSliceTest {
@@ -159,6 +162,45 @@ class M3VerticalSliceTest {
     }
 
     @Test
+    fun localSyncButtonsExportAndImportSnapshot() {
+        val now = Instant.now()
+        val syncFile = File(composeRule.activity.getExternalFilesDir(null), "vocab-reminder-sync.json")
+        syncFile.delete()
+        store.addCard(
+            displayWord = "tentative",
+            meaningKo = "temporary",
+            exampleSentence = "The local result is tentative.",
+            dueAt = now.plusSeconds(600),
+            now = now
+        )
+
+        composeRule.onNodeWithTag("local_sync_export_button").performScrollTo().performClick()
+
+        assertTrue(syncFile.exists())
+        assertTrue(syncFile.readText().contains("\"cards\""))
+
+        store.clearAll()
+        composeRule.onNodeWithTag("local_sync_import_button").performScrollTo().performClick()
+
+        val card = store.cards().single()
+        assertEquals("tentative", card.lemma)
+        assertEquals("temporary", card.meaningKo)
+    }
+
+    @Test
+    fun deleteButtonSoftDeletesUserCard() {
+        composeRule.onNodeWithTag("word_field").performTextInput("tentative")
+        composeRule.onNodeWithTag("meaning_field").performTextInput("temporary")
+        composeRule.onNodeWithTag("example_field").performTextInput("The results are tentative.")
+        composeRule.onNodeWithTag("save_button").performClick()
+
+        composeRule.onNodeWithTag("delete_card_tentative").performScrollTo().performClick()
+
+        assertEquals(0, store.cards().size)
+        assertTrue(store.allCards(includeDeleted = true).single().deletedAt != null)
+    }
+
+    @Test
     fun recommendationStartKeepsCardAndRecordsFeedback() {
         val now = Instant.now()
         val recommended = store.addRecommendedCard(
@@ -174,6 +216,35 @@ class M3VerticalSliceTest {
         assertEquals(Wordbook.RECOMMENDED, started.wordbook)
         assertTrue(started.recommendationStartedAt != null)
         assertTrue("started recommendation should enter review cycle in about 10 minutes, was $dueInMinutes", dueInMinutes in 8..11)
+        assertEquals("started", store.recommendationFeedback().single().action)
+    }
+
+    @Test
+    fun recommendationNotificationShowsIntroMeaningBeforeStarted() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val device = UiDevice.getInstance(instrumentation)
+        device.executeShellCommand("pm grant ${composeRule.activity.packageName} android.permission.POST_NOTIFICATIONS")
+        device.executeShellCommand("cmd notification cancel-all")
+        Thread.sleep(500)
+
+        val now = Instant.now()
+        val recommended = store.addRecommendedCard(
+            result = DictionaryResolver.resolve("mitigate"),
+            captureMethod = com.vocabreminder.android.capture.CaptureMethod.RECOMMENDATION,
+            now = now
+        )
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            ReminderNotifications.showRecommendation(activity, recommended)
+        }
+
+        val firstDump = waitForNotificationDump(device, "android.title=String (오늘의 새 단어: mitigate)")
+        assertTrue(firstDump.contains("알고 있는 단어인가요?"))
+        assertTrue("recommendation intro should expose meaning as an introduction", firstDump.contains(recommended.meaningKo))
+
+        sendRecommendationAction(recommended, ReminderNotifications.RECOMMENDATION_START)
+        val startedDump = waitForNotificationDump(device, "android.text=String (뜻: ${recommended.meaningKo})")
+        assertTrue(startedDump.contains("android.text=String (뜻: ${recommended.meaningKo})"))
         assertEquals("started", store.recommendationFeedback().single().action)
     }
 
@@ -300,6 +371,37 @@ class M3VerticalSliceTest {
         val forgottenDump = waitForNotificationDump(device, "android.text=String (뜻: temporary)")
         assertTrue(forgottenDump.contains("android.text=String (뜻: temporary)"))
         assertEquals(ReviewResponse.FORGOTTEN, store.events().last().response)
+    }
+
+    @Test
+    fun alarmReceiverShowsDueReviewNotificationWithoutMeaning() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val device = UiDevice.getInstance(instrumentation)
+        device.executeShellCommand("pm grant ${composeRule.activity.packageName} android.permission.POST_NOTIFICATIONS")
+        device.executeShellCommand("cmd notification cancel-all")
+        Thread.sleep(500)
+
+        val now = Instant.now()
+        val card = store.addCard(
+            displayWord = "salient",
+            meaningKo = "noticeable",
+            exampleSentence = "The salient cue was delayed.",
+            dueAt = now.minusSeconds(1),
+            now = now
+        )
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            ReviewAlarmReceiver().onReceive(
+                activity,
+                Intent(activity, ReviewAlarmReceiver::class.java)
+                    .setAction(ReviewAlarmReceiver.ACTION_REVIEW_DUE)
+                    .putExtra("card_id", card.id)
+            )
+        }
+
+        val dump = waitForNotificationDump(device, "android.title=String (salient)")
+        assertTrue(dump.contains("android.text=String (무슨 뜻이었지?)"))
+        assertTrue("alarm recall notification must not expose meaning", !dump.contains("noticeable"))
     }
 
     private fun sendAction(card: VocabularyCard, response: ReviewResponse) {

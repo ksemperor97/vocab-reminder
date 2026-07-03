@@ -352,6 +352,13 @@ class LocalVocabularyStore(context: Context) {
         updateCard(card.copy(deletedAt = now, updatedAt = now, version = card.version + 1))
     }
 
+    fun softDeleteCard(cardId: String, now: Instant): VocabularyCard? {
+        val card = findCard(cardId) ?: return null
+        val deleted = card.copy(deletedAt = now, updatedAt = now, version = card.version + 1)
+        updateCard(deleted)
+        return deleted
+    }
+
     fun updateCard(card: VocabularyCard) {
         saveCards(allCards(includeDeleted = true).map { if (it.id == card.id) card else it })
     }
@@ -385,6 +392,15 @@ class LocalVocabularyStore(context: Context) {
         return events().count {
             it.cardId == cardId &&
                 it.response == ReviewResponse.UNAVAILABLE &&
+                it.clientCreatedAt.atZone(zoneId).toLocalDate() == today
+        }
+    }
+
+    fun forgottenCountToday(cardId: String, zoneId: ZoneId, now: Instant): Int {
+        val today = now.atZone(zoneId).toLocalDate()
+        return events().count {
+            it.cardId == cardId &&
+                it.response == ReviewResponse.FORGOTTEN &&
                 it.clientCreatedAt.atZone(zoneId).toLocalDate() == today
         }
     }

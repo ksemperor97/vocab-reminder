@@ -1,6 +1,8 @@
 package com.vocabreminder.android
 
 import android.Manifest
+import android.app.Activity
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -8,7 +10,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,9 +20,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
@@ -51,10 +59,12 @@ import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.dictionary.DictionaryResolver
 import com.vocabreminder.android.dictionary.DictionaryResult
 import com.vocabreminder.android.notifications.DailyReviewPlanner
+import com.vocabreminder.android.notifications.QuietHoursBoundaryScheduler
 import com.vocabreminder.android.notifications.QuietHoursWorker
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReminderScheduler
 import com.vocabreminder.android.scheduler.Scheduler
+import com.vocabreminder.android.scheduler.Wordbook
 import com.vocabreminder.android.sync.CloudSyncClient
 import com.vocabreminder.android.sync.CloudSyncConfig
 import com.vocabreminder.android.sync.FirebaseAuthRestClient
@@ -62,6 +72,7 @@ import com.vocabreminder.android.sync.FirebasePasswordAuthConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
@@ -72,7 +83,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ReminderNotifications.ensureChannel(this)
         QuietHoursWorker.ensureScheduled(this)
-        requestNotificationPermissionIfNeeded()
+        QuietHoursBoundaryScheduler.schedule(this)
 
         val initialCapture = captureFromIntent(intent)
 
@@ -82,14 +93,6 @@ class MainActivity : ComponentActivity() {
                 initialMethod = initialCapture.method,
                 initialSourceApp = initialCapture.sourceApp
             )
-        }
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
     }
 
@@ -115,6 +118,21 @@ private data class InitialCapture(
     val method: CaptureMethod = CaptureMethod.MANUAL,
     val sourceApp: String = "manual"
 )
+
+private fun hasNotificationPermission(context: Context): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun finishProcessTextIfNeeded(context: Context, method: CaptureMethod) {
+    if (method == CaptureMethod.ANDROID_PROCESS_TEXT) {
+        (context as? Activity)?.finish()
+    }
+}
+
+private fun localSyncFile(context: Context): File {
+    return File(context.getExternalFilesDir(null) ?: context.filesDir, "vocab-reminder-sync.json")
+}
 
 @Composable
 private fun VocabReminderApp(
@@ -149,6 +167,13 @@ private fun VocabReminderApp(
     var cloudAuthToken by remember { mutableStateOf("") }
     var firebaseAuthRunning by remember { mutableStateOf(false) }
     var cloudSyncRunning by remember { mutableStateOf(false) }
+    var notificationPermissionGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
+    var showNotificationPermissionDialog by remember { mutableStateOf(!notificationPermissionGranted) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationPermissionGranted = granted
+        showNotificationPermissionDialog = false
+    }
+    val needsNotificationPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationPermissionGranted
 
     fun reload() {
         cards.clear()
@@ -184,10 +209,18 @@ private fun VocabReminderApp(
     fun saveResolved(result: DictionaryResult, method: CaptureMethod) {
         val now = Instant.now()
         val dueAt = Scheduler.initialDueAt(now, settings.toSchedulerSettings())
+        val normalizedLemma = result.lemma.ifBlank { CaptureNormalizer.lemma(result.displayWord) }
+        val existingBefore = store.cards().firstOrNull { it.lemma.equals(normalizedLemma, ignoreCase = true) }
+        val editedExample = previewExample.trim()
+        val defaultExample = result.sourceSentence.ifBlank { result.exampleSentence }.trim()
+        val sourceSentence = when {
+            existingBefore != null && result.sourceSentence.isBlank() && editedExample == defaultExample -> ""
+            else -> editedExample.ifBlank { result.sourceSentence }
+        }
         val finalResult = result.copy(
             meaningKo = previewMeaning.trim(),
-            exampleSentence = previewExample.trim(),
-            sourceSentence = previewExample.trim().ifBlank { result.sourceSentence },
+            exampleSentence = editedExample,
+            sourceSentence = sourceSentence,
             sourceType = if (previewMeaning.trim() != result.meaningKo.trim()) "user" else result.sourceType,
             sourceApp = sourceApp
         )
@@ -199,7 +232,11 @@ private fun VocabReminderApp(
         )
         if (card.meaningKo.isNotBlank()) {
             ReminderScheduler.schedule(context, card, now)
-            message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
+            message = if (existingBefore != null) {
+                "${card.displayWord} 문맥 추가됨 · 카드 수 ${store.cards().size}개 유지"
+            } else {
+                "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
+            }
         } else {
             message = "${card.displayWord} 뜻 없이 저장됨 · 알림 보류"
         }
@@ -209,6 +246,7 @@ private fun VocabReminderApp(
         preview = null
         pendingAnalysis = null
         reload()
+        finishProcessTextIfNeeded(context, method)
     }
 
     fun saveManual() {
@@ -278,6 +316,64 @@ private fun VocabReminderApp(
                 }
             )
         }
+    }
+
+    fun exportLocalSync() {
+        val payload = store.exportSyncBatchJson()
+        val file = localSyncFile(context)
+        runCatching {
+            file.parentFile?.mkdirs()
+            file.writeText(payload)
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("vocab-reminder-sync", payload))
+        }.fold(
+            onSuccess = {
+                message = "Sync 내보내기 완료 · ${file.absolutePath}"
+            },
+            onFailure = { error ->
+                message = "Sync 내보내기 실패: ${error.message ?: error::class.java.simpleName}"
+            }
+        )
+    }
+
+    fun importLocalSync() {
+        val file = localSyncFile(context)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboardText = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+        val raw = when {
+            file.exists() -> file.readText()
+            clipboardText.trimStart().startsWith("{") && clipboardText.contains("\"cards\"") -> clipboardText
+            else -> ""
+        }
+        if (raw.isBlank()) {
+            message = "가져올 sync 파일 또는 클립보드 JSON이 없습니다."
+            return
+        }
+        runCatching {
+            store.importSyncBatchJson(raw)
+            DailyReviewPlanner.planAndSchedule(context)
+            QuietHoursBoundaryScheduler.schedule(context)
+        }.fold(
+            onSuccess = {
+                reload()
+                message = "Sync 가져오기 완료 · 카드 ${store.cards().size}개"
+            },
+            onFailure = { error ->
+                message = "Sync 가져오기 실패: ${error.message ?: error::class.java.simpleName}"
+            }
+        )
+    }
+
+    fun deleteCard(card: VocabularyCard) {
+        val deleted = store.softDeleteCard(card.id, Instant.now())
+        if (deleted == null) {
+            message = "${card.displayWord} 삭제 실패"
+            return
+        }
+        ReminderScheduler.cancel(context, deleted)
+        ReminderNotifications.cancel(context, deleted)
+        reload()
+        message = "${card.displayWord} 삭제됨"
     }
 
     fun signInFirebase() {
@@ -368,6 +464,26 @@ private fun VocabReminderApp(
         }
     }
 
+    if (showNotificationPermissionDialog && needsNotificationPermission) {
+        AlertDialog(
+            onDismissRequest = { showNotificationPermissionDialog = false },
+            title = { Text("복습 알림 권한이 필요합니다") },
+            text = {
+                Text("Vocabulary Reminder는 저장한 단어를 알림으로 다시 묻는 앱입니다. 알림을 허용해야 10분 뒤 복습, 못외웠다 재확인, 나중에 하기 흐름을 받을 수 있습니다.")
+            },
+            confirmButton = {
+                TextButton(onClick = { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+                    Text("권한 요청")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationPermissionDialog = false }) {
+                    Text("나중에")
+                }
+            }
+        )
+    }
+
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
@@ -385,6 +501,20 @@ private fun VocabReminderApp(
                         text = "캡처한 단어를 preview로 확인하고 10분 뒤 알림으로 다시 묻습니다.",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                }
+
+                if (needsNotificationPermission) {
+                    item {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("알림이 꺼져 있어 복습 알림을 받을 수 없습니다.")
+                                Text("권한을 허용하면 저장한 단어가 due 시각에 알림으로 도착합니다.")
+                                Button(onClick = { showNotificationPermissionDialog = true }) {
+                                    Text("알림 권한 요청")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 item {
@@ -445,12 +575,14 @@ private fun VocabReminderApp(
                         onSave = {
                             store.saveSettings(settings)
                             val summary = DailyReviewPlanner.planAndSchedule(context)
+                            QuietHoursBoundaryScheduler.schedule(context)
                             val intro = if (summary.recommendationIntroShown) " · 추천 안내 표시" else ""
                             message = "설정 저장됨 · 알림 ${summary.scheduledNotifications}개 편성$intro"
                             reload()
                         },
                         onPlan = {
                             val summary = DailyReviewPlanner.planAndSchedule(context)
+                            QuietHoursBoundaryScheduler.schedule(context)
                             val intro = if (summary.recommendationIntroShown) ", 추천 안내 표시" else ""
                             message = "오늘 편성: 추천 ${summary.generatedRecommendations}, 알림 ${summary.scheduledNotifications}, 재조정 ${summary.rebalancedCards}$intro"
                             reload()
@@ -480,7 +612,9 @@ private fun VocabReminderApp(
                         onAuthTokenChange = { cloudAuthToken = it },
                         onSignIn = { signInFirebase() },
                         onRefreshToken = { refreshFirebaseToken() },
-                        onSync = { runCloudSync() }
+                        onSync = { runCloudSync() },
+                        onLocalExport = { exportLocalSync() },
+                        onLocalImport = { importLocalSync() }
                     )
                 }
 
@@ -491,6 +625,9 @@ private fun VocabReminderApp(
                     )
                 }
 
+                val userCards = cards.filter { it.wordbook == Wordbook.USER }
+                val recommendationCards = cards.filter { it.wordbook == Wordbook.RECOMMENDED }
+
                 if (cards.isEmpty()) {
                     item {
                         Text(
@@ -499,8 +636,25 @@ private fun VocabReminderApp(
                         )
                     }
                 } else {
-                    items(cards, key = { it.id }) { card ->
-                        CardSummary(card, weak = card.id in weakWordIds.value)
+                    item {
+                        Text(
+                            text = "내 단어장 ${userCards.size}개",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                    items(userCards, key = { it.id }) { card ->
+                        CardSummary(card, weak = card.id in weakWordIds.value, onDelete = { deleteCard(card) })
+                    }
+                    if (recommendationCards.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "추천 단어장 ${recommendationCards.size}개",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        items(recommendationCards, key = { it.id }) { card ->
+                            CardSummary(card, weak = card.id in weakWordIds.value, onDelete = { deleteCard(card) })
+                        }
                     }
                 }
 
@@ -539,7 +693,9 @@ private fun CloudSyncPanel(
     onAuthTokenChange: (String) -> Unit,
     onSignIn: () -> Unit,
     onRefreshToken: () -> Unit,
-    onSync: () -> Unit
+    onSync: () -> Unit,
+    onLocalExport: () -> Unit,
+    onLocalImport: () -> Unit
 ) {
     Card {
         Column(
@@ -549,6 +705,20 @@ private fun CloudSyncPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("Cloud sync", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.testTag("local_sync_export_button"),
+                    onClick = onLocalExport
+                ) {
+                    Text("Sync 내보내기")
+                }
+                Button(
+                    modifier = Modifier.testTag("local_sync_import_button"),
+                    onClick = onLocalImport
+                ) {
+                    Text("Sync 가져오기")
+                }
+            }
             OutlinedTextField(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -796,40 +966,38 @@ private fun SettingsPanel(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("설정", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NumberField("하루 목표", settings.dailyWordGoal.toString()) {
+            Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.titleMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                NumberField(stringResource(R.string.settings_daily_goal_label), settings.dailyWordGoal.toString()) {
                     onSettingsChange(settings.copy(dailyWordGoal = it.toIntOrNull()?.coerceAtLeast(1) ?: settings.dailyWordGoal))
                 }
-                NumberField("큐 상한", settings.maxQueueSize.toString()) {
+                NumberField(stringResource(R.string.settings_queue_cap_label), settings.maxQueueSize.toString()) {
                     onSettingsChange(settings.copy(maxQueueSize = it.toIntOrNull()?.coerceAtLeast(1) ?: settings.maxQueueSize))
                 }
-                NumberField("미루기", settings.snoozeDurationMinutes.toString()) {
+                NumberField(stringResource(R.string.settings_snooze_label), settings.snoozeDurationMinutes.toString()) {
                     onSettingsChange(settings.copy(snoozeDurationMinutes = it.toLongOrNull()?.coerceAtLeast(1) ?: settings.snoozeDurationMinutes))
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TimeField("잠자는 시작", settings.quietHoursStart.toString()) {
+                TimeField(stringResource(R.string.settings_quiet_start_label), settings.quietHoursStart.toString()) {
                     runCatching { LocalTime.parse(it) }.getOrNull()?.let { time -> onSettingsChange(settings.copy(quietHoursStart = time)) }
                 }
-                TimeField("잠자는 끝", settings.quietHoursEnd.toString()) {
+                TimeField(stringResource(R.string.settings_quiet_end_label), settings.quietHoursEnd.toString()) {
                     runCatching { LocalTime.parse(it) }.getOrNull()?.let { time -> onSettingsChange(settings.copy(quietHoursEnd = time)) }
                 }
-                TimeField("시간대", settings.timezone.id) {
+                TimeField(stringResource(R.string.settings_timezone_label), settings.timezone.id) {
                     runCatching { ZoneId.of(it) }.getOrNull()?.let { zone -> onSettingsChange(settings.copy(timezone = zone)) }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("추천 단어")
+                Text(stringResource(R.string.settings_recommendations_label))
                 Switch(
                     checked = settings.enableWordRecommendations,
                     onCheckedChange = { onSettingsChange(settings.copy(enableWordRecommendations = it)) }
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onSave) { Text("설정 저장") }
-                Button(onClick = onPlan) { Text("오늘 편성") }
-                Button(onClick = onRebalance) { Text("복습 재조정") }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsActionButton(stringResource(R.string.settings_save_button), onSave)
+                SettingsActionButton(stringResource(R.string.settings_plan_today_button), onPlan)
+                SettingsActionButton(stringResource(R.string.settings_rebalance_button), onRebalance)
             }
         }
     }
@@ -837,28 +1005,48 @@ private fun SettingsPanel(
 
 @Composable
 private fun NumberField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(0.3f),
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true
-    )
+    SettingsTextField(label = label, value = value, onChange = onChange)
 }
 
 @Composable
 private fun TimeField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(0.3f),
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true
-    )
+    SettingsTextField(label = label, value = value, onChange = onChange)
 }
 
 @Composable
-private fun CardSummary(card: VocabularyCard, weak: Boolean) {
+private fun SettingsTextField(label: String, value: String, onChange: (String) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            maxLines = 1,
+            style = MaterialTheme.typography.labelLarge
+        )
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = value,
+            onValueChange = onChange,
+            singleLine = true
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionButton(label: String, onClick: () -> Unit) {
+    Button(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+        onClick = onClick
+    ) {
+        Text(label, maxLines = 1)
+    }
+}
+
+@Composable
+private fun CardSummary(card: VocabularyCard, weak: Boolean, onDelete: () -> Unit) {
     Card {
         Column(
             modifier = Modifier
@@ -877,6 +1065,12 @@ private fun CardSummary(card: VocabularyCard, weak: Boolean) {
                 text = "wordbook=${card.wordbook.name.lowercase()} · status=${card.status.name.lowercase()} · interval=${card.intervalDays}d · due=${card.dueAt}$weakLabel",
                 style = MaterialTheme.typography.bodySmall
             )
+            Button(
+                modifier = Modifier.testTag("delete_card_${card.lemma}"),
+                onClick = onDelete
+            ) {
+                Text("삭제")
+            }
         }
     }
 }

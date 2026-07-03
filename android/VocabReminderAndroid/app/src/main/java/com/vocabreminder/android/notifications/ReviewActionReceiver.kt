@@ -27,7 +27,8 @@ class ReviewActionReceiver : BroadcastReceiver() {
             settings = settings,
             now = now,
             recentResponses = store.recentResponses(card.id, 2),
-            unavailableCountToday = store.unavailableCountToday(card.id, settings.timezone, now)
+            unavailableCountToday = store.unavailableCountToday(card.id, settings.timezone, now),
+            forgottenCountToday = store.forgottenCountToday(card.id, settings.timezone, now)
         )
 
         val updated = card.withSchedulerCard(result.card, now)
