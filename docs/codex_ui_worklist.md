@@ -137,12 +137,25 @@ UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260
 
 ## UI-M5 — Mac (리뷰 5장, Android 완료 후)
 
-```text
-T14: 메뉴 바 팝오버를 guide 15.2 mockup 구조로 (오늘 due/새 단어/취약 + 3버튼)
-T15: 캡처 팝업 위계: 단어 크게 → 뜻 → 예문 → 출처, Enter=저장
-T16: Cloud sync 필드 디버그 게이팅 (T4와 동일 규칙)
-주의: 수정 후 반드시 package_app.sh 재실행 → .app로 확인 (swift run은 알림 검증 불가)
-```
+### [x] T14. 메뉴 바 팝오버를 guide 15.2 구조로
+
+완료(2026-07-03): 메뉴 바 팝오버를 `Vocabulary Reminder`, `오늘 due`, `새 단어`, `취약 단어`, `[오늘 복습하기] [최근 저장 단어] [설정]` 3버튼 구조로 줄였다. 기존 팝오버의 클립보드/재조정/추천/종료 버튼은 메인 창 설정 영역으로 유지하고 팝오버에서는 제거했다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M5/menu_bar_popover_ax_refreshed.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/menu_names_after_reopen.txt`
+
+### [x] T15. 캡처 팝업 위계
+
+완료(2026-07-03): Mac preview를 단어 크게 → 뜻 → 예문 → 출처 순서로 재배치했고, `저장` 버튼의 Enter shortcut을 유지했다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_window.png`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_ax.txt`
+
+### [x] T16. Cloud sync 필드 디버그 게이팅
+
+완료(2026-07-03): 설정의 동기화 영역은 로그인 상태, 마지막 동기화, [로그인] [로그아웃] [지금 동기화]만 기본 노출하고, Firebase Web API key / email / password / Functions URL / ID token / local sync import-export는 `#if DEBUG`의 `Debug sync fields` disclosure 아래로 이동했다. SwiftPM debug 빌드에서만 `DEBUG`가 켜지도록 `Package.swift`에 조건을 명시했다.
+
+검증: `swift build`, `swift run VocabReminderMac --check-scheduler-vectors`, `swift build -c release`, `./package_app.sh`, `codesign --verify --deep --strict --verbose=2 mac/VocabReminderMac/VocabReminder.app`
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M5/main_window_initial_ax.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_window.png`
 
 ## 순서와 충돌 관리
 

@@ -141,13 +141,17 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 
 ---
 
-## 5. Mac 앱 (미관찰 — 방향만)
+## 5. Mac 앱
 
 ```text
 - 메뉴 바 팝오버는 15.2 mockup(오늘 due/새 단어/취약 단어 + 3버튼)을 기준으로.
 - 캡처 팝오버는 필드 나열이 아니라 "단어 크게 → 뜻 → 예문 → 출처" 위계로, Enter=저장.
 - Cloud sync 필드 노출 문제(V-4)는 Mac에도 동일하게 적용.
 ```
+
+완료(2026-07-03, Codex UI-M5): Mac `.app`를 다시 패키징해 실제 앱에서 확인했다. 메뉴바 팝오버는 15.2 mockup의 3개 요약 + 3버튼 구조로 축소했고, 캡처 preview는 `tentative`를 크게 보여준 뒤 뜻, 예문, 출처 순서로 배치했다. 설정의 동기화 영역은 로그인 상태와 마지막 동기화만 기본 노출하고, Firebase key/token/Functions URL/local sync import-export는 debug disclosure 아래로 이동했다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M5/menu_bar_popover_ax_refreshed.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/menu_names_after_reopen.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_window.png`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_ax.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/main_window_initial_ax.txt`
 
 ---
 
@@ -170,5 +174,5 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 [x] 후보 선택 → 저장까지의 미리보기 실제 모습 (정상 단어로) — `/tmp/vocab_ui_20260703_130300/UI-M3/T7_candidate_chips.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T8_preview_card.png`
 [x] 다크 모드 전체 화면 — `/tmp/vocab_ui_20260703_130300/UI-M3/T11_dark_mode_user_tab.png`
 [ ] 폴더블(SM-F766N) 펼침 화면에서의 레이아웃 (좁은 화면 접힘 상태 vs 펼침)
-[ ] Mac 메뉴 바 팝오버 / 카드 목록 / 캡처 팝업
+[x] Mac 메뉴 바 팝오버 / 카드 목록 / 캡처 팝업 — `/tmp/vocab_ui_20260703_130300/UI-M5/menu_bar_popover_ax_refreshed.txt`, `/tmp/vocab_ui_20260703_130300/UI-M5/capture_preview_window.png`, `/tmp/vocab_ui_20260703_130300/UI-M5/main_window_initial_ax.txt`
 ```

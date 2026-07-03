@@ -12,7 +12,10 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "VocabReminderMac"
+            name: "VocabReminderMac",
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug))
+            ]
         )
     ]
 )

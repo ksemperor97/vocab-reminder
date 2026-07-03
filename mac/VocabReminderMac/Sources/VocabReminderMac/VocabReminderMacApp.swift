@@ -54,27 +54,22 @@ struct MenuBarView: View {
     var openMainWindow: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Vocabulary Reminder")
                 .font(.headline)
-            Text("오늘 due: \(store.dueCount)개")
-            Text("새 단어: \(store.activeCards.filter { $0.status == .new }.count)개")
-            Text("취약 단어: \(store.weakCount)개")
-            Divider()
-            Button("클립보드에서 추가") { store.captureClipboard() }
-                .keyboardShortcut("v", modifiers: [.command, .option])
-            Button("오늘 복습하기") {
-                if let card = store.activeCards.first(where: { !$0.meaningKo.isEmpty && $0.dueAt <= Date() }) {
-                    store.review(card: card, response: .remembered)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("오늘 due: \(store.dueCount)개")
+                Text("새 단어: \(store.activeCards.filter { $0.status == .new }.count)개")
+                Text("취약 단어: \(store.weakCount)개")
             }
-            Button("복습 재조정") { store.rebalanceDueCards() }
-            Button("추천 채우기") { store.fillRecommendations() }
             Divider()
-            Button("창 열기") { openMainWindow() }
-            Button("종료") { NSApp.terminate(nil) }
+            Button("오늘 복습하기") { openMainWindow() }
+                .disabled(store.dueCount == 0)
+            Button("최근 저장 단어") { openMainWindow() }
+            Button("설정") { openMainWindow() }
         }
-        .padding(10)
+        .padding(12)
+        .frame(width: 220, alignment: .leading)
     }
 }
 
@@ -189,20 +184,40 @@ struct PreviewView: View {
     var onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("\(result.displayWord) → \(result.lemma)")
-                .font(.headline)
-            if !result.definitionEn.isEmpty {
-                Text("\(result.partOfSpeech) · \(result.definitionEn)")
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.displayWord)
+                    .font(.system(size: 28, weight: .semibold))
+                if result.lemma != result.displayWord.lowercased() {
+                    Text("원형: \(result.lemma)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            TextField("뜻", text: $meaning)
-                .textFieldStyle(.roundedBorder)
-            TextField("예문", text: $example)
-                .textFieldStyle(.roundedBorder)
-            Text("출처: \(result.sourceApp) · \(result.sourceType)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("뜻")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("뜻", text: $meaning)
+                    .textFieldStyle(.roundedBorder)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("예문")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("예문", text: $example)
+                    .textFieldStyle(.roundedBorder)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("출처: \(result.sourceApp) · \(result.sourceType)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !result.definitionEn.isEmpty {
+                    Text("\(result.partOfSpeech) · \(result.definitionEn)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 Button("저장", action: onSave)
                     .keyboardShortcut(.return)
@@ -224,6 +239,7 @@ struct SettingsView: View {
     @AppStorage("cloudFunctionsURL") private var cloudFunctionsURL = ""
     @State private var firebasePassword = ""
     @State private var cloudAuthToken = ""
+    @AppStorage("lastCloudSyncSummary") private var lastCloudSyncSummary = ""
     @State private var firebaseAuthRunning = false
     @State private var cloudSyncRunning = false
 
@@ -240,34 +256,56 @@ struct SettingsView: View {
             HStack {
                 Button("복습 재조정") { store.rebalanceDueCards() }
                 Button("추천 채우기") { store.fillRecommendations() }
-                Button("Sync 내보내기") { store.exportSyncSnapshot() }
-                Button("Sync 가져오기") { store.importSyncSnapshot() }
             }
             Divider()
-            TextField("Firebase Web API key", text: $firebaseWebApiKey)
-                .textFieldStyle(.roundedBorder)
-            TextField("Firebase email", text: $firebaseEmail)
-                .textFieldStyle(.roundedBorder)
-            SecureField("Firebase password", text: $firebasePassword)
-                .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("동기화")
+                    .font(.headline)
+                Text("로그인 상태: \(firebaseEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "로그인 필요" : firebaseEmail)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("마지막 동기화: \(lastCloudSyncSummary.isEmpty ? "없음" : lastCloudSyncSummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
-                Button(firebaseAuthRunning ? "로그인 중" : "Firebase 로그인") {
+                Button(firebaseAuthRunning ? "로그인 중" : "로그인") {
                     signInFirebase()
                 }
-                .disabled(firebaseAuthRunning || firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebaseEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebasePassword.isEmpty)
-                Button(firebaseAuthRunning ? "갱신 중" : "ID token 갱신") {
-                    refreshFirebaseToken()
+                .disabled(firebaseAuthRunning || !canSignIn)
+                Button("로그아웃") {
+                    signOutFirebase()
                 }
-                .disabled(firebaseAuthRunning || firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebaseRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(firebaseRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && cloudAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(cloudSyncRunning ? "동기화 중" : "지금 동기화") {
+                    runCloudSync()
+                }
+                .disabled(cloudSyncRunning || !canCloudSync)
             }
-            TextField("Functions URL", text: $cloudFunctionsURL)
-                .textFieldStyle(.roundedBorder)
-            SecureField("Firebase Auth ID token", text: $cloudAuthToken)
-                .textFieldStyle(.roundedBorder)
-            Button(cloudSyncRunning ? "Cloud Sync 중" : "Cloud Sync") {
-                runCloudSync()
+#if DEBUG
+            DisclosureGroup("Debug sync fields") {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Firebase Web API key", text: $firebaseWebApiKey)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Firebase email", text: $firebaseEmail)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Firebase password", text: $firebasePassword)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button(firebaseAuthRunning ? "갱신 중" : "ID token 갱신") {
+                            refreshFirebaseToken()
+                        }
+                        .disabled(firebaseAuthRunning || firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || firebaseRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Sync 내보내기") { store.exportSyncSnapshot() }
+                        Button("Sync 가져오기") { store.importSyncSnapshot() }
+                    }
+                    TextField("Functions URL", text: $cloudFunctionsURL)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Firebase Auth ID token", text: $cloudAuthToken)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
-            .disabled(cloudSyncRunning || cloudFunctionsURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cloudAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+#endif
         }
         .padding(12)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
@@ -300,6 +338,24 @@ struct SettingsView: View {
                 store.message = "Firebase 로그인 실패: \(error.localizedDescription)"
             }
         }
+    }
+
+    private var canSignIn: Bool {
+        firebaseWebApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+            firebaseEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+            firebasePassword.isEmpty == false
+    }
+
+    private var canCloudSync: Bool {
+        cloudFunctionsURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+            cloudAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private func signOutFirebase() {
+        firebasePassword = ""
+        firebaseRefreshToken = ""
+        cloudAuthToken = ""
+        store.message = "Firebase 로그아웃됨"
     }
 
     private func refreshFirebaseToken() {
@@ -340,6 +396,7 @@ struct SettingsView: View {
             defer { cloudSyncRunning = false }
             do {
                 let summary = try await store.syncWithCloud(functionsBaseURL: functionsURL, authToken: token)
+                lastCloudSyncSummary = Date().formatted(date: .abbreviated, time: .shortened)
                 store.message = "Cloud sync 완료 · 카드 \(summary.cards), 이벤트 \(summary.reviewEvents)"
             } catch {
                 store.message = "Cloud sync 실패: \(error.localizedDescription)"
