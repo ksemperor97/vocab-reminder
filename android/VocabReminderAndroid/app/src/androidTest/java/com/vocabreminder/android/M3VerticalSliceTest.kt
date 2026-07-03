@@ -52,6 +52,7 @@ class M3VerticalSliceTest {
     fun manualAddCreatesCardDueInTenMinutes() {
         openAddSheet()
         composeRule.onNodeWithTag("word_field").performTextInput("tentative")
+        composeRule.onNodeWithTag("manual_input_button").performClick()
         composeRule.onNodeWithTag("meaning_field").performTextInput("temporary")
         composeRule.onNodeWithTag("example_field").performTextInput("The results are tentative.")
         composeRule.onNodeWithTag("save_button").performClick()
@@ -194,6 +195,7 @@ class M3VerticalSliceTest {
     fun deleteButtonSoftDeletesUserCard() {
         openAddSheet()
         composeRule.onNodeWithTag("word_field").performTextInput("tentative")
+        composeRule.onNodeWithTag("manual_input_button").performClick()
         composeRule.onNodeWithTag("meaning_field").performTextInput("temporary")
         composeRule.onNodeWithTag("example_field").performTextInput("The results are tentative.")
         composeRule.onNodeWithTag("save_button").performClick()

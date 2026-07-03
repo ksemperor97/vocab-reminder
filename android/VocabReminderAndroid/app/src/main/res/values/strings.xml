@@ -16,4 +16,6 @@
     <string name="tab_recommendations">추천 단어장</string>
     <string name="tab_settings">설정</string>
     <string name="sync_settings_title">동기화</string>
+    <string name="manual_input_button">직접 입력</string>
+    <string name="summary_remaining_reviews">오늘 남은 복습 %1$d개 · 취약 %2$d · 전체 %3$d</string>
 </resources>

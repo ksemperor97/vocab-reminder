@@ -99,16 +99,29 @@ UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260
 
 ## UI-M3 — 컴포넌트 다듬기 (P3, 1일)
 
-```text
-T6 (V-6): 상태 메시지 → Snackbar. "뜻을 찾지 못했습니다"는 error 색 + [직접 입력] 액션
-T7 (V-7): 후보 chip 정규화된 소문자 표기, 7개 초과 시 가로 스크롤.
-          ※ URL 조각 제거는 QC 프로토콜 F-2(기능 수정)에서 처리 — 여기서 중복 작업 금지
-T8 (V-8): 미리보기 결과를 카드형으로: 단어→lemma / 뜻 / 품사 / 예문 / 출처 / 소스 라벨
-T9 (V-9): 입력 시트 기본 = "단어 또는 문장" 필드 1개. 미리보기 후 뜻/예문 표시·수정
-T10 (V-10): 요약 라인에 "오늘 남은 복습 N개" 추가
-T11 (V-12): 회색 메타 텍스트 대비 AA 확인, 다크 모드 실기기 screencap 확보
-완료 기준: 각 항목 screencap + visual_improvement_review.md 7장(다크 모드 등) 채움
-```
+### [x] T6. 상태 메시지 Snackbar (V-6)
+
+완료(2026-07-03): add sheet와 설정 메시지를 snackbar 형태로 표시하고, `뜻을 찾지 못했습니다`는 error container 색과 `직접 입력` 액션을 사용한다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T6_unknown_snackbar.png`
+
+### [x] T7. 후보 chip 정규화/가로 스크롤 (V-7)
+
+완료(2026-07-03): 후보를 정규화된 소문자 assist chip으로 표시하고 LazyRow로 가로 스크롤하게 바꿨다. URL 조각 제거는 QC 프로토콜 F-2에서 이미 처리한 기능 수정과 중복하지 않았다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T7_candidate_chips.png`
+
+### [x] T8. 미리보기 카드 위계 (V-8)
+
+완료(2026-07-03): preview를 단어, 원형, 품사/정의, 뜻, 예문, 출처, 소스 라벨 순서의 카드로 바꿨다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T8_preview_card.png`
+
+### [x] T9. 입력 시트 기본 필드 축소 (V-9)
+
+완료(2026-07-03): add sheet 기본 상태는 `단어 또는 문장` 1개 필드와 `미리보기`/`클립보드`/`직접 입력` 버튼만 보이고, 뜻/예문은 직접 입력 또는 preview 카드에서 수정한다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T9_input_sheet_default.png`
+
+### [x] T10. 오늘 남은 복습 요약 (V-10)
+
+완료(2026-07-03): 내 단어장 상단 요약을 `오늘 남은 복습 N개 · 취약 N · 전체 N`로 바꿨다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T10_summary_user_tab.png`
+
+### [x] T11. 대비와 다크 모드 확인 (V-12)
+
+완료(2026-07-03): 앱 theme가 system dark mode를 따르게 하고, 카드 메타/뱃지 텍스트를 Material3 대비 색으로 지정했다. 다크/라이트 모드 모두 실기기에서 확인했다. 증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T11_dark_mode_user_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T11_light_mode_restored.png`
 
 ## UI-M4 — 알림 비주얼 (리뷰 문서 4장)
 

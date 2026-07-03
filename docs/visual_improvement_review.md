@@ -119,6 +119,10 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
       다크 모드 실기기 확인(미관찰).
 ```
 
+완료(2026-07-03, Codex UI-M3): V-6~V-12를 반영했다. 상태 메시지는 snackbar로 바꾸고 뜻 없음 메시지에는 error 색과 `직접 입력` 액션을 붙였다. 후보는 정규화된 소문자 chip 가로 스크롤로 표시한다. 미리보기는 단어, 원형, 품사/정의, 뜻, 예문, 출처, 소스 라벨 순서의 카드로 정리했고, 입력 시트 기본 상태는 `단어 또는 문장` 1개 필드만 보이게 줄였다. 내 단어장 요약은 `오늘 남은 복습 N개 · 취약 N · 전체 N`로 바꿨고, 앱은 system dark mode를 따르며 메타/뱃지 텍스트는 Material3 대비 색을 사용한다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M3/T6_unknown_snackbar.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T7_candidate_chips.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T8_preview_card.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T9_input_sheet_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T10_summary_user_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T11_dark_mode_user_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T11_light_mode_restored.png`
+
 ---
 
 ## 4. 알림 비주얼 원칙 (구현 검증 시 함께 볼 것)
@@ -159,8 +163,8 @@ V-12. 전반 스타일: 연보라 컨테이너 + 흰 배경 조합은 무난하�
 ```text
 [ ] 알림 3종 (첫 알림 / 못외웠다 교체 / 외웠다 confirmation) — 잠금 화면 포함
 [ ] 추천 소개형 알림
-[ ] 후보 선택 → 저장까지의 미리보기 실제 모습 (정상 단어로)
-[ ] 다크 모드 전체 화면
+[x] 후보 선택 → 저장까지의 미리보기 실제 모습 (정상 단어로) — `/tmp/vocab_ui_20260703_130300/UI-M3/T7_candidate_chips.png`, `/tmp/vocab_ui_20260703_130300/UI-M3/T8_preview_card.png`
+[x] 다크 모드 전체 화면 — `/tmp/vocab_ui_20260703_130300/UI-M3/T11_dark_mode_user_tab.png`
 [ ] 폴더블(SM-F766N) 펼침 화면에서의 레이아웃 (좁은 화면 접힘 상태 vs 펼침)
 [ ] Mac 메뉴 바 팝오버 / 카드 목록 / 캡처 팝업
 ```

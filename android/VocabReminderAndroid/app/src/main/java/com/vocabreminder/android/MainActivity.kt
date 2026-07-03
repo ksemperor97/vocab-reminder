@@ -15,6 +15,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,19 +26,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -176,6 +182,7 @@ private fun VocabReminderApp(
     var meaning by remember { mutableStateOf("") }
     var example by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
+    var manualFieldsVisible by remember { mutableStateOf(false) }
     var pendingAnalysis by remember { mutableStateOf<CaptureAnalysis?>(null) }
     var preview by remember { mutableStateOf<DictionaryResult?>(null) }
     var previewMeaning by remember { mutableStateOf("") }
@@ -214,6 +221,7 @@ private fun VocabReminderApp(
         val analysis = CaptureNormalizer.analyze(rawText)
         captureMethod = method
         sourceApp = app
+        manualFieldsVisible = false
         preview = null
         pendingAnalysis = null
         if (analysis.normalizedText.isBlank()) {
@@ -230,6 +238,17 @@ private fun VocabReminderApp(
         previewMeaning = result.meaningKo
         previewExample = result.sourceSentence.ifBlank { result.exampleSentence }
         message = if (result.meaningKo.isBlank()) "뜻을 찾지 못했습니다. 직접 입력하거나 일단 저장할 수 있습니다." else "저장 전 preview를 확인하세요."
+    }
+
+    fun startDirectInputFromPreview() {
+        val result = preview ?: return
+        word = result.displayWord.ifBlank { result.lemma }
+        meaning = previewMeaning
+        example = previewExample
+        preview = null
+        pendingAnalysis = null
+        manualFieldsVisible = true
+        message = ""
     }
 
     fun saveResolved(result: DictionaryResult, method: CaptureMethod): Boolean {
@@ -269,6 +288,7 @@ private fun VocabReminderApp(
         word = ""
         meaning = ""
         example = ""
+        manualFieldsVisible = false
         preview = null
         pendingAnalysis = null
         reload()
@@ -303,6 +323,7 @@ private fun VocabReminderApp(
         word = ""
         meaning = ""
         example = ""
+        manualFieldsVisible = false
         message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
         reload()
         return true
@@ -525,7 +546,9 @@ private fun VocabReminderApp(
         )
     }
 
-    MaterialTheme {
+    MaterialTheme(
+        colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+    ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             bottomBar = {
@@ -546,6 +569,7 @@ private fun VocabReminderApp(
                         onClick = {
                             captureMethod = CaptureMethod.MANUAL
                             sourceApp = "manual"
+                            manualFieldsVisible = false
                             showAddSheet = true
                         }
                     ) {
@@ -641,6 +665,7 @@ private fun VocabReminderApp(
                     meaning = meaning,
                     example = example,
                     message = message,
+                    manualFieldsVisible = manualFieldsVisible,
                     pendingAnalysis = pendingAnalysis,
                     preview = preview,
                     previewMeaning = previewMeaning,
@@ -649,6 +674,8 @@ private fun VocabReminderApp(
                     onMeaningChange = { meaning = it },
                     onExampleChange = { example = it },
                     onPreview = { showPreview(word, CaptureMethod.MANUAL, "manual") },
+                    onShowManualFields = { manualFieldsVisible = true },
+                    onDirectInputFromPreview = { startDirectInputFromPreview() },
                     onClipboard = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
@@ -666,6 +693,7 @@ private fun VocabReminderApp(
                         previewMeaning = result.meaningKo
                         previewExample = selectedAnalysis.sourceSentence
                         pendingAnalysis = null
+                        manualFieldsVisible = false
                         message = "저장 전 preview를 확인하세요."
                     },
                     onPreviewMeaningChange = { previewMeaning = it },
@@ -678,6 +706,7 @@ private fun VocabReminderApp(
                     onCancelPreview = {
                         preview = null
                         pendingAnalysis = null
+                        manualFieldsVisible = false
                         message = "취소됨"
                         showAddSheet = false
                     }
@@ -743,7 +772,12 @@ private fun UserWordbookScreen(
                 days <= 0
             }
             Text(
-                text = "오늘 due ${dueToday} · 취약 ${weakWordIds.size} · 전체 ${cards.size}",
+                text = stringResource(
+                    R.string.summary_remaining_reviews,
+                    dueToday,
+                    weakWordIds.size,
+                    cards.size
+                ),
                 style = MaterialTheme.typography.titleMedium
             )
             if (needsNotificationPermission) {
@@ -893,7 +927,7 @@ private fun SettingsScreen(
             }
             if (message.isNotBlank()) {
                 item {
-                    Text(message, style = MaterialTheme.typography.bodySmall)
+                    StatusSnackbar(message = message)
                 }
             }
         }
@@ -906,6 +940,7 @@ private fun AddWordSheetContent(
     meaning: String,
     example: String,
     message: String,
+    manualFieldsVisible: Boolean,
     pendingAnalysis: CaptureAnalysis?,
     preview: DictionaryResult?,
     previewMeaning: String,
@@ -914,6 +949,8 @@ private fun AddWordSheetContent(
     onMeaningChange: (String) -> Unit,
     onExampleChange: (String) -> Unit,
     onPreview: () -> Unit,
+    onShowManualFields: () -> Unit,
+    onDirectInputFromPreview: () -> Unit,
     onClipboard: () -> Unit,
     onSaveManual: () -> Unit,
     onCandidateSelected: (CaptureAnalysis, String) -> Unit,
@@ -933,14 +970,23 @@ private fun AddWordSheetContent(
                 word = word,
                 meaning = meaning,
                 example = example,
-                message = message,
+                manualFieldsVisible = manualFieldsVisible,
                 onWordChange = onWordChange,
                 onMeaningChange = onMeaningChange,
                 onExampleChange = onExampleChange,
                 onPreview = onPreview,
+                onShowManualFields = onShowManualFields,
                 onClipboard = onClipboard,
                 onSave = onSaveManual
             )
+        }
+        if (message.isNotBlank()) {
+            item {
+                StatusSnackbar(
+                    message = message,
+                    onDirectInput = if (message.contains("뜻을 찾지 못했습니다")) onDirectInputFromPreview else null
+                )
+            }
         }
         pendingAnalysis?.let { analysis ->
             item {
@@ -1110,11 +1156,12 @@ private fun AddWordForm(
     word: String,
     meaning: String,
     example: String,
-    message: String,
+    manualFieldsVisible: Boolean,
     onWordChange: (String) -> Unit,
     onMeaningChange: (String) -> Unit,
     onExampleChange: (String) -> Unit,
     onPreview: () -> Unit,
+    onShowManualFields: () -> Unit,
     onClipboard: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -1136,23 +1183,6 @@ private fun AddWordForm(
                 label = { Text("단어 또는 문장") },
                 singleLine = true
             )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("meaning_field"),
-                value = meaning,
-                onValueChange = onMeaningChange,
-                label = { Text("뜻") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("example_field"),
-                value = example,
-                onValueChange = onExampleChange,
-                label = { Text("예문") }
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     modifier = Modifier.testTag("preview_button"),
@@ -1167,19 +1197,65 @@ private fun AddWordForm(
                     Text("클립보드")
                 }
                 Button(
+                    modifier = Modifier.testTag("manual_input_button"),
+                    onClick = onShowManualFields
+                ) {
+                    Text(stringResource(R.string.manual_input_button))
+                }
+            }
+            if (manualFieldsVisible) {
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("meaning_field"),
+                    value = meaning,
+                    onValueChange = onMeaningChange,
+                    label = { Text("뜻") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("example_field"),
+                    value = example,
+                    onValueChange = onExampleChange,
+                    label = { Text("예문") }
+                )
+                Button(
                     modifier = Modifier.testTag("save_button"),
                     onClick = onSave
                 ) {
                     Text("저장")
                 }
             }
-            if (message.isNotBlank()) {
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
         }
+    }
+}
+
+@Composable
+private fun StatusSnackbar(
+    message: String,
+    onDirectInput: (() -> Unit)? = null
+) {
+    val isError = message.contains("뜻을 찾지 못했습니다") || message.contains("실패")
+    Snackbar(
+        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.inverseSurface,
+        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.inverseOnSurface,
+        actionContentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.inversePrimary,
+        action = if (onDirectInput != null) {
+            {
+                TextButton(onClick = onDirectInput) {
+                    Text(stringResource(R.string.manual_input_button))
+                }
+            }
+        } else {
+            null
+        }
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
@@ -1196,17 +1272,19 @@ private fun CandidateSelection(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("어떤 단어를 저장할까요?", style = MaterialTheme.typography.titleMedium)
-            Text(analysis.normalizedText, style = MaterialTheme.typography.bodySmall)
-            analysis.candidates.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { candidate ->
-                        Button(
-                            modifier = Modifier.testTag("candidate_$candidate"),
-                            onClick = { onSelect(candidate) }
-                        ) {
-                            Text(candidate)
-                        }
-                    }
+            Text(
+                text = analysis.normalizedText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(analysis.candidates) { candidate ->
+                    val normalized = CaptureNormalizer.lemma(candidate).lowercase()
+                    AssistChip(
+                        modifier = Modifier.testTag("candidate_$normalized"),
+                        onClick = { onSelect(candidate) },
+                        label = { Text(normalized) }
+                    )
                 }
             }
         }
@@ -1230,9 +1308,15 @@ private fun SavePreview(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("${result.displayWord} → ${result.lemma}", style = MaterialTheme.typography.titleMedium)
+            Text(result.displayWord, style = MaterialTheme.typography.titleLarge)
+            PreviewInfoRow("원형", result.lemma)
             if (result.partOfSpeech.isNotBlank()) {
-                Text("${result.partOfSpeech} · ${result.definitionEn}", style = MaterialTheme.typography.bodySmall)
+                PreviewInfoRow(
+                    label = "품사",
+                    value = listOf(result.partOfSpeech, result.definitionEn)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                )
             }
             OutlinedTextField(
                 modifier = Modifier
@@ -1251,7 +1335,8 @@ private fun SavePreview(
                 onValueChange = onExampleChange,
                 label = { Text("예문") }
             )
-            Text("출처: ${result.sourceApp.ifBlank { "manual" }} · ${result.sourceType}", style = MaterialTheme.typography.bodySmall)
+            PreviewInfoRow("출처", result.sourceApp.ifBlank { "manual" })
+            SourceLabel(result.sourceType)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     modifier = Modifier.testTag("preview_save_button"),
@@ -1264,6 +1349,38 @@ private fun SavePreview(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PreviewInfoRow(label: String, value: String) {
+    if (value.isNotBlank()) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceLabel(label: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            text = label.ifBlank { "user" },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall
+        )
     }
 }
 
@@ -1403,28 +1520,39 @@ private fun CardSummary(
             }
             Text(
                 text = "다음 복습: ${relativeDueLabel(card.dueAt, timezone)}",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (expanded) {
                 if (card.exampleSentence.isNotBlank()) {
-                    Text(text = "예문: ${card.exampleSentence}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        text = "예문: ${card.exampleSentence}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 contexts.take(3).forEach { context ->
                     if (context.sourceSentence.isNotBlank()) {
-                        Text(text = "문맥: ${context.sourceSentence}", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "문맥: ${context.sourceSentence}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 events.take(3).forEach { event ->
                     Text(
                         text = "기록: ${reviewResponseLabel(event.response)} · ${statusLabel(event.previousStatus)} → ${statusLabel(event.nextStatus)}",
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (BuildConfig.DEBUG) {
                     val weakLabel = if (weak) " · weak" else ""
                     Text(
                         text = "wordbook=${card.wordbook.name.lowercase()} · status=${card.status.name.lowercase()} · interval=${card.intervalDays}d · due=${card.dueAt}$weakLabel",
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1450,8 +1578,17 @@ private fun StatusBadge(card: VocabularyCard) {
         card.status == CardStatus.MASTERED -> MaterialTheme.colorScheme.surfaceVariant
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
+    val contentColor = when {
+        missingMeaning -> MaterialTheme.colorScheme.error
+        card.status == CardStatus.NEW -> MaterialTheme.colorScheme.onPrimaryContainer
+        card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.onSecondaryContainer
+        card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.onTertiaryContainer
+        card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(
         color = containerColor,
+        contentColor = contentColor,
         shape = MaterialTheme.shapes.small,
         border = if (missingMeaning) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
     ) {
