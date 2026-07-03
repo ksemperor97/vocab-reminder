@@ -13,6 +13,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,8 +30,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -53,6 +61,7 @@ import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
 import com.vocabreminder.android.data.CloudSyncCredentials
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.StoredContext
 import com.vocabreminder.android.data.StoredReviewEvent
 import com.vocabreminder.android.data.UserSettingsData
 import com.vocabreminder.android.data.VocabularyCard
@@ -63,6 +72,8 @@ import com.vocabreminder.android.notifications.QuietHoursBoundaryScheduler
 import com.vocabreminder.android.notifications.QuietHoursWorker
 import com.vocabreminder.android.notifications.ReminderNotifications
 import com.vocabreminder.android.notifications.ReminderScheduler
+import com.vocabreminder.android.scheduler.CardStatus
+import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Scheduler
 import com.vocabreminder.android.scheduler.Wordbook
 import com.vocabreminder.android.sync.CloudSyncClient
@@ -77,6 +88,8 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,13 +132,19 @@ private data class InitialCapture(
     val sourceApp: String = "manual"
 )
 
+private enum class AppTab {
+    USER,
+    RECOMMENDED,
+    SETTINGS
+}
+
 private fun hasNotificationPermission(context: Context): Boolean {
     return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
 
-private fun finishProcessTextIfNeeded(context: Context, method: CaptureMethod) {
-    if (method == CaptureMethod.ANDROID_PROCESS_TEXT) {
+private fun finishExternalCaptureIfNeeded(context: Context, method: CaptureMethod) {
+    if (method != CaptureMethod.MANUAL) {
         (context as? Activity)?.finish()
     }
 }
@@ -134,6 +153,7 @@ private fun localSyncFile(context: Context): File {
     return File(context.getExternalFilesDir(null) ?: context.filesDir, "vocab-reminder-sync.json")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VocabReminderApp(
     initialText: String,
@@ -145,9 +165,13 @@ private fun VocabReminderApp(
     val store = remember { LocalVocabularyStore(context) }
     val initialCloudCredentials = remember { store.cloudSyncCredentials() }
     val cards = remember { mutableStateListOf<VocabularyCard>() }
+    val contexts = remember { mutableStateListOf<StoredContext>() }
     val events = remember { mutableStateListOf<StoredReviewEvent>() }
     val weakWordIds = remember { mutableStateOf(emptySet<String>()) }
 
+    var selectedTab by remember { mutableStateOf(AppTab.USER) }
+    var showAddSheet by remember { mutableStateOf(initialText.isNotBlank()) }
+    var showSyncSettings by remember { mutableStateOf(false) }
     var word by remember { mutableStateOf("") }
     var meaning by remember { mutableStateOf("") }
     var example by remember { mutableStateOf("") }
@@ -178,6 +202,8 @@ private fun VocabReminderApp(
     fun reload() {
         cards.clear()
         cards.addAll(store.cards().reversed())
+        contexts.clear()
+        contexts.addAll(store.contexts().reversed())
         events.clear()
         events.addAll(store.events().reversed())
         weakWordIds.value = store.weakWordIds()
@@ -206,7 +232,7 @@ private fun VocabReminderApp(
         message = if (result.meaningKo.isBlank()) "뜻을 찾지 못했습니다. 직접 입력하거나 일단 저장할 수 있습니다." else "저장 전 preview를 확인하세요."
     }
 
-    fun saveResolved(result: DictionaryResult, method: CaptureMethod) {
+    fun saveResolved(result: DictionaryResult, method: CaptureMethod): Boolean {
         val now = Instant.now()
         val dueAt = Scheduler.initialDueAt(now, settings.toSchedulerSettings())
         val normalizedLemma = result.lemma.ifBlank { CaptureNormalizer.lemma(result.displayWord) }
@@ -246,18 +272,19 @@ private fun VocabReminderApp(
         preview = null
         pendingAnalysis = null
         reload()
-        finishProcessTextIfNeeded(context, method)
+        finishExternalCaptureIfNeeded(context, method)
+        return true
     }
 
-    fun saveManual() {
+    fun saveManual(): Boolean {
         val trimmedWord = word.trim()
         if (trimmedWord.isBlank()) {
             message = "단어를 입력하세요."
-            return
+            return false
         }
         if (meaning.isBlank()) {
             showPreview(trimmedWord, CaptureMethod.MANUAL, "manual")
-            return
+            return false
         }
         val now = Instant.now()
         val dueAt = Scheduler.initialDueAt(now, settings.toSchedulerSettings())
@@ -278,6 +305,7 @@ private fun VocabReminderApp(
         example = ""
         message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
         reload()
+        return true
     }
 
     fun runCloudSync() {
@@ -456,6 +484,19 @@ private fun VocabReminderApp(
         }
     }
 
+    fun logoutFirebase() {
+        firebaseRefreshToken = ""
+        cloudAuthToken = ""
+        store.saveCloudSyncCredentials(
+            CloudSyncCredentials(
+                firebaseWebApiKey = firebaseWebApiKey.trim(),
+                functionsBaseUrl = cloudFunctionsUrl.trim(),
+                refreshToken = ""
+            )
+        )
+        message = "로그아웃됨"
+    }
+
     LaunchedEffect(Unit) {
         reload()
         DailyReviewPlanner.planAndSchedule(context)
@@ -485,94 +526,64 @@ private fun VocabReminderApp(
     }
 
     MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                AppNavigationBar(
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        if (tab != AppTab.SETTINGS) {
+                            showSyncSettings = false
+                        }
+                    }
+                )
+            },
+            floatingActionButton = {
+                if (selectedTab == AppTab.USER) {
+                    FloatingActionButton(
+                        modifier = Modifier.testTag("add_word_fab"),
+                        onClick = {
+                            captureMethod = CaptureMethod.MANUAL
+                            sourceApp = "manual"
+                            showAddSheet = true
+                        }
+                    ) {
+                        Text("+")
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Surface(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(innerPadding)
             ) {
-                item {
-                    Text(
-                        text = "Vocabulary Reminder",
-                        style = MaterialTheme.typography.headlineSmall
+                when (selectedTab) {
+                    AppTab.USER -> UserWordbookScreen(
+                        cards = cards.filter { it.wordbook == Wordbook.USER },
+                        contexts = contexts,
+                        events = events,
+                        weakWordIds = weakWordIds.value,
+                        timezone = settings.timezone,
+                        needsNotificationPermission = needsNotificationPermission,
+                        onRequestNotificationPermission = { showNotificationPermissionDialog = true },
+                        onDelete = { deleteCard(it) }
                     )
-                    Text(
-                        text = "캡처한 단어를 preview로 확인하고 10분 뒤 알림으로 다시 묻습니다.",
-                        style = MaterialTheme.typography.bodyMedium
+                    AppTab.RECOMMENDED -> RecommendationWordbookScreen(
+                        cards = cards.filter { it.wordbook == Wordbook.RECOMMENDED },
+                        contexts = contexts,
+                        events = events,
+                        weakWordIds = weakWordIds.value,
+                        timezone = settings.timezone,
+                        onDelete = { deleteCard(it) }
                     )
-                }
-
-                if (needsNotificationPermission) {
-                    item {
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("알림이 꺼져 있어 복습 알림을 받을 수 없습니다.")
-                                Text("권한을 허용하면 저장한 단어가 due 시각에 알림으로 도착합니다.")
-                                Button(onClick = { showNotificationPermissionDialog = true }) {
-                                    Text("알림 권한 요청")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    AddWordForm(
-                        word = word,
-                        meaning = meaning,
-                        example = example,
-                        message = message,
-                        onWordChange = { word = it },
-                        onMeaningChange = { meaning = it },
-                        onExampleChange = { example = it },
-                        onPreview = { showPreview(word, CaptureMethod.MANUAL, "manual") },
-                        onClipboard = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                            showPreview(text, CaptureMethod.MANUAL, "clipboard")
-                        },
-                        onSave = { saveManual() }
-                    )
-                }
-
-                pendingAnalysis?.let { analysis ->
-                    item {
-                        CandidateSelection(analysis) { selected ->
-                            val selectedAnalysis = CaptureNormalizer.analyzeSelection(analysis.rawText, selected)
-                            val result = DictionaryResolver.resolve(selectedAnalysis, sourceApp)
-                            preview = result
-                            previewMeaning = result.meaningKo
-                            previewExample = selectedAnalysis.sourceSentence
-                            pendingAnalysis = null
-                            message = "저장 전 preview를 확인하세요."
-                        }
-                    }
-                }
-
-                preview?.let { result ->
-                    item {
-                        SavePreview(
-                            result = result,
-                            meaning = previewMeaning,
-                            example = previewExample,
-                            onMeaningChange = { previewMeaning = it },
-                            onExampleChange = { previewExample = it },
-                            onSave = { saveResolved(result, captureMethod) },
-                            onCancel = {
-                                preview = null
-                                pendingAnalysis = null
-                                message = "취소됨"
-                            }
-                        )
-                    }
-                }
-
-                item {
-                    SettingsPanel(
+                    AppTab.SETTINGS -> SettingsScreen(
                         settings = settings,
+                        showSyncSettings = showSyncSettings,
+                        message = message,
                         onSettingsChange = { settings = it },
-                        onSave = {
+                        onSaveSettings = {
                             store.saveSettings(settings)
                             val summary = DailyReviewPlanner.planAndSchedule(context)
                             QuietHoursBoundaryScheduler.schedule(context)
@@ -591,87 +602,368 @@ private fun VocabReminderApp(
                             val count = DailyReviewPlanner.rebalanceDueCards(context)
                             message = "복습 재조정 ${count}개"
                             reload()
-                        }
-                    )
-                }
-
-                item {
-                    CloudSyncPanel(
-                        firebaseWebApiKey = firebaseWebApiKey,
-                        firebaseEmail = firebaseEmail,
-                        firebasePassword = firebasePassword,
-                        functionsUrl = cloudFunctionsUrl,
-                        authToken = cloudAuthToken,
-                        authRunning = firebaseAuthRunning,
-                        running = cloudSyncRunning,
-                        hasRefreshToken = firebaseRefreshToken.isNotBlank(),
-                        onFirebaseWebApiKeyChange = { firebaseWebApiKey = it },
-                        onFirebaseEmailChange = { firebaseEmail = it },
-                        onFirebasePasswordChange = { firebasePassword = it },
-                        onFunctionsUrlChange = { cloudFunctionsUrl = it },
-                        onAuthTokenChange = { cloudAuthToken = it },
-                        onSignIn = { signInFirebase() },
-                        onRefreshToken = { refreshFirebaseToken() },
-                        onSync = { runCloudSync() },
-                        onLocalExport = { exportLocalSync() },
-                        onLocalImport = { importLocalSync() }
-                    )
-                }
-
-                item {
-                    Text(
-                        text = "저장된 단어 ${cards.size}개 · 취약 단어 ${weakWordIds.value.size}개",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-
-                val userCards = cards.filter { it.wordbook == Wordbook.USER }
-                val recommendationCards = cards.filter { it.wordbook == Wordbook.RECOMMENDED }
-
-                if (cards.isEmpty()) {
-                    item {
-                        Text(
-                            text = "아직 저장된 단어가 없습니다.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                } else {
-                    item {
-                        Text(
-                            text = "내 단어장 ${userCards.size}개",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                    items(userCards, key = { it.id }) { card ->
-                        CardSummary(card, weak = card.id in weakWordIds.value, onDelete = { deleteCard(card) })
-                    }
-                    if (recommendationCards.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "추천 단어장 ${recommendationCards.size}개",
-                                style = MaterialTheme.typography.titleMedium
+                        },
+                        onOpenSync = { showSyncSettings = true },
+                        onBackFromSync = { showSyncSettings = false },
+                        syncContent = {
+                            CloudSyncPanel(
+                                firebaseWebApiKey = firebaseWebApiKey,
+                                firebaseEmail = firebaseEmail,
+                                firebasePassword = firebasePassword,
+                                functionsUrl = cloudFunctionsUrl,
+                                authToken = cloudAuthToken,
+                                authRunning = firebaseAuthRunning,
+                                running = cloudSyncRunning,
+                                hasRefreshToken = firebaseRefreshToken.isNotBlank(),
+                                debugFields = BuildConfig.DEBUG,
+                                onFirebaseWebApiKeyChange = { firebaseWebApiKey = it },
+                                onFirebaseEmailChange = { firebaseEmail = it },
+                                onFirebasePasswordChange = { firebasePassword = it },
+                                onFunctionsUrlChange = { cloudFunctionsUrl = it },
+                                onAuthTokenChange = { cloudAuthToken = it },
+                                onSignIn = { signInFirebase() },
+                                onSignOut = { logoutFirebase() },
+                                onRefreshToken = { refreshFirebaseToken() },
+                                onSync = { runCloudSync() },
+                                onLocalExport = { exportLocalSync() },
+                                onLocalImport = { importLocalSync() }
                             )
                         }
-                        items(recommendationCards, key = { it.id }) { card ->
-                            CardSummary(card, weak = card.id in weakWordIds.value, onDelete = { deleteCard(card) })
-                        }
-                    }
-                }
-
-                item {
-                    Text(
-                        text = "복습 이벤트 ${events.size}개",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-
-                items(events.take(8), key = { it.id }) { event ->
-                    Text(
-                        text = "${event.response.name.lowercase()} · ${event.previousStatus.name.lowercase()} → ${event.nextStatus.name.lowercase()}",
-                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
+        }
+
+        if (showAddSheet) {
+            ModalBottomSheet(onDismissRequest = { showAddSheet = false }) {
+                AddWordSheetContent(
+                    word = word,
+                    meaning = meaning,
+                    example = example,
+                    message = message,
+                    pendingAnalysis = pendingAnalysis,
+                    preview = preview,
+                    previewMeaning = previewMeaning,
+                    previewExample = previewExample,
+                    onWordChange = { word = it },
+                    onMeaningChange = { meaning = it },
+                    onExampleChange = { example = it },
+                    onPreview = { showPreview(word, CaptureMethod.MANUAL, "manual") },
+                    onClipboard = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                        showPreview(text, CaptureMethod.MANUAL, "clipboard")
+                    },
+                    onSaveManual = {
+                        if (saveManual()) {
+                            showAddSheet = false
+                        }
+                    },
+                    onCandidateSelected = { analysis, selected ->
+                        val selectedAnalysis = CaptureNormalizer.analyzeSelection(analysis.rawText, selected)
+                        val result = DictionaryResolver.resolve(selectedAnalysis, sourceApp)
+                        preview = result
+                        previewMeaning = result.meaningKo
+                        previewExample = selectedAnalysis.sourceSentence
+                        pendingAnalysis = null
+                        message = "저장 전 preview를 확인하세요."
+                    },
+                    onPreviewMeaningChange = { previewMeaning = it },
+                    onPreviewExampleChange = { previewExample = it },
+                    onSavePreview = { result ->
+                        if (saveResolved(result, captureMethod)) {
+                            showAddSheet = false
+                        }
+                    },
+                    onCancelPreview = {
+                        preview = null
+                        pendingAnalysis = null
+                        message = "취소됨"
+                        showAddSheet = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppNavigationBar(selectedTab: AppTab, onTabSelected: (AppTab) -> Unit) {
+    NavigationBar {
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_user_words"),
+            selected = selectedTab == AppTab.USER,
+            onClick = { onTabSelected(AppTab.USER) },
+            label = { Text(stringResource(R.string.tab_user_words)) },
+            icon = { Text("내") }
+        )
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_recommendations"),
+            selected = selectedTab == AppTab.RECOMMENDED,
+            onClick = { onTabSelected(AppTab.RECOMMENDED) },
+            label = { Text(stringResource(R.string.tab_recommendations)) },
+            icon = { Text("추") }
+        )
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_settings"),
+            selected = selectedTab == AppTab.SETTINGS,
+            onClick = { onTabSelected(AppTab.SETTINGS) },
+            label = { Text(stringResource(R.string.tab_settings)) },
+            icon = { Text("설") }
+        )
+    }
+}
+
+@Composable
+private fun UserWordbookScreen(
+    cards: List<VocabularyCard>,
+    contexts: List<StoredContext>,
+    events: List<StoredReviewEvent>,
+    weakWordIds: Set<String>,
+    timezone: ZoneId,
+    needsNotificationPermission: Boolean,
+    onRequestNotificationPermission: () -> Unit,
+    onDelete: (VocabularyCard) -> Unit
+) {
+    WordbookScreen(
+        title = stringResource(R.string.tab_user_words),
+        cards = cards,
+        contexts = contexts,
+        events = events,
+        weakWordIds = weakWordIds,
+        timezone = timezone,
+        emptyText = "아직 저장된 단어가 없습니다.",
+        header = {
+            val now = Instant.now()
+            val dueToday = cards.count { card ->
+                val days = ChronoUnit.DAYS.between(
+                    now.atZone(timezone).toLocalDate(),
+                    card.dueAt.atZone(timezone).toLocalDate()
+                )
+                days <= 0
+            }
+            Text(
+                text = "오늘 due ${dueToday} · 취약 ${weakWordIds.size} · 전체 ${cards.size}",
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (needsNotificationPermission) {
+                NotificationPermissionCard(onRequestNotificationPermission)
+            }
+        },
+        onDelete = onDelete
+    )
+}
+
+@Composable
+private fun RecommendationWordbookScreen(
+    cards: List<VocabularyCard>,
+    contexts: List<StoredContext>,
+    events: List<StoredReviewEvent>,
+    weakWordIds: Set<String>,
+    timezone: ZoneId,
+    onDelete: (VocabularyCard) -> Unit
+) {
+    WordbookScreen(
+        title = stringResource(R.string.tab_recommendations),
+        cards = cards,
+        contexts = contexts,
+        events = events,
+        weakWordIds = weakWordIds,
+        timezone = timezone,
+        emptyText = "추천 단어가 없습니다.",
+        header = {
+            Text(
+                text = "추천 단어 ${cards.size}개",
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        onDelete = onDelete
+    )
+}
+
+@Composable
+private fun WordbookScreen(
+    title: String,
+    cards: List<VocabularyCard>,
+    contexts: List<StoredContext>,
+    events: List<StoredReviewEvent>,
+    weakWordIds: Set<String>,
+    timezone: ZoneId,
+    emptyText: String,
+    header: @Composable () -> Unit,
+    onDelete: (VocabularyCard) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+        }
+        item {
+            header()
+        }
+        if (cards.isEmpty()) {
+            item {
+                Text(emptyText, style = MaterialTheme.typography.bodyMedium)
+            }
+        } else {
+            items(cards, key = { it.id }) { card ->
+                CardSummary(
+                    card = card,
+                    weak = card.id in weakWordIds,
+                    contexts = contexts.filter { it.cardId == card.id },
+                    events = events.filter { it.cardId == card.id },
+                    timezone = timezone,
+                    onDelete = { onDelete(card) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationPermissionCard(onRequestNotificationPermission: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("알림이 꺼져 있어 복습 알림을 받을 수 없습니다.")
+            Text("권한을 허용하면 저장한 단어가 due 시각에 알림으로 도착합니다.")
+            Button(onClick = onRequestNotificationPermission) {
+                Text("알림 권한 요청")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    settings: UserSettingsData,
+    showSyncSettings: Boolean,
+    message: String,
+    onSettingsChange: (UserSettingsData) -> Unit,
+    onSaveSettings: () -> Unit,
+    onPlan: () -> Unit,
+    onRebalance: () -> Unit,
+    onOpenSync: () -> Unit,
+    onBackFromSync: () -> Unit,
+    syncContent: @Composable () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineSmall)
+        }
+        if (showSyncSettings) {
+            item {
+                TextButton(
+                    modifier = Modifier.testTag("sync_back_button"),
+                    onClick = onBackFromSync
+                ) {
+                    Text("설정으로 돌아가기")
+                }
+            }
+            item {
+                syncContent()
+            }
+        } else {
+            item {
+                SettingsPanel(
+                    settings = settings,
+                    onSettingsChange = onSettingsChange,
+                    onSave = onSaveSettings,
+                    onPlan = onPlan,
+                    onRebalance = onRebalance
+                )
+            }
+            item {
+                Button(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_sync_settings_button"),
+                    onClick = onOpenSync
+                ) {
+                    Text(stringResource(R.string.sync_settings_title))
+                }
+            }
+            if (message.isNotBlank()) {
+                item {
+                    Text(message, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddWordSheetContent(
+    word: String,
+    meaning: String,
+    example: String,
+    message: String,
+    pendingAnalysis: CaptureAnalysis?,
+    preview: DictionaryResult?,
+    previewMeaning: String,
+    previewExample: String,
+    onWordChange: (String) -> Unit,
+    onMeaningChange: (String) -> Unit,
+    onExampleChange: (String) -> Unit,
+    onPreview: () -> Unit,
+    onClipboard: () -> Unit,
+    onSaveManual: () -> Unit,
+    onCandidateSelected: (CaptureAnalysis, String) -> Unit,
+    onPreviewMeaningChange: (String) -> Unit,
+    onPreviewExampleChange: (String) -> Unit,
+    onSavePreview: (DictionaryResult) -> Unit,
+    onCancelPreview: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            AddWordForm(
+                word = word,
+                meaning = meaning,
+                example = example,
+                message = message,
+                onWordChange = onWordChange,
+                onMeaningChange = onMeaningChange,
+                onExampleChange = onExampleChange,
+                onPreview = onPreview,
+                onClipboard = onClipboard,
+                onSave = onSaveManual
+            )
+        }
+        pendingAnalysis?.let { analysis ->
+            item {
+                CandidateSelection(analysis) { selected ->
+                    onCandidateSelected(analysis, selected)
+                }
+            }
+        }
+        preview?.let { result ->
+            item {
+                SavePreview(
+                    result = result,
+                    meaning = previewMeaning,
+                    example = previewExample,
+                    onMeaningChange = onPreviewMeaningChange,
+                    onExampleChange = onPreviewExampleChange,
+                    onSave = { onSavePreview(result) },
+                    onCancel = onCancelPreview
+                )
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -686,12 +978,14 @@ private fun CloudSyncPanel(
     authRunning: Boolean,
     running: Boolean,
     hasRefreshToken: Boolean,
+    debugFields: Boolean,
     onFirebaseWebApiKeyChange: (String) -> Unit,
     onFirebaseEmailChange: (String) -> Unit,
     onFirebasePasswordChange: (String) -> Unit,
     onFunctionsUrlChange: (String) -> Unit,
     onAuthTokenChange: (String) -> Unit,
     onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
     onRefreshToken: () -> Unit,
     onSync: () -> Unit,
     onLocalExport: () -> Unit,
@@ -704,86 +998,108 @@ private fun CloudSyncPanel(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Cloud sync", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = if (hasRefreshToken) "로그인 상태: refresh token 저장됨" else "로그인 상태: 로그인 필요",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text("마지막 동기화: 아직 없음", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    modifier = Modifier.testTag("local_sync_export_button"),
-                    onClick = onLocalExport
+                    modifier = Modifier.testTag("firebase_sign_in_button"),
+                    enabled = !authRunning,
+                    onClick = {
+                        if (hasRefreshToken) {
+                            onSignOut()
+                        } else {
+                            onSignIn()
+                        }
+                    }
                 ) {
-                    Text("Sync 내보내기")
+                    Text(
+                        when {
+                            authRunning -> "로그인 중"
+                            hasRefreshToken -> "로그아웃"
+                            else -> "로그인"
+                        }
+                    )
                 }
                 Button(
-                    modifier = Modifier.testTag("local_sync_import_button"),
-                    onClick = onLocalImport
+                    modifier = Modifier.testTag("cloud_sync_button"),
+                    enabled = !running,
+                    onClick = onSync
                 ) {
-                    Text("Sync 가져오기")
+                    Text(if (running) "동기화 중" else "지금 동기화")
                 }
             }
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("firebase_web_api_key_field"),
-                value = firebaseWebApiKey,
-                onValueChange = onFirebaseWebApiKeyChange,
-                label = { Text("Firebase Web API key") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("firebase_email_field"),
-                value = firebaseEmail,
-                onValueChange = onFirebaseEmailChange,
-                label = { Text("Firebase email") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("firebase_password_field"),
-                value = firebasePassword,
-                onValueChange = onFirebasePasswordChange,
-                label = { Text("Firebase password") },
-                singleLine = true
-            )
-            Button(
-                modifier = Modifier.testTag("firebase_sign_in_button"),
-                enabled = !authRunning,
-                onClick = onSignIn
-            ) {
-                Text(if (authRunning) "로그인 중" else "Firebase 로그인")
-            }
-            Button(
-                modifier = Modifier.testTag("firebase_refresh_button"),
-                enabled = !authRunning && hasRefreshToken,
-                onClick = onRefreshToken
-            ) {
-                Text(if (authRunning) "갱신 중" else "ID token 갱신")
-            }
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("sync_functions_url_field"),
-                value = functionsUrl,
-                onValueChange = onFunctionsUrlChange,
-                label = { Text("Functions URL") },
-                singleLine = true
-            )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("sync_auth_token_field"),
-                value = authToken,
-                onValueChange = onAuthTokenChange,
-                label = { Text("Firebase Auth ID token") },
-                singleLine = true
-            )
-            Button(
-                modifier = Modifier.testTag("cloud_sync_button"),
-                enabled = !running,
-                onClick = onSync
-            ) {
-                Text(if (running) "동기화 중" else "Cloud sync")
+            if (debugFields) {
+                Text("Debug sync fields", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        modifier = Modifier.testTag("local_sync_export_button"),
+                        onClick = onLocalExport
+                    ) {
+                        Text("Sync 내보내기")
+                    }
+                    Button(
+                        modifier = Modifier.testTag("local_sync_import_button"),
+                        onClick = onLocalImport
+                    ) {
+                        Text("Sync 가져오기")
+                    }
+                }
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("firebase_web_api_key_field"),
+                    value = firebaseWebApiKey,
+                    onValueChange = onFirebaseWebApiKeyChange,
+                    label = { Text("Firebase Web API key") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("firebase_email_field"),
+                    value = firebaseEmail,
+                    onValueChange = onFirebaseEmailChange,
+                    label = { Text("Firebase email") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("firebase_password_field"),
+                    value = firebasePassword,
+                    onValueChange = onFirebasePasswordChange,
+                    label = { Text("Firebase password") },
+                    singleLine = true
+                )
+                Button(
+                    modifier = Modifier.testTag("firebase_refresh_button"),
+                    enabled = !authRunning && hasRefreshToken,
+                    onClick = onRefreshToken
+                ) {
+                    Text(if (authRunning) "갱신 중" else "ID token 갱신")
+                }
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("sync_functions_url_field"),
+                    value = functionsUrl,
+                    onValueChange = onFunctionsUrlChange,
+                    label = { Text("Functions URL") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("sync_auth_token_field"),
+                    value = authToken,
+                    onValueChange = onAuthTokenChange,
+                    label = { Text("Firebase Auth ID token") },
+                    singleLine = true
+                )
             }
         }
     }
@@ -1046,25 +1362,72 @@ private fun SettingsActionButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CardSummary(card: VocabularyCard, weak: Boolean, onDelete: () -> Unit) {
-    Card {
+private fun CardSummary(
+    card: VocabularyCard,
+    weak: Boolean,
+    contexts: List<StoredContext>,
+    events: List<StoredReviewEvent>,
+    timezone: ZoneId,
+    onDelete: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.clickable { expanded = !expanded }
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(text = card.displayWord, style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(text = card.meaningKo.ifBlank { "뜻 없음 · 알림 보류" }, style = MaterialTheme.typography.bodyMedium)
-            if (card.exampleSentence.isNotBlank()) {
-                Text(text = card.exampleSentence, style = MaterialTheme.typography.bodySmall)
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            val weakLabel = if (weak) " · weak" else ""
             Text(
-                text = "wordbook=${card.wordbook.name.lowercase()} · status=${card.status.name.lowercase()} · interval=${card.intervalDays}d · due=${card.dueAt}$weakLabel",
+                text = card.meaningKo.ifBlank { "뜻 없음 · 알림 보류" },
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusBadge(card)
+                if (weak) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = "취약",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+            Text(
+                text = "다음 복습: ${relativeDueLabel(card.dueAt, timezone)}",
                 style = MaterialTheme.typography.bodySmall
             )
+            if (expanded) {
+                if (card.exampleSentence.isNotBlank()) {
+                    Text(text = "예문: ${card.exampleSentence}", style = MaterialTheme.typography.bodySmall)
+                }
+                contexts.take(3).forEach { context ->
+                    if (context.sourceSentence.isNotBlank()) {
+                        Text(text = "문맥: ${context.sourceSentence}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                events.take(3).forEach { event ->
+                    Text(
+                        text = "기록: ${reviewResponseLabel(event.response)} · ${statusLabel(event.previousStatus)} → ${statusLabel(event.nextStatus)}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (BuildConfig.DEBUG) {
+                    val weakLabel = if (weak) " · weak" else ""
+                    Text(
+                        text = "wordbook=${card.wordbook.name.lowercase()} · status=${card.status.name.lowercase()} · interval=${card.intervalDays}d · due=${card.dueAt}$weakLabel",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             Button(
                 modifier = Modifier.testTag("delete_card_${card.lemma}"),
                 onClick = onDelete
@@ -1072,5 +1435,68 @@ private fun CardSummary(card: VocabularyCard, weak: Boolean, onDelete: () -> Uni
                 Text("삭제")
             }
         }
+    }
+}
+
+@Composable
+private fun StatusBadge(card: VocabularyCard) {
+    val missingMeaning = card.meaningKo.isBlank()
+    val containerColor = when {
+        missingMeaning -> MaterialTheme.colorScheme.surface
+        card.status == CardStatus.NEW -> MaterialTheme.colorScheme.primaryContainer
+        card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.secondaryContainer
+        card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.tertiaryContainer
+        card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.errorContainer
+        card.status == CardStatus.MASTERED -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    Surface(
+        color = containerColor,
+        shape = MaterialTheme.shapes.small,
+        border = if (missingMeaning) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
+    ) {
+        Text(
+            text = if (missingMeaning) "뜻 없음·알림 보류" else statusLabel(card.status),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+private fun statusLabel(status: CardStatus): String {
+    return when (status) {
+        CardStatus.NEW -> "새 단어"
+        CardStatus.LEARNING -> "배우는 중"
+        CardStatus.REVIEW -> "복습"
+        CardStatus.RELEARNING -> "재학습"
+        CardStatus.MASTERED -> "완료"
+        CardStatus.SUSPENDED -> "보류"
+    }
+}
+
+private fun reviewResponseLabel(response: ReviewResponse): String {
+    return when (response) {
+        ReviewResponse.REMEMBERED -> "외웠다"
+        ReviewResponse.FORGOTTEN -> "못외웠다"
+        ReviewResponse.UNAVAILABLE -> "나중에 하기"
+        ReviewResponse.REVEAL -> "뜻 보기"
+        ReviewResponse.MANUAL_EDIT -> "직접 수정"
+        ReviewResponse.SUSPEND -> "보류"
+        ReviewResponse.RESTORE -> "복원"
+    }
+}
+
+private fun relativeDueLabel(dueAt: Instant, timezone: ZoneId): String {
+    val now = Instant.now()
+    if (!dueAt.isAfter(now)) {
+        return "지금"
+    }
+    val today = now.atZone(timezone).toLocalDate()
+    val dueDateTime = dueAt.atZone(timezone)
+    val days = ChronoUnit.DAYS.between(today, dueDateTime.toLocalDate())
+    return when (days) {
+        0L -> "오늘 ${dueDateTime.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+        1L -> "내일"
+        else -> "${days}일 뒤"
     }
 }

@@ -49,6 +49,16 @@ class CaptureDictionaryTest {
     }
 
     @Test
+    fun selectedPastTenseCandidateKeepsSilentE() {
+        val analysis = CaptureNormalizer.analyzeSelection("The protocol mitigated measurement noise.", "mitigated")
+        val result = DictionaryResolver.resolve(analysis, sourceApp = "test")
+
+        assertEquals("mitigate", result.lemma)
+        assertEquals("완화하다, 줄이다", result.meaningKo)
+        assertEquals("local_dictionary", result.sourceType)
+    }
+
+    @Test
     fun unknownWordCanStillBeSavedWithoutMeaning() {
         val result = DictionaryResolver.resolve("perovskite")
 

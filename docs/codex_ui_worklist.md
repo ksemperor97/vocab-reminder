@@ -45,7 +45,7 @@
 
 ## UI-M2 — 정보 구조 개편 (P2, 1~2일)
 
-### T3. 하단 탭 3개 + 화면 분리 (V-3)
+### [x] T3. 하단 탭 3개 + 화면 분리 (V-3)
 
 ```text
 할 일:
@@ -60,7 +60,13 @@
 - Chrome에서 단어 선택→저장→Chrome 복귀가 끊기지 않음 (QC-B4 재검증)
 ```
 
-### T4. Cloud sync를 설정 하위로 + 디버그 게이팅 (V-4)
+완료(2026-07-03): `내 단어장`/`추천 단어장`/`설정` 하단 탭으로 화면을 분리하고, FAB/PROCESS_TEXT/SHARE 진입을 단어 추가 bottom sheet로 통일했다. Chrome PROCESS_TEXT 저장 후 원래 Chrome 화면으로 복귀함을 재검증했다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/recommendation_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_preview_visible.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/share_entry_sheet.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_return.png`
+
+UI-M2 후 필수 재검증: QC-B1~B6, QC-F1 통과. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B2_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B3_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_focus.txt`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_store.xml`
+
+### [x] T4. Cloud sync를 설정 하위로 + 디버그 게이팅 (V-4)
 
 ```text
 할 일:
@@ -70,7 +76,11 @@
 완료 기준: 메인(내 단어장) 화면에 Firebase 관련 필드가 전혀 없음 screencap
 ```
 
-### T5. 카드 메타를 사용자 언어로 (V-5)
+완료(2026-07-03): Cloud sync는 설정 탭의 `동기화` 하위 화면으로 이동했다. `내 단어장`/설정 메인 화면에는 Firebase Web API key, ID token, Functions URL 직접 입력 필드가 보이지 않고, debug 빌드의 sync 화면에서만 `Debug sync fields` 아래에 노출된다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.xml`
+
+### [x] T5. 카드 메타를 사용자 언어로 (V-5)
 
 ```text
 할 일:
@@ -82,6 +92,10 @@
 - 디버그 빌드에서만 기존 raw 문자열을 상세 하단에 표시
 완료 기준: 목록 screencap에 ISO 타임스탬프·"wordbook=" 문자열이 없음
 ```
+
+완료(2026-07-03): 카드 목록의 raw `wordbook=`, `status=`, `due=ISO` 메타를 제거하고 상태 뱃지와 `다음 복습: 지금/오늘 HH:mm/내일/N일 뒤` 표기로 바꿨다. raw 메타는 debug 빌드의 카드 상세 하단에만 남긴다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_saved.png`
 
 ## UI-M3 — 컴포넌트 다듬기 (P3, 1일)
 

@@ -87,6 +87,7 @@ object CaptureNormalizer {
             normalized.endsWith("ies") && normalized.length > 4 -> normalized.dropLast(3) + "y"
             normalized.endsWith("ied") && normalized.length > 4 -> normalized.dropLast(3) + "y"
             normalized.endsWith("ing") && normalized.length > 5 -> normalized.dropLast(3).trimTrailingDoubleConsonant()
+            normalized.endsWith("ated") && normalized.length > 5 -> normalized.dropLast(1)
             normalized.endsWith("ed") && normalized.length > 4 -> normalized.dropLast(2).trimTrailingDoubleConsonant()
             normalized.endsWith("ly") && normalized.length > 5 -> normalized.dropLast(2)
             normalized.endsWith("s") &&

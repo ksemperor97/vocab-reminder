@@ -44,19 +44,25 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 
 - [P] QC-B1. 수동 추가: "tentative" 입력 → [미리보기] → 뜻/예문/출처가 채워진 미리보기 → [저장]. 3초 안에 끝나는 체감인가. (UX 2.1)
   - 증거: `/tmp/vocab_qc_20260703_094928/B1_tentative_preview.xml`, `/tmp/vocab_qc_20260703_094928/B1_tentative_saved_after_back.xml`, `/tmp/vocab_qc_20260703_094928/B1_tentative_saved_list_final.xml`
+  - UI-M2 재검증(2026-07-03): FAB bottom sheet에서 `tentative` preview/save 통과. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_preview_visible.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_saved.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_store.xml`
 - [P] QC-B2. 미리보기에서 뜻을 직접 수정 후 저장 → 이후 알림/목록에 수정한 뜻이 나온다. (UX 2.7)
   - 증거: `/tmp/vocab_qc_20260703_094928/B2_elicit_preview_edited.xml`, `/tmp/vocab_qc_20260703_094928/B2_elicit_saved_list.xml`
+  - UI-M2 재검증(2026-07-03): bottom sheet preview에서 뜻을 `이끌어내다, 유도하다_useredit`로 수정 후 저장했고 store에 반영됨. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B2_preview_edited.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B2_saved.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B2_store.xml`
 - [P] QC-B3. 4단어 이상 문장 입력("The results are tentative, but robust.") → "어떤 단어를 저장할까요?" 후보 선택 UI. 선택한 단어로 저장되고 원문이 예문으로 남는다. (UX 2.3)
   - 증거: `/tmp/vocab_qc_20260703_094928/B3_sentence_candidate_ui.xml`, `/tmp/vocab_qc_20260703_094928/B3_retry_salient_saved_list.xml`
+  - UI-M2 재검증(2026-07-03): bottom sheet에서 문장 입력 후 후보 `results/tentative/robust`가 보이고 `robust` 저장 시 원문이 context/example로 남음. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B3_candidates.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B3_robust_preview.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B3_store.xml`
 - [P] QC-B3a. **URL 캡처 시 URL 조각이 후보로 나옴** (2026-07-03 실기기 확인): ppomppu URL 공유 → 후보 = [https][ppomppu][bbs][view][php][extref]. URL 토큰은 후보에서 제외해야 함. → `codex_device_qc_protocol.md` F-2 참고.
   - 수정 후 재검증: URL share에서 후보 선택 UI가 뜨지 않고 URL 조각 후보가 사라짐. 증거: `/tmp/vocab_qc_20260703_094928/B3a_url_share_no_candidates_full_url.xml`
 - [P] QC-B4. 다른 앱(Chrome 등)에서 단어 선택 → 선택 메뉴 → 앱 이름 → 미니 화면에서 저장. **원래 앱으로 그대로 복귀**하는가. (UX 2.4)
   - 초기 증상: PROCESS_TEXT 저장 후 Vocabulary Reminder에 남아 원래 브라우저로 돌아가지 않았다. 증거: `/tmp/vocab_qc_20260703_094928/B4_after_process_text_save.xml`
   - 수정 후 재검증: 저장 후 Chrome Example Domain 화면으로 복귀. 증거: `/tmp/vocab_qc_20260703_094928/B4_recheck_after_save_return.xml`
+  - UI-M2 재검증(2026-07-03): PROCESS_TEXT 진입이 bottom sheet preview로 열리고 `salient` 저장 후 foreground가 Chrome으로 복귀함. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_process_text_preview.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_return.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_focus.txt`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_store.xml`
 - [P] QC-B5. 공유(Share) → 앱 선택 → 문장이면 후보 선택 흐름. (UX 2.5)
   - 증거: `/tmp/vocab_qc_20260703_094928/B5_share_sentence_candidates.xml`, `/tmp/vocab_qc_20260703_094928/B5_share_mitigate_saved_list.xml`
+  - UI-M2 재검증(2026-07-03): SHARE 문장 후보 선택 흐름 확인 중 `mitigated`가 `mitigat`로 잘못 정규화되는 회귀를 발견해 `mitigate`로 보정 후 재검증했다. 저장 후 Chrome으로 복귀하고 store에 `source_app_primary=Android share`, `source_type=local_dictionary`로 남음. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_post_patch_candidates.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_post_patch_mitigate_preview.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_post_patch_after_save.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_after_save_focus.txt`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_store.xml`
 - [P] QC-B6. [클립보드] 버튼: 미리 복사해 둔 텍스트를 버튼을 **누른 순간에만** 읽는다. (UX 2.6)
   - 증거: `/tmp/vocab_qc_20260703_094928/B6_before_clipboard_button.xml`, `/tmp/vocab_qc_20260703_094928/B6_after_clipboard_button.xml`
+  - UI-M2 재검증(2026-07-03): bottom sheet에서 [클립보드] 버튼을 누른 뒤 `ubiquitous` preview가 생성되고 저장 후 store에 `source_app_primary=clipboard`와 원문 context가 남음. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_clean_seed_clipboard_loaded.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_clipboard_preview_visible.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_saved.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_store.xml`
 - [P] QC-B7. 정규화: "Robustly," (대문자·쉼표 포함) 저장 → lemma가 robust 계열로 잡히고 원형도 표시된다. (UX 2.1, guide 10.7)
   - 증거: `/tmp/vocab_qc_20260703_094928/B7_robustly_preview.xml`, `/tmp/vocab_qc_20260703_094928/B7_robustly_saved_list.xml`
 - [P] QC-B8. 구(phrase): "give up" 저장 → 하나의 카드가 된다. (UX 2.11)
@@ -117,6 +123,7 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 
 - [P] QC-F1. 설정 화면: 하루 목표/큐 상한/미루기/잠자는 시작·끝이 있고 [설정 저장] 후 재실행해도 유지된다.
   - 증거: `/tmp/vocab_qc_20260703_094928/F1_settings_before_save.xml`, `/tmp/vocab_qc_20260703_094928/F1_settings_after_save_store.xml`, `/tmp/vocab_qc_20260703_094928/F1_settings_after_relaunch.xml`
+  - UI-M2 재검증(2026-07-03): 설정 탭에서 저장 후 앱을 강제 종료/재실행해도 `daily_word_goal=7`, `max_queue_size=20`, `snooze_duration_minutes=45`, `23:00/09:00`, `Asia/Seoul`이 화면과 store에 유지됨. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_snooze_edited.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_saved_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_settings_bottom.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_store.xml`
 - [P] QC-F2. [오늘 편성]: due 카드 수 ≤ 하루 목표면 전부 알림된다. 알림은 단어 하나당 하나.
   - 증거: `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_shade.xml`
 - [P] QC-F3. (날짜 조작으로 due 15개 만들기, 목표 10) [오늘 편성] → 알림 10개만 게시, 초과 5개는 자동 재조정으로 미래 날짜로 분산. 카드들의 interval/lapse는 불변. (guide 6.9, 19.12)

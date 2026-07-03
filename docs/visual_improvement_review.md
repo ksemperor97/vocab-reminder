@@ -55,11 +55,19 @@
 저장 후 시트만 닫히고 원래 문맥 유지 (UX 2.4 "읽던 앱으로 복귀"와 일치)
 ```
 
+완료(2026-07-03, Codex UI-M2): Android 메인을 `내 단어장`/`추천 단어장`/`설정` 하단 탭으로 분리했다. 내 단어장에는 due/취약/전체 요약과 카드 목록, FAB만 남기고, 추천 단어장은 recommended 카드 전용 화면으로 분리했다. 단어 추가, PROCESS_TEXT, SHARE 진입은 같은 bottom sheet를 사용하며 저장 후 시트가 닫힌다. 외부 앱에서 진입한 PROCESS_TEXT/SHARE는 저장 후 원래 Chrome으로 복귀함을 QC-B4/B5에서 확인했다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/recommendation_tab.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B1_preview_visible.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/share_entry_sheet.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B4_after_save_return.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B5_post_patch_after_save.png`
+
 ### V-4. Cloud sync(Firebase key/token 입력)가 메인 화면 한복판에 노출
 
 관찰: Web API key, email/password, ID token, Functions URL 필드가 단어 목록보다 위에 있다.
 
 제안: 설정 > "동기화" 하위 화면으로 이동. 토큰/URL 직접 붙여넣기 필드는 디버그 빌드에서만 노출. 릴리스 사용자에게 보일 것은 "로그인 상태 + 마지막 동기화 시각" 한 줄이면 된다.
+
+완료(2026-07-03, Codex UI-M2): Cloud sync UI를 설정 탭의 `동기화` 하위 화면으로 이동했다. 메인/내 단어장과 설정 메인 화면에는 Firebase 입력 필드가 없고, debug 빌드에서만 동기화 화면의 `Debug sync fields` 아래에 Web API key, ID token, Functions URL, local export/import 버튼이 보인다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/sync_screen.xml`
 
 ### V-5. 카드 메타데이터가 디버그 문자열
 
@@ -77,6 +85,10 @@ wordbook=user · status=new · interval=0d · due=2026-07-03T00:18:31.110434Z
 ```
 
 ISO 타임스탬프·필드명 노출은 디버그 모드 토글로만.
+
+완료(2026-07-03, Codex UI-M2): 카드 목록은 단어, 뜻, 상태 뱃지, `다음 복습: ...`만 기본 표시한다. 목록 XML에서 `wordbook=`, `status=`, `due=` 및 ISO timestamp가 보이지 않음을 확인했다. raw 메타는 debug 빌드에서 카드 상세 하단에만 남겼다.
+
+증거: `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/user_tab_default.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/B6_saved.png`
 
 ---
 

@@ -50,6 +50,7 @@ class M3VerticalSliceTest {
 
     @Test
     fun manualAddCreatesCardDueInTenMinutes() {
+        openAddSheet()
         composeRule.onNodeWithTag("word_field").performTextInput("tentative")
         composeRule.onNodeWithTag("meaning_field").performTextInput("temporary")
         composeRule.onNodeWithTag("example_field").performTextInput("The results are tentative.")
@@ -66,6 +67,7 @@ class M3VerticalSliceTest {
 
     @Test
     fun sentenceCaptureShowsCandidateSelectionAndSavesPreview() {
+        openAddSheet()
         composeRule.onNodeWithTag("word_field").performTextInput("The results are tentative, but the pattern is robust.")
         composeRule.onNodeWithTag("preview_button").performClick()
         composeRule.onNodeWithTag("candidate_tentative").performClick()
@@ -174,6 +176,7 @@ class M3VerticalSliceTest {
             now = now
         )
 
+        openSyncSettings()
         composeRule.onNodeWithTag("local_sync_export_button").performScrollTo().performClick()
 
         assertTrue(syncFile.exists())
@@ -189,6 +192,7 @@ class M3VerticalSliceTest {
 
     @Test
     fun deleteButtonSoftDeletesUserCard() {
+        openAddSheet()
         composeRule.onNodeWithTag("word_field").performTextInput("tentative")
         composeRule.onNodeWithTag("meaning_field").performTextInput("temporary")
         composeRule.onNodeWithTag("example_field").performTextInput("The results are tentative.")
@@ -402,6 +406,15 @@ class M3VerticalSliceTest {
         val dump = waitForNotificationDump(device, "android.title=String (salient)")
         assertTrue(dump.contains("android.text=String (무슨 뜻이었지?)"))
         assertTrue("alarm recall notification must not expose meaning", !dump.contains("noticeable"))
+    }
+
+    private fun openAddSheet() {
+        composeRule.onNodeWithTag("add_word_fab").performClick()
+    }
+
+    private fun openSyncSettings() {
+        composeRule.onNodeWithTag("tab_settings").performClick()
+        composeRule.onNodeWithTag("open_sync_settings_button").performScrollTo().performClick()
     }
 
     private fun sendAction(card: VocabularyCard, response: ReviewResponse) {
