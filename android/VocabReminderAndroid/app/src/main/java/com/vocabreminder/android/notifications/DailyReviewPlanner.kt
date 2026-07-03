@@ -36,21 +36,22 @@ object DailyReviewPlanner {
         }
         result.rebalanceEvents.forEach { store.appendEvent(it, now) }
 
-        var scheduled = 0
-        result.notifications.forEach { schedulerCard ->
-            val card = store.findCard(schedulerCard.id) ?: return@forEach
-            if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
-                ReminderNotifications.showRecommendation(context, card)
-                scheduled += 1
-            } else {
-                ReminderScheduler.schedule(context, card, now)
-                scheduled += 1
+        val queuedNotifications = result.notifications.mapNotNull { schedulerCard ->
+            store.findCard(schedulerCard.id)
+        }
+        if (!ReminderNotifications.hasActivePrompt(context)) {
+            queuedNotifications.firstOrNull()?.let { card ->
+                if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
+                    ReminderNotifications.showRecommendation(context, card)
+                } else {
+                    ReminderNotifications.showReview(context, card)
+                }
             }
         }
 
         return PlanSummary(
             generatedRecommendations = generated,
-            scheduledNotifications = scheduled,
+            scheduledNotifications = queuedNotifications.size,
             rebalancedCards = result.rebalancedCards.size,
             recommendationIntroShown = introShown
         )

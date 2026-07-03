@@ -15,6 +15,7 @@ class RecommendationActionReceiver : BroadcastReceiver() {
         val store = LocalVocabularyStore(context)
         val card = store.findCard(cardId) ?: return
         val now = Instant.now()
+        ReminderNotifications.clearActivePrompt(context, card.id)
 
         when (action) {
             ReminderNotifications.RECOMMENDATION_START -> {
@@ -23,14 +24,17 @@ class RecommendationActionReceiver : BroadcastReceiver() {
                 val updated = store.findCard(card.id) ?: return
                 ReminderNotifications.showRecommendationMeaning(context, updated)
                 ReminderScheduler.schedule(context, updated, now)
+                ReminderNotifications.scheduleQueueAdvance(context, delayMillis = 8_000)
             }
             ReminderNotifications.RECOMMENDATION_KNOWN -> {
                 store.softDeleteRecommendation(card.id, "known", now)
                 ReminderNotifications.cancel(context, card)
+                ReminderNotifications.scheduleQueueAdvance(context)
             }
             ReminderNotifications.RECOMMENDATION_DISMISS -> {
                 store.softDeleteRecommendation(card.id, "dismissed", now)
                 ReminderNotifications.cancel(context, card)
+                ReminderNotifications.scheduleQueueAdvance(context)
             }
         }
     }

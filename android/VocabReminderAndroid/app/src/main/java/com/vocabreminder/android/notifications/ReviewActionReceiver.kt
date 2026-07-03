@@ -21,6 +21,7 @@ class ReviewActionReceiver : BroadcastReceiver() {
         val card = store.findCard(cardId) ?: return
         val now = Instant.now()
         val settings = store.settings().toSchedulerSettings()
+        ReminderNotifications.clearActivePrompt(context, card.id)
         val result = Scheduler.applyReview(
             card = card.toSchedulerCard(),
             response = response,
@@ -43,5 +44,13 @@ class ReviewActionReceiver : BroadcastReceiver() {
         }
 
         ReminderScheduler.schedule(context, updated, now)
+        ReminderNotifications.scheduleQueueAdvance(
+            context,
+            delayMillis = when (response) {
+                ReviewResponse.REMEMBERED -> 5_000
+                ReviewResponse.FORGOTTEN -> 8_000
+                else -> 0
+            }
+        )
     }
 }

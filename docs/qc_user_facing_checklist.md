@@ -134,8 +134,9 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
   - 증거: `/tmp/vocab_qc_20260703_094928/F5_queue_cap_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F5_queue_cap_store_after_plan.xml`
 - [P] QC-F6. [복습 재조정] 버튼 → 밀린 단어들의 due가 향후 며칠로 재배치되고 기억 상태는 불변. (UX 3.7)
   - 증거: `/tmp/vocab_qc_20260703_094928/F6_rebalance_after_ui.xml`, `/tmp/vocab_qc_20260703_094928/F6_rebalance_store_after.xml`
-- [P] QC-F7. 트레이에 여러 알림이 쌓였을 때 위에서부터 연속 처리(외웠다×n)가 끊김 없이 된다 — "몰아서 복습" 체감. (UX 3.6)
-  - 증거: `/tmp/vocab_qc_20260703_094928/F7_recheck_before_actions_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_final_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_store_final.xml`
+- [P] QC-F7. due 카드가 여러 개여도 트레이에는 복습 prompt가 **한 번에 하나만** 보인다. 현재 prompt를 처리하면 queue의 다음 due item이 즉시 이어서 표시된다 — "한 장씩 몰아서 복습" 체감. (UX 3.6)
+  - 이전 증거(다중 알림 처리): `/tmp/vocab_qc_20260703_094928/F7_recheck_before_actions_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_final_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_store_final.xml`
+  - queue 정책 변경 재검증(2026-07-03): 앱 시작 후 due 6개 중 `ubiquitous` prompt 1개만 표시되고, 알림 셰이드에서 [나중에 하기] 처리 후 `tentative` prompt 1개만 이어서 표시됨. 테스트 후 store와 알림 상태 복구. 증거: `/tmp/vocab_ui_20260703_130300/notification_queue/after_initial_plan_notifications.txt`, `/tmp/vocab_ui_20260703_130300/notification_queue/queue_shade_expanded.png`, `/tmp/vocab_ui_20260703_130300/notification_queue/queue_shade_expanded.xml`, `/tmp/vocab_ui_20260703_130300/notification_queue/after_shade_unavailable_notifications.txt`, `/tmp/vocab_ui_20260703_130300/notification_queue/after_restore_notifications.txt`
 
 ## G. 추천 단어장 (UX 9장)
 

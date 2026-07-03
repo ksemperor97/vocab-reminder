@@ -1,17 +1,24 @@
 package com.vocabreminder.android.notifications
 
 import android.content.Context
+import android.content.Intent
+import android.Manifest
+import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.time.Instant
 
@@ -27,6 +34,7 @@ class DailyReviewPlannerTest {
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         store = LocalVocabularyStore(context)
         store.clearAll()
+        ReminderNotifications.clearActivePrompt(context)
     }
 
     @Test
@@ -82,6 +90,39 @@ class DailyReviewPlannerTest {
         assertEquals(10, summary.scheduledNotifications)
         assertEquals(0, summary.rebalancedCards)
         assertEquals(0, store.cards().count { it.wordbook == Wordbook.RECOMMENDED })
+    }
+
+    @Test
+    fun dueQueueShowsOnePromptAndAdvancesAfterAction() {
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        repeat(2) { index ->
+            store.addCard(
+                displayWord = "queueword$index",
+                meaningKo = "meaning $index",
+                exampleSentence = "Queue example sentence $index.",
+                dueAt = now,
+                now = now.minusSeconds((index + 1).toLong())
+            )
+        }
+
+        val summary = DailyReviewPlanner.planAndSchedule(context, now)
+        val firstPromptId = ReminderNotifications.activePromptCardId(context)
+
+        assertEquals(2, summary.scheduledNotifications)
+        assertNotNull(firstPromptId)
+
+        ReviewActionReceiver().onReceive(
+            context,
+            Intent(context, ReviewActionReceiver::class.java)
+                .setAction(ReminderNotifications.ACTION_REVIEW)
+                .putExtra(ReminderNotifications.EXTRA_CARD_ID, firstPromptId)
+                .putExtra(ReminderNotifications.EXTRA_RESPONSE, ReviewResponse.UNAVAILABLE.name)
+        )
+
+        val nextPromptId = ReminderNotifications.activePromptCardId(context)
+        assertNotNull(nextPromptId)
+        assertNotEquals(firstPromptId, nextPromptId)
     }
 
     private fun addFutureUserCards(count: Int, now: Instant) {

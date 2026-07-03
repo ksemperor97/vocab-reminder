@@ -34,11 +34,10 @@ object ReviewDueDispatcher {
         }
 
         if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
-            ReminderNotifications.showRecommendation(context, card)
+            return ReminderNotifications.showRecommendation(context, card)
         } else {
-            ReminderNotifications.showReview(context, card)
+            return ReminderNotifications.showReview(context, card)
         }
-        return true
     }
 
     private fun isQuietHour(now: Instant, settings: SchedulerSettings): Boolean {
