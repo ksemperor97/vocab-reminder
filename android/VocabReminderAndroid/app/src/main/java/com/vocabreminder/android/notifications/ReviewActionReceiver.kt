@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.DueTimeJitter
 import com.vocabreminder.android.scheduler.ReviewResponse
@@ -27,48 +28,69 @@ class ReviewActionReceiver : BroadcastReceiver() {
             return
         }
         val now = Instant.now()
-        val settings = store.settings().toSchedulerSettings()
         if (card.status == CardStatus.SUSPENDED || card.dueAt.isAfter(now)) {
             ReminderNotifications.clearActivePrompt(context, card.id)
             ReminderNotifications.cancel(context, card)
             ReminderNotifications.scheduleQueueAdvance(context)
             return
         }
-        ReminderNotifications.clearActivePrompt(context, card.id)
-        val result = DueTimeJitter.apply(
-            Scheduler.applyReview(
-                card = card.toSchedulerCard(),
-                response = response,
-                settings = settings,
-                now = now,
-                recentResponses = store.recentResponses(card.id, 2),
-                unavailableCountToday = store.unavailableCountToday(card.id, settings.timezone, now),
-                forgottenCountToday = store.forgottenCountToday(card.id, settings.timezone, now)
-            ),
-            now,
-            settings
-        )
+        applyReviewResponse(context, store, card, response, now)
+    }
 
-        val updated = card.withSchedulerCard(result.card, now)
-        store.updateCard(updated)
-        store.appendEvent(result.event, now)
-
-        when (response) {
-            ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated)
-            ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated)
-            ReviewResponse.UNAVAILABLE -> ReminderNotifications.cancel(context, updated)
-            else -> ReminderNotifications.cancel(context, updated)
+    companion object {
+        internal fun applyUnavailableResponse(
+            context: Context,
+            store: LocalVocabularyStore,
+            card: VocabularyCard,
+            now: Instant = Instant.now()
+        ) {
+            applyReviewResponse(context, store, card, ReviewResponse.UNAVAILABLE, now)
         }
 
-        ReminderScheduler.schedule(context, updated, now)
-        ReminderNotifications.scheduleQueueAdvance(
-            context,
-            delayMillis = when (response) {
-                ReviewResponse.REMEMBERED -> 5_000
-                ReviewResponse.FORGOTTEN -> 8_000
-                else -> 0
+        private fun applyReviewResponse(
+            context: Context,
+            store: LocalVocabularyStore,
+            card: VocabularyCard,
+            response: ReviewResponse,
+            now: Instant
+        ) {
+            val settings = store.settings().toSchedulerSettings()
+            val result = DueTimeJitter.apply(
+                Scheduler.applyReview(
+                    card = card.toSchedulerCard(),
+                    response = response,
+                    settings = settings,
+                    now = now,
+                    recentResponses = store.recentResponses(card.id, 2),
+                    unavailableCountToday = store.unavailableCountToday(card.id, settings.timezone, now),
+                    forgottenCountToday = store.forgottenCountToday(card.id, settings.timezone, now)
+                ),
+                now,
+                settings
+            )
+
+            val updated = card.withSchedulerCard(result.card, now)
+            store.updateCard(updated)
+            store.appendEvent(result.event, now)
+
+            when (response) {
+                ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated)
+                ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated)
+                ReviewResponse.UNAVAILABLE -> {
+                    ReminderNotifications.clearActivePrompt(context, updated.id)
+                    ReminderNotifications.cancel(context, updated)
+                }
+                else -> {
+                    ReminderNotifications.clearActivePrompt(context, updated.id)
+                    ReminderNotifications.cancel(context, updated)
+                }
             }
-        )
-        SyncWorker.enqueueDebounced(context)
+
+            ReminderScheduler.schedule(context, updated, now)
+            if (response != ReviewResponse.REMEMBERED && response != ReviewResponse.FORGOTTEN) {
+                ReminderNotifications.scheduleQueueAdvance(context)
+            }
+            SyncWorker.enqueueDebounced(context)
+        }
     }
 }

@@ -42,6 +42,7 @@ data class SchedulerCard(
     val intervalBeforeLapse: Int? = null,
     val meaningKo: String = "meaning",
     val wordbook: Wordbook = Wordbook.USER,
+    val recommendationStartedAt: Instant? = null,
     val deletedAt: Instant? = null
 )
 
@@ -131,14 +132,18 @@ object Scheduler {
         now: Instant,
         userWordCount: Int = 0
     ): PlanDayResult {
-        // guide 6.4, 6.7, 6.9: user due cards fill the goal first; overflow is rebalanced.
-        val dueUserCards = cards
-            .filter { it.wordbook == Wordbook.USER && it.isNotificationEligible() && !it.dueAt.isAfter(now) }
+        // guide 6.4, 6.7, 6.9: due review cards fill the goal first; overflow is rebalanced.
+        val dueReviewCards = cards
+            .filter {
+                (it.wordbook == Wordbook.USER || it.recommendationStartedAt != null) &&
+                    it.isNotificationEligible() &&
+                    !it.dueAt.isAfter(now)
+            }
             .sortedWith(priorityComparator(now))
 
         val activeLimit = min(settings.dailyWordGoal, settings.maxQueueSize)
-        val selectedDue = dueUserCards.take(activeLimit)
-        val overflow = dueUserCards.drop(activeLimit)
+        val selectedDue = dueReviewCards.take(activeLimit)
+        val overflow = dueReviewCards.drop(activeLimit)
 
         val remainingSlots = activeLimit - selectedDue.size
         val recommendationCards = if (
@@ -147,7 +152,11 @@ object Scheduler {
             userWordCount >= 50
         ) {
             cards
-                .filter { it.wordbook == Wordbook.RECOMMENDED && it.isNotificationEligible() }
+                .filter {
+                    it.wordbook == Wordbook.RECOMMENDED &&
+                        it.recommendationStartedAt == null &&
+                        it.isNotificationEligible()
+                }
                 .sortedWith(compareBy<SchedulerCard> { it.id })
                 .take(remainingSlots)
         } else {

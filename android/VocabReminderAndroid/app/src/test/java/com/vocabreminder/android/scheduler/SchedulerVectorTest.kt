@@ -155,6 +155,7 @@ class SchedulerVectorTest {
                 "recommended" -> Wordbook.RECOMMENDED
                 else -> Wordbook.USER
             },
+            recommendationStartedAt = json.optString("recommendation_started_at").takeIf { it.isNotBlank() }?.let(Instant::parse),
             deletedAt = json.optString("deleted_at").takeIf { it.isNotBlank() }?.let(Instant::parse)
         )
     }

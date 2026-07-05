@@ -57,6 +57,7 @@ data class VocabularyCard(
             intervalBeforeLapse = intervalBeforeLapse,
             meaningKo = meaningKo,
             wordbook = wordbook,
+            recommendationStartedAt = recommendationStartedAt,
             deletedAt = deletedAt
         )
     }

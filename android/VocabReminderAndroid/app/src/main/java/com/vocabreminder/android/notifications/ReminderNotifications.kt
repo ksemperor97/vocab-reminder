@@ -35,11 +35,16 @@ object ReminderNotifications {
     const val EXTRA_CARD_ID = "card_id"
     const val EXTRA_RESPONSE = "response"
     const val EXTRA_RECOMMENDATION_ACTION = "recommendation_action"
+    const val EXTRA_DISMISSED_KIND = "dismissed_kind"
+    const val DISMISSED_KIND_PROMPT = "prompt"
+    const val DISMISSED_KIND_FEEDBACK = "feedback"
     const val RECOMMENDATION_START = "start"
     const val RECOMMENDATION_KNOWN = "known"
     const val RECOMMENDATION_DISMISS = "dismiss"
     private const val RECOMMENDATION_INTRO_NOTIFICATION_ID = 70_024
     private const val QUEUE_ADVANCE_REQUEST_CODE = 70_025
+    private const val PROMPT_DELETE_REQUEST_CODE_OFFSET = 0x1000_0000
+    private const val FEEDBACK_DELETE_REQUEST_CODE_OFFSET = 0x2000_0000
     private const val PREFS_NAME = "vocab_notification_queue"
     private const val KEY_ACTIVE_PROMPT_CARD_ID = "active_prompt_card_id"
     private const val KEY_ACTIVE_PROMPT_NOTIFICATION_ID = "active_prompt_notification_id"
@@ -74,6 +79,7 @@ object ReminderNotifications {
                 .setContentTitle(card.displayWord)
                 .setContentText("무슨 뜻이었지?")
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setDeleteIntent(promptDeleteIntent(context, card))
                 .addAction(action(context, card, ReviewResponse.REMEMBERED, "외웠다"))
                 .addAction(action(context, card, ReviewResponse.FORGOTTEN, "못외웠다"))
                 .addAction(action(context, card, ReviewResponse.UNAVAILABLE, "나중에 하기"))
@@ -91,7 +97,8 @@ object ReminderNotifications {
                 .setContentTitle("${card.displayWord} ✓")
                 .setContentText("${card.meaningKo} · 다음 복습: $nextReview")
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${card.meaningKo}\n다음 복습: $nextReview"))
-                .setTimeoutAfter(5_000)
+                .setAutoCancel(true)
+                .setDeleteIntent(feedbackDeleteIntent(context, card))
         )
     }
 
@@ -105,7 +112,8 @@ object ReminderNotifications {
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setTimeoutAfter(8_000)
+                .setAutoCancel(true)
+                .setDeleteIntent(feedbackDeleteIntent(context, card))
         )
     }
 
@@ -119,6 +127,7 @@ object ReminderNotifications {
                 .setContentTitle("오늘의 새 단어: ${card.displayWord}")
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setDeleteIntent(promptDeleteIntent(context, card))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_START, "시작하기"))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_KNOWN, "알아요"))
                 .addAction(recommendationAction(context, card, RECOMMENDATION_DISMISS, "관심 없음"))
@@ -137,7 +146,8 @@ object ReminderNotifications {
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setTimeoutAfter(8_000)
+                .setAutoCancel(true)
+                .setDeleteIntent(feedbackDeleteIntent(context, card))
         )
     }
 
@@ -267,6 +277,42 @@ object ReminderNotifications {
         return baseBuilder(context, card)
             .setSmallIcon(R.drawable.ic_notification_recommendation)
             .setColor(RECOMMENDATION_NOTIFICATION_COLOR)
+    }
+
+    private fun promptDeleteIntent(context: Context, card: VocabularyCard): PendingIntent {
+        return queueAdvanceDeleteIntent(
+            context = context,
+            card = card,
+            dismissedKind = DISMISSED_KIND_PROMPT,
+            requestCodeOffset = PROMPT_DELETE_REQUEST_CODE_OFFSET
+        )
+    }
+
+    private fun feedbackDeleteIntent(context: Context, card: VocabularyCard): PendingIntent {
+        return queueAdvanceDeleteIntent(
+            context = context,
+            card = card,
+            dismissedKind = DISMISSED_KIND_FEEDBACK,
+            requestCodeOffset = FEEDBACK_DELETE_REQUEST_CODE_OFFSET
+        )
+    }
+
+    private fun queueAdvanceDeleteIntent(
+        context: Context,
+        card: VocabularyCard,
+        dismissedKind: String,
+        requestCodeOffset: Int
+    ): PendingIntent {
+        val intent = Intent(context, NotificationQueueAdvanceReceiver::class.java)
+            .setAction(NotificationQueueAdvanceReceiver.ACTION_ADVANCE_QUEUE)
+            .putExtra(EXTRA_CARD_ID, card.id)
+            .putExtra(EXTRA_DISMISSED_KIND, dismissedKind)
+        return PendingIntent.getBroadcast(
+            context,
+            card.notificationId xor requestCodeOffset,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun meaningExampleBody(card: VocabularyCard, prompt: String? = null): CharSequence {

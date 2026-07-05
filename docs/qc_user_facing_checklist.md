@@ -82,15 +82,17 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
   - 증거: `/tmp/vocab_qc_20260703_094928/C1_active_notifications_natural_dumpsys.txt`, `/tmp/vocab_qc_20260703_094928/C1_notification_shade_natural.xml`, `/tmp/vocab_qc_20260703_094928/C3_expanded_mitigate_actions.xml`
 - [P] QC-C2. 잠금 화면에서도 뜻이 노출되지 않는다. (guide 14.4)
   - 증거: `/tmp/vocab_qc_20260703_094928/C2_lock_screen_notification_no_meaning.png`, `/tmp/vocab_qc_20260703_094928/C2_lock_screen_notification_no_meaning.xml`
-- [P] QC-C3. [외웠다] → 알림이 "단어 ✓ / 뜻 / 다음 복습" confirmation으로 교체되고 **약 5초 후 스스로 사라진다**. 앱은 열리지 않는다. (UX 3.2)
-  - 증거: `/tmp/vocab_qc_20260703_094928/C3_expanded_mitigate_actions.xml`, `/tmp/vocab_qc_20260703_094928/C3_remembered_confirmation.xml`, `/tmp/vocab_qc_20260703_094928/C3_after_confirmation_timeout.xml`
+- [P] QC-C3. [외웠다] → 알림이 "단어 ✓ / 뜻 / 다음 복습" confirmation으로 교체되고 **30초 이상 스스로 사라지지 않는다**. 뜻 알림을 지우기 전에는 다음 prompt가 나오지 않고, 지우면 다음 due prompt가 이어진다. 앱은 열리지 않는다. (UX 3.2)
+  - 이전 증거(구 timeout 정책): `/tmp/vocab_qc_20260703_094928/C3_expanded_mitigate_actions.xml`, `/tmp/vocab_qc_20260703_094928/C3_remembered_confirmation.xml`, `/tmp/vocab_qc_20260703_094928/C3_after_confirmation_timeout.xml`
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): `alphaqc` [외웠다] 후 confirmation이 즉시/30초 후 모두 `710001` 단일 알림으로 유지됐고, dismiss deleteIntent 후 `betaqc` prompt가 이어짐. 증거: `/tmp/vocab_notification_flow_20260705/android/02_remembered_meaning_immediate_*`, `/tmp/vocab_notification_flow_20260705/android/03_remembered_meaning_after30_*`, `/tmp/vocab_notification_flow_20260705/android/06_after_remembered_deleteintent_user0_*`.
 - [P] QC-C4. [외웠다] 후 카드의 다음 due가 앞으로 늘어났다 (앱 목록에서 확인).
   - 증거: `/tmp/vocab_qc_20260703_094928/C4_give_up_due_increased_after_restart.xml`
 
 ## D. 못외웠다 루프 — 제품의 심장 (UX 3.3)
 
-- [P] QC-D1. [못외웠다] → 알림이 **그 자리에서 즉시** 뜻+예문 알림으로 바뀐다. 앱을 열 필요 없음. (UX 3.3)
-  - 증거: `/tmp/vocab_qc_20260703_094928/D1_expanded_offlineword_actions.xml`, `/tmp/vocab_qc_20260703_094928/D1_forgotten_meaning_notification.xml`
+- [P] QC-D1. [못외웠다] → 알림이 **그 자리에서 즉시** 뜻+예문 알림으로 바뀌고, 사용자가 지울 때까지 유지된다. 뜻 알림을 지우기 전에는 다음 prompt가 나오지 않고, 지우면 다음 due prompt가 이어진다. 앱을 열 필요 없음. (UX 3.3)
+  - 이전 증거(즉시 뜻 표시): `/tmp/vocab_qc_20260703_094928/D1_expanded_offlineword_actions.xml`, `/tmp/vocab_qc_20260703_094928/D1_forgotten_meaning_notification.xml`
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): `betaqc` [못외웠다] 후 뜻+예문 알림이 즉시/30초 후 모두 `710002` 단일 알림으로 유지됐고, dismiss deleteIntent 후 `gammaqc` prompt가 이어짐. 증거: `/tmp/vocab_notification_flow_20260705/android/07_forgotten_meaning_immediate_*`, `/tmp/vocab_notification_flow_20260705/android/08_forgotten_meaning_after30_*`, `/tmp/vocab_notification_flow_20260705/android/09_after_forgotten_deleteintent_*`.
 - [P] QC-D2. 10~30분 뒤 같은 단어의 재확인 알림이 온다.
   - 초기 실패: WorkManager DB에는 `review:offlineword`가 `ENQUEUED`였지만 system job이 없어 자연 재확인이 오지 않음. 증거: `/tmp/vocab_qc_20260703_094928/D2_workdb_after_due.sqlite`, `/tmp/vocab_qc_20260703_094928/D2_current_after_due_targeted.txt`
   - 수정 후 증거: `/tmp/vocab_qc_20260703_094928/D2_recheck_duepast_notification.txt`, `/tmp/vocab_qc_20260703_094928/D2_recheck_duepast_window.xml`
@@ -112,6 +114,8 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
   - 증거: `/tmp/vocab_qc_20260703_094928/E3_expanded_before_second_snooze.xml`, `/tmp/vocab_qc_20260703_094928/E3_store_after_second_snooze.xml`
 - [P] QC-E4. 알림을 그냥 무시 → 알림이 트레이에 계속 남아 있다. 어떤 이벤트도 기록되지 않는다. (UX 3.5)
   - 증거: `/tmp/vocab_qc_20260703_094928/E4_ignore_notification_still_active.txt`, `/tmp/vocab_qc_20260703_094928/E4_store_after_ignore_wait.xml`
+- [P] QC-E4a. 질문 프롬프트를 응답 없이 스와이프 → [나중에 하기]와 동일하게 UNAVAILABLE 이벤트가 기록되고 due가 snooze만큼 이동한다. 즉시 다음 due prompt가 이어진다. (UX 3.5)
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): `gammaqc` prompt를 알림 shade에서 실제 swipe로 지웠고, store에 `UNAVAILABLE` 이벤트와 미래 `due_at`이 기록되며 다음 추천 prompt가 게시됨. 증거: `/tmp/vocab_notification_flow_20260705/android/10_gamma_prompt_before_swipe_shade.png`, `/tmp/vocab_notification_flow_20260705/android/10_after_gamma_swipe_*`, `/tmp/vocab_notification_flow_20260705/android/10_store_after_gamma_swipe.xml`.
 - [P] QC-E5. 잠자는 시간(설정을 현재 시각 직후로 임시 변경) 진입 → 남은 알림이 걷힌다. 잠자는 끝 시간 후 다시 게시된다. (UX 3.5, guide 6.6)
   - 초기 실패: 15분 주기 WorkManager sweep을 `cmd jobscheduler run -f`로 강제해도 기존 알림이 걷히지 않았다. 경계 알람 리시버를 추가해 잠자는 시작/끝 시각을 직접 처리하도록 수정.
   - 수정 후 증거: 시작 전 알림 `/tmp/vocab_qc_20260703_094928/E5_boundary_before_start_notification.txt`, 시작 후 제거 `/tmp/vocab_qc_20260703_094928/E5_boundary_after_start_notification.txt`, 끝 후 재게시 `/tmp/vocab_qc_20260703_094928/E5_boundary_after_end_notification.txt`
@@ -124,19 +128,21 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 - [P] QC-F1. 설정 화면: 하루 목표/큐 상한/미루기/잠자는 시작·끝이 있고 [설정 저장] 후 재실행해도 유지된다.
   - 증거: `/tmp/vocab_qc_20260703_094928/F1_settings_before_save.xml`, `/tmp/vocab_qc_20260703_094928/F1_settings_after_save_store.xml`, `/tmp/vocab_qc_20260703_094928/F1_settings_after_relaunch.xml`
   - UI-M2 재검증(2026-07-03): 설정 탭에서 저장 후 앱을 강제 종료/재실행해도 `daily_word_goal=7`, `max_queue_size=20`, `snooze_duration_minutes=45`, `23:00/09:00`, `Asia/Seoul`이 화면과 store에 유지됨. 증거: `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_snooze_edited.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_saved_store.xml`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_settings_top.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_settings_bottom.png`, `/tmp/vocab_ui_20260703_130300/UI-M2/qc_recheck/F1_relaunch_store.xml`
-- [P] QC-F2. [오늘 편성]: due 카드 수 ≤ 하루 목표면 전부 알림된다. 알림은 단어 하나당 하나.
-  - 증거: `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_shade.xml`
-- [P] QC-F3. (날짜 조작으로 due 15개 만들기, 목표 10) [오늘 편성] → 알림 10개만 게시, 초과 5개는 자동 재조정으로 미래 날짜로 분산. 카드들의 interval/lapse는 불변. (guide 6.9, 19.12)
-  - 증거: `/tmp/vocab_qc_20260703_094928/F3_due15_goal10_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F3_due15_goal10_store_after_plan.xml`
+- [P] QC-F2. [오늘 편성]: due 카드 수 ≤ 하루 목표면 오늘 queue에 전부 포함되지만, 트레이에는 첫 prompt 1개만 표시된다. 현재 뜻 알림을 지울 때마다 다음 due prompt가 이어진다.
+  - 이전 증거(구/초기 queue 정책): `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F2_due_under_goal_shade.xml`
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): due review 3개 seed에서 처음에는 `alphaqc` prompt 1개만 표시됐고, meaning dismiss 후 `betaqc`, `gammaqc`가 순서대로 이어짐. 증거: `/tmp/vocab_notification_flow_20260705/android/01_initial_prompt_*`, `/tmp/vocab_notification_flow_20260705/android/06_after_remembered_deleteintent_user0_*`, `/tmp/vocab_notification_flow_20260705/android/09_after_forgotten_deleteintent_*`.
+- [ ] QC-F3. (날짜 조작으로 due 15개 만들기, 목표 10) [오늘 편성] → 오늘 queue는 10개만 잡고 트레이에는 prompt 1개만 표시된다. 초과 5개는 자동 재조정으로 미래 날짜로 분산. 카드들의 interval/lapse는 불변. (guide 6.9, 19.12)
+  - 이전 증거(구/초기 queue 정책): `/tmp/vocab_qc_20260703_094928/F3_due15_goal10_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F3_due15_goal10_store_after_plan.xml`
 - [P] QC-F4. 우선순위: 재학습 중 카드가 review/new보다 먼저 알림 자리를 차지한다. (guide 6.7)
   - 증거: `/tmp/vocab_qc_20260703_094928/F4_priority_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F4_priority_store_after_plan.xml`
-- [P] QC-F5. 큐 상한(20)보다 많은 due → 동시 게시 알림이 상한을 넘지 않는다.
-  - 증거: `/tmp/vocab_qc_20260703_094928/F5_queue_cap_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F5_queue_cap_store_after_plan.xml`
+- [ ] QC-F5. 큐 상한(20)보다 많은 due → 오늘 queue 후보가 상한을 넘지 않고, 트레이에는 prompt 1개만 표시된다.
+  - 이전 증거(구/초기 queue 정책): `/tmp/vocab_qc_20260703_094928/F5_queue_cap_notifications.txt`, `/tmp/vocab_qc_20260703_094928/F5_queue_cap_store_after_plan.xml`
 - [P] QC-F6. [복습 재조정] 버튼 → 밀린 단어들의 due가 향후 며칠로 재배치되고 기억 상태는 불변. (UX 3.7)
   - 증거: `/tmp/vocab_qc_20260703_094928/F6_rebalance_after_ui.xml`, `/tmp/vocab_qc_20260703_094928/F6_rebalance_store_after.xml`
-- [P] QC-F7. due 카드가 여러 개여도 트레이에는 복습 prompt가 **한 번에 하나만** 보인다. 현재 prompt를 처리하면 queue의 다음 due item이 즉시 이어서 표시된다 — "한 장씩 몰아서 복습" 체감. (UX 3.6)
+- [P] QC-F7. due 카드가 여러 개여도 트레이에는 복습 prompt가 **한 번에 하나만** 보인다. 현재 prompt를 처리하면 뜻 알림으로 교체되고, 그 뜻 알림을 지울 때 queue의 다음 due item이 이어서 표시된다 — "한 장씩 몰아서 복습" 체감. (UX 3.6)
   - 이전 증거(다중 알림 처리): `/tmp/vocab_qc_20260703_094928/F7_recheck_before_actions_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_final_notification.txt`, `/tmp/vocab_qc_20260703_094928/F7_recheck_store_final.xml`
   - queue 정책 변경 재검증(2026-07-03): 앱 시작 후 due 6개 중 `ubiquitous` prompt 1개만 표시되고, 알림 셰이드에서 [나중에 하기] 처리 후 `tentative` prompt 1개만 이어서 표시됨. 테스트 후 store와 알림 상태 복구. 증거: `/tmp/vocab_ui_20260703_130300/notification_queue/after_initial_plan_notifications.txt`, `/tmp/vocab_ui_20260703_130300/notification_queue/queue_shade_expanded.png`, `/tmp/vocab_ui_20260703_130300/notification_queue/queue_shade_expanded.xml`, `/tmp/vocab_ui_20260703_130300/notification_queue/after_shade_unavailable_notifications.txt`, `/tmp/vocab_ui_20260703_130300/notification_queue/after_restore_notifications.txt`
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): `alphaqc` prompt 1개 → [외웠다] meaning 1개(30초 유지) → dismiss 후 `betaqc` prompt 1개 → [못외웠다] meaning 1개(30초 유지) → dismiss 후 `gammaqc` prompt 1개 → prompt swipe 후 추천 prompt 1개 흐름을 확인. 증거: `/tmp/vocab_notification_flow_20260705/android`.
 
 ## G. 추천 단어장 (UX 9장)
 
@@ -151,6 +157,7 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
   - 증거: `/tmp/vocab_qc_20260703_094928/G2_50_intro_twice_notifications.txt`
 - [P] QC-G5. [시작하기] → 추천 단어장에 남아 일반 복습 사이클 진입.
   - 증거: `/tmp/vocab_qc_20260703_094928/G5_start_before_action_notification.txt`, `/tmp/vocab_qc_20260703_094928/G5_start_store_after_action.xml`
+  - 순차 알림 재검증(2026-07-05, Galaxy SM-F766N QA 패키지): `omegaqc` 추천 [시작하기] 후 meaning 알림이 즉시/30초 후 모두 유지됐고, meaning dismiss 후 started 추천이 due 전 재노출되지 않고 `sigmaqc` 다음 추천 prompt가 게시됨. 증거: `/tmp/vocab_notification_flow_20260705/android/17_initial_recommendation_prompt_*`, `/tmp/vocab_notification_flow_20260705/android/18_recommendation_meaning_immediate_*`, `/tmp/vocab_notification_flow_20260705/android/19_recommendation_meaning_after30_*`, `/tmp/vocab_notification_flow_20260705/android/20_after_recommendation_feedback_dismiss_fresh_*`.
 - [P] QC-G6. [알아요] → 카드가 사라지고, 이후 추천 난이도가 올라가는 경향 (여러 번 눌러 확인).
   - 증거: `/tmp/vocab_qc_20260703_094928/G6_known_before_action_notification.txt`, `/tmp/vocab_qc_20260703_094928/G6_known_store_after_action.xml`
 - [P] QC-G7. [관심 없음] → 카드가 사라지고 유사 계열 추천이 줄어든다.
@@ -250,6 +257,7 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 | 2026-07-03 | Codex | H. Mac 앱 | P: H1-H9 / F: 없음 / B: 없음 |
 | 2026-07-03 | Codex | I. 동기화 | P: I1,I2,I3,I13 / F: 없음 / B: I4-I12 일부 세부 edge 미실행 |
 | 2026-07-03 | Codex | J. 파괴적 동작·엣지 | P: J1 / F: 없음 / B: J2-J5 |
+| 2026-07-05 | Codex | Android 알림 순차 흐름 | P: C3,D1,E4a,F2,F7,G5 / F: 없음 / B: 없음 |
 | | | | |
 
 ## 실패 항목 기록 양식

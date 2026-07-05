@@ -27,7 +27,6 @@ class RecommendationActionReceiver : BroadcastReceiver() {
             ReminderNotifications.scheduleQueueAdvance(context)
             return
         }
-        ReminderNotifications.clearActivePrompt(context, card.id)
 
         when (action) {
             ReminderNotifications.RECOMMENDATION_START -> {
@@ -36,16 +35,17 @@ class RecommendationActionReceiver : BroadcastReceiver() {
                 val updated = store.findCard(card.id) ?: return
                 ReminderNotifications.showRecommendationMeaning(context, updated)
                 ReminderScheduler.schedule(context, updated, now)
-                ReminderNotifications.scheduleQueueAdvance(context, delayMillis = 8_000)
                 SyncWorker.enqueueDebounced(context)
             }
             ReminderNotifications.RECOMMENDATION_KNOWN -> {
+                ReminderNotifications.clearActivePrompt(context, card.id)
                 store.softDeleteRecommendation(card.id, "known", now)
                 ReminderNotifications.cancel(context, card)
                 ReminderNotifications.scheduleQueueAdvance(context)
                 SyncWorker.enqueueDebounced(context)
             }
             ReminderNotifications.RECOMMENDATION_DISMISS -> {
+                ReminderNotifications.clearActivePrompt(context, card.id)
                 store.softDeleteRecommendation(card.id, "dismissed", now)
                 ReminderNotifications.cancel(context, card)
                 ReminderNotifications.scheduleQueueAdvance(context)
