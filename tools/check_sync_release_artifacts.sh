@@ -137,6 +137,28 @@ else
   echo "SKIP: Mac token check, no token was provided."
 fi
 
+MAC_SERVICE_MESSAGE="$(/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' "$INFO_PLIST" 2>/dev/null || true)"
+MAC_SERVICE_PORT="$(/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSPortName' "$INFO_PLIST" 2>/dev/null || true)"
+MAC_SERVICE_MENU="$(/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMenuItem:default' "$INFO_PLIST" 2>/dev/null || true)"
+MAC_SERVICE_TYPES="$(/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSSendTypes' "$INFO_PLIST" 2>/dev/null || true)"
+MAC_CAPTURE_SCHEME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST" 2>/dev/null || true)"
+
+if [[ "$MAC_SERVICE_MESSAGE" != "addToVocabularyReminder" ||
+      "$MAC_SERVICE_PORT" != "VocabReminder" ||
+      "$MAC_SERVICE_MENU" != "Add to Vocabulary Reminder" ||
+      "$MAC_SERVICE_TYPES" != *"public.utf8-plain-text"* ||
+      "$MAC_SERVICE_TYPES" != *"NSStringPboardType"* ]]; then
+  echo "Mac app is missing the text capture service declaration." >&2
+  exit 1
+fi
+echo "OK: Mac app declares text capture service"
+
+if [[ "$MAC_CAPTURE_SCHEME" != "vocabreminder" ]]; then
+  echo "Mac app is missing the vocabreminder capture URL scheme." >&2
+  exit 1
+fi
+echo "OK: Mac app declares capture URL scheme"
+
 if strings "$MAC_BINARY" | grep -Eq 'Debug sync fields|서버 주소|토큰|WireGuard|VPN|macmini\.local|10\.66\.0\.1'; then
   echo "Mac release binary contains debug sync or legacy VPN/direct-server strings." >&2
   exit 1

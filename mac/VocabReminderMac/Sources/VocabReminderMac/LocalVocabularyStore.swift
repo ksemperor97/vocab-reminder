@@ -14,9 +14,11 @@ final class LocalVocabularyStore: ObservableObject {
     @Published var preview: DictionaryResult?
     @Published var pendingAnalysis: CaptureAnalysis?
     @Published var message = ""
+    @Published var notificationWarning = ""
 
     private let storeURL: URL
     private let syncURL: URL
+    private var backupURL: URL { storeURL.appendingPathExtension("bak") }
     private let scheduleNotifications: Bool
 
     init(appSupportURL: URL? = nil, scheduleNotifications: Bool = true) {
@@ -46,7 +48,14 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     func captureClipboard() {
-        let text = NSPasteboard.general.string(forType: .string) ?? ""
+        let text = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard text.isEmpty == false else {
+            preview = nil
+            pendingAnalysis = nil
+            message = "클립보드에 텍스트가 없습니다"
+            return
+        }
         capture(text: text, method: .macClipboardHotkey, sourceApp: "Clipboard")
     }
 
@@ -64,7 +73,11 @@ final class LocalVocabularyStore: ObservableObject {
             return
         }
         preview = DictionaryResolver.resolve(analysis, sourceApp: sourceApp)
-        message = preview?.meaningKo.isEmpty == false ? "저장 전 preview를 확인하세요." : "뜻을 찾지 못했습니다. 직접 입력하거나 일단 저장할 수 있습니다."
+        if preview?.meaningKo.isEmpty == false || preview?.definitionEn.isEmpty == false {
+            message = "저장 전 preview를 확인하세요."
+        } else {
+            message = "뜻을 찾지 못했습니다. 직접 입력하거나 일단 저장할 수 있습니다."
+        }
     }
 
     func selectCandidate(_ candidate: String) {
@@ -84,13 +97,34 @@ final class LocalVocabularyStore: ObservableObject {
 
     func refreshNotifications() {
         guard scheduleNotifications else { return }
-        MacNotificationScheduler.shared.reschedule(cards: activeCards, settings: settings)
+        MacNotificationScheduler.shared.reschedule(
+            cards: activeCards,
+            settings: settings,
+            processedCardIdsToday: processedNotificationCardIdsToday()
+        )
+    }
+
+    func processedNotificationCardIdsToday(now: Date = Date()) -> Set<String> {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: settings.timezone) ?? .current
+        let countedResponses: Set<ReviewResponse> = [.remembered, .forgotten, .unavailable, .reveal]
+        let reviewed = reviewEvents.compactMap { event -> String? in
+            guard countedResponses.contains(event.response),
+                  calendar.isDate(event.clientCreatedAt, inSameDayAs: now) else { return nil }
+            return event.cardId
+        }
+        let recommendationDecisions = recommendationFeedback.compactMap { feedback -> String? in
+            guard ["started", "known", "dismissed"].contains(feedback.action),
+                  calendar.isDate(feedback.createdAt, inSameDayAs: now) else { return nil }
+            return feedback.cardId
+        }
+        return Set(reviewed + recommendationDecisions)
     }
 
     func fillRecommendations() {
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: Date())
-        message = generated > 0 ? "추천 채우기 완료" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced) : "추천 조건 또는 빈자리가 없습니다."
+        message = generated > 0 ? "추천 채우기 완료" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced) : recommendationWaitingMessage()
         if generated > 0 { enqueueAutoSync() }
     }
 
@@ -139,12 +173,19 @@ final class LocalVocabularyStore: ObservableObject {
 
     func savePreview(meaningOverride: String, exampleOverride: String, method: CaptureMethod = .macClipboardHotkey) {
         guard var result = preview else { return }
+        guard result.displayWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              result.lemma.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            message = "단어를 입력하세요."
+            return
+        }
         let now = Date()
         let schedulerSettings = schedulerSettings()
+        let originalMeaning = preview?.meaningKo ?? ""
         result.meaningKo = meaningOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         result.exampleSentence = exampleOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         result.sourceSentence = result.exampleSentence.isEmpty ? result.sourceSentence : result.exampleSentence
-        if result.meaningKo != preview?.meaningKo {
+        let usedEnglishFallback = originalMeaning.isEmpty && result.meaningKo == result.definitionEn
+        if result.meaningKo != originalMeaning && !usedEnglishFallback {
             result.sourceType = "user"
         }
         let dueAt = DueTimeJitter.apply(
@@ -171,6 +212,7 @@ final class LocalVocabularyStore: ObservableObject {
             settings: schedulerSettings,
             now: now,
             recentResponses: Array(recent),
+            unavailableCountToday: unavailableCountToday(cardId: card.id, settings: schedulerSettings, now: now),
             forgottenCountToday: forgottenCountToday(cardId: card.id, settings: schedulerSettings, now: now)
         )
         let jittered = DueTimeJitter.apply(to: result, now: now, settings: schedulerSettings)
@@ -180,6 +222,10 @@ final class LocalVocabularyStore: ObservableObject {
         let generated = ensureRecommendations(now: now)
         message = "복습 기록됨" + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
         enqueueAutoSync()
+        // Also cover reviews started from the in-app card controls. Notification
+        // actions already caused intermediate saves, but this final pass ensures
+        // the queue reflects recommendation fills and the completed review state.
+        refreshNotifications()
     }
 
     @discardableResult
@@ -356,6 +402,7 @@ final class LocalVocabularyStore: ObservableObject {
         )
         let pushResult = try await client.push(localBatch: payload)
         let snapshotData = try await client.pullSnapshot()
+        let epochCreatedCardIds = SyncBatchFactory.epochCreatedCardIds(in: snapshotData)
         let snapshot = try SyncBatchFactory.localSnapshot(from: snapshotData)
         let merged = SyncBatchFactory.merge(
             local: StoreSnapshot(
@@ -375,6 +422,19 @@ final class LocalVocabularyStore: ObservableObject {
         recommendationFeedback = merged.recommendationFeedback
         settings = merged.settings
         save()
+        if cards.contains(where: { epochCreatedCardIds.contains($0.id) && $0.createdAt > Date(timeIntervalSince1970: 1) }) {
+            // The import repaired a legacy epoch fallback using related-record
+            // evidence. Push the bumped version in this same sync run so the
+            // server snapshot is healed without waiting for another timer tick.
+            _ = try await client.push(localBatch: SyncBatchFactory.build(
+                cards: cards,
+                contexts: contexts,
+                definitionCandidates: definitionCandidates,
+                reviewEvents: reviewEvents,
+                recommendationFeedback: recommendationFeedback,
+                settings: settings
+            ))
+        }
         return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count, skippedSummary: skippedSummary(pushResult))
     }
 
@@ -504,11 +564,24 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     private func forgottenCountToday(cardId: String, settings: SchedulerSettings, now: Date) -> Int {
+        responseCountToday(cardId: cardId, response: .forgotten, settings: settings, now: now)
+    }
+
+    private func unavailableCountToday(cardId: String, settings: SchedulerSettings, now: Date) -> Int {
+        responseCountToday(cardId: cardId, response: .unavailable, settings: settings, now: now)
+    }
+
+    private func responseCountToday(
+        cardId: String,
+        response: ReviewResponse,
+        settings: SchedulerSettings,
+        now: Date
+    ) -> Int {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: settings.timezone) ?? .current
         return reviewEvents.filter {
             $0.cardId == cardId &&
-                $0.response == .forgotten &&
+                $0.response == response &&
                 calendar.isDate($0.clientCreatedAt, inSameDayAs: now)
         }.count
     }
@@ -519,36 +592,99 @@ final class LocalVocabularyStore: ObservableObject {
         return "\(intro) · 추천 \(generated)개 준비됨"
     }
 
+    private func recommendationWaitingMessage() -> String {
+        "단어 50개 이상 저장하면 추천이 시작됩니다 (현재 \(activeCards.filter { $0.wordbook == .user }.count)개)"
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: storeURL) else {
-            save()
+            if recoverFromBackup() {
+                message = "백업에서 복구했습니다"
+            } else {
+                save()
+            }
             return
         }
         do {
             let snapshot = try JSONDecoder.vocab.decode(StoreSnapshot.self, from: data)
-            cards = snapshot.cards
-            contexts = snapshot.contexts
-            definitionCandidates = snapshot.definitionCandidates
-            reviewEvents = snapshot.reviewEvents
-            recommendationFeedback = snapshot.recommendationFeedback
-            settings = snapshot.settings
+            apply(snapshot)
             refreshNotifications()
         } catch {
-            message = "저장소를 읽지 못했습니다: \(error.localizedDescription)"
+            if recoverFromBackup() {
+                message = "백업에서 복구했습니다"
+            } else {
+                message = "저장소를 읽지 못했습니다: \(error.localizedDescription)"
+            }
         }
     }
 
     private func save() {
         let snapshot = StoreSnapshot(cards: cards, contexts: contexts, definitionCandidates: definitionCandidates, reviewEvents: reviewEvents, recommendationFeedback: recommendationFeedback, settings: settings)
-        if let data = try? JSONEncoder.vocab.encode(snapshot) {
-            try? data.write(to: storeURL, options: .atomic)
+        do {
+            let data = try JSONEncoder.vocab.encode(snapshot)
+            try rotateBackupIfNeeded()
+            try data.write(to: storeURL, options: .atomic)
+        } catch {
+            message = "저장 실패: \(error.localizedDescription)"
         }
         refreshNotifications()
     }
 
+    private func recoverFromBackup() -> Bool {
+        guard let data = try? Data(contentsOf: backupURL),
+              let snapshot = try? JSONDecoder.vocab.decode(StoreSnapshot.self, from: data) else {
+            return false
+        }
+        apply(snapshot)
+        try? data.write(to: storeURL, options: .atomic)
+        refreshNotifications()
+        return true
+    }
+
+    private func apply(_ snapshot: StoreSnapshot) {
+        cards = snapshot.cards
+        contexts = snapshot.contexts
+        definitionCandidates = snapshot.definitionCandidates
+        reviewEvents = snapshot.reviewEvents
+        recommendationFeedback = snapshot.recommendationFeedback
+        settings = snapshot.settings
+        repairEpochScheduleFieldsFromReviewEvents()
+    }
+
+    private func repairEpochScheduleFieldsFromReviewEvents() {
+        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
+        let startupSyncGrace = Date().addingTimeInterval(15 * 60)
+        cards = cards.map { card in
+            guard card.dueAt <= epochDamageUpperBound || card.updatedAt <= epochDamageUpperBound else { return card }
+            guard let latest = (reviewEvents
+                .filter { event in event.cardId == card.id && event.clientCreatedAt > epochDamageUpperBound })
+                .max(by: { $0.clientCreatedAt < $1.clientCreatedAt }) else { return card }
+            var repaired = card
+            if repaired.dueAt <= epochDamageUpperBound, latest.nextDueAt > epochDamageUpperBound {
+                // The event can be old even though its timestamp is valid. Keep
+                // damaged cards quiet long enough for startup sync to pull the
+                // authoritative fractional timestamp instead of firing a stale
+                // review immediately during app launch.
+                repaired.dueAt = max(latest.nextDueAt, startupSyncGrace)
+            }
+            if repaired.updatedAt <= epochDamageUpperBound {
+                repaired.updatedAt = latest.clientCreatedAt
+            }
+            return repaired
+        }
+    }
+
+    private func rotateBackupIfNeeded() throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: storeURL.path) else { return }
+        if fileManager.fileExists(atPath: backupURL.path) {
+            try fileManager.removeItem(at: backupURL)
+        }
+        try fileManager.moveItem(at: storeURL, to: backupURL)
+    }
+
     private func enqueueAutoSync() {
-        guard scheduleNotifications else { return }
-        MacAutoSyncController.shared.enqueueDebounced()
+        MacAutoSyncController.shared.enqueueAfterLocalChange()
     }
 
     private func skippedSummary(_ response: [String: Any]) -> String {

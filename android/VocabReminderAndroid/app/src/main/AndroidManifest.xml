@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -40,6 +41,22 @@
             android:exported="false" />
         <receiver
             android:name=".notifications.NotificationQueueAdvanceReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.UnansweredPromptReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".notifications.WatchReplyReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.WatchReplyExperimentReceiver"
             android:exported="false" />
     </application>
 </manifest>

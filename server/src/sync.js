@@ -19,6 +19,7 @@ const reviewResponses = new Set([
 ]);
 const feedbackActions = new Set(["started", "known", "dismissed"]);
 const quietHoursPattern = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const defaultMaxCollectionItems = 10_000;
 
 const emptyApplied = {
   cards: 0,
@@ -40,8 +41,9 @@ const emptySkipped = {
 };
 
 export class SyncStore {
-  constructor(db) {
+  constructor(db, { maxCollectionItems = defaultMaxCollectionItems } = {}) {
     this.db = db;
+    this.maxCollectionItems = positiveIntegerOrDefault(maxCollectionItems, defaultMaxCollectionItems);
     this.statements = {
       cardCount: db.prepare("SELECT COUNT(*) AS count FROM cards WHERE deleted_at IS NULL"),
       get: new Map(),
@@ -95,7 +97,8 @@ export class SyncStore {
   }
 
   applyBatch(rawPayload) {
-    const payload = parseTopLevelPayload(rawPayload);
+    const payload = parseTopLevelPayload(rawPayload, this.maxCollectionItems);
+    const serverReceivedAt = new Date().toISOString();
     const result = {
       applied: { ...emptyApplied },
       skipped: { ...emptySkipped, reasons: [] }
@@ -105,7 +108,7 @@ export class SyncStore {
       this.applyCards(payload.cards, result);
       this.insertOnly("contexts", payload.contexts, validateContext, result);
       this.insertOnly("definition_candidates", payload.definition_candidates, validateDefinitionCandidate, result);
-      this.insertOnly("review_events", payload.review_events, validateReviewEvent, result);
+      this.insertOnly("review_events", payload.review_events, validateReviewEvent, result, serverReceivedAt);
       this.insertOnly("recommendation_feedback", payload.recommendation_feedback, validateRecommendationFeedback, result);
       this.applySettings(payload.settings, result);
     });
@@ -155,14 +158,17 @@ export class SyncStore {
     }
   }
 
-  insertOnly(table, entities, validator, result) {
+  insertOnly(table, entities, validator, result, serverReceivedAt = null) {
     for (let index = 0; index < entities.length; index += 1) {
       const validation = validator(entities[index]);
       if (!validation.ok) {
         skip(result, table, index, validation.reason, entities[index]);
         continue;
       }
-      const info = this.statements.insertIgnore.get(table).run(rowFromEntity(validation.entity, table));
+      const entity = table === "review_events"
+        ? { ...validation.entity, server_created_at: serverReceivedAt }
+        : validation.entity;
+      const info = this.statements.insertIgnore.get(table).run(rowFromEntity(entity, table));
       if (info.changes > 0) result.applied[table] += 1;
     }
   }
@@ -186,24 +192,26 @@ export class SyncStore {
   }
 }
 
-function parseTopLevelPayload(rawPayload) {
+function parseTopLevelPayload(rawPayload, maxCollectionItems) {
   if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
     throw invalidPayload("Sync payload must be an object.");
   }
   return {
-    cards: parseEntityArray(rawPayload.cards, "cards"),
-    contexts: parseEntityArray(rawPayload.contexts, "contexts"),
-    definition_candidates: parseEntityArray(rawPayload.definition_candidates, "definition_candidates"),
-    review_events: parseEntityArray(rawPayload.review_events, "review_events"),
-    recommendation_feedback: parseEntityArray(rawPayload.recommendation_feedback, "recommendation_feedback"),
+    cards: parseEntityArray(rawPayload.cards, "cards", maxCollectionItems),
+    contexts: parseEntityArray(rawPayload.contexts, "contexts", maxCollectionItems),
+    definition_candidates: parseEntityArray(rawPayload.definition_candidates, "definition_candidates", maxCollectionItems),
+    review_events: parseEntityArray(rawPayload.review_events, "review_events", maxCollectionItems),
+    recommendation_feedback: parseEntityArray(rawPayload.recommendation_feedback, "recommendation_feedback", maxCollectionItems),
     settings: rawPayload.settings == null ? null : rawPayload.settings
   };
 }
 
-function parseEntityArray(value, name) {
+function parseEntityArray(value, name, maxCollectionItems) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw invalidPayload(`${name} must be an array.`);
-  if (value.length > 400) throw invalidPayload(`${name} has too many items for one sync batch.`);
+  if (value.length > maxCollectionItems) {
+    throw invalidPayload(`${name} exceeds the ${maxCollectionItems}-item sync batch limit.`);
+  }
   return value;
 }
 
@@ -230,6 +238,9 @@ function validateCard(value) {
   }
   if (entity.entity.deleted_at != null && !validDate(entity.entity.deleted_at)) {
     return bad("deleted_at must be an ISO timestamp or null.");
+  }
+  if (entity.entity.recommendation_started_at != null && !validDate(entity.entity.recommendation_started_at)) {
+    return bad("recommendation_started_at must be an ISO timestamp or null.");
   }
   return entity;
 }
@@ -265,16 +276,13 @@ function validateReviewEvent(value) {
     "response",
     "previous_status",
     "next_status",
-    "client_created_at",
-    "server_created_at"
+    "client_created_at"
   ]);
   if (missing) return bad(`${missing} is required.`);
   if (!reviewResponses.has(entity.entity.response)) return bad("response is invalid.");
   if (!cardStatuses.has(entity.entity.previous_status)) return bad("previous_status is invalid.");
   if (!cardStatuses.has(entity.entity.next_status)) return bad("next_status is invalid.");
-  for (const field of ["client_created_at", "server_created_at"]) {
-    if (!validDate(entity.entity[field])) return bad(`${field} must be an ISO timestamp.`);
-  }
+  if (!validDate(entity.entity.client_created_at)) return bad("client_created_at must be an ISO timestamp.");
   for (const field of ["previous_due_at", "next_due_at"]) {
     if (entity.entity[field] != null && !validDate(entity.entity[field])) return bad(`${field} must be an ISO timestamp or null.`);
   }
@@ -356,7 +364,9 @@ function validDate(value) {
 }
 
 function rowFromEntity(entity, table) {
-  const createdAt = entity.created_at ?? entity.client_created_at ?? null;
+  const createdAt = table === "review_events"
+    ? entity.server_created_at
+    : entity.created_at ?? entity.client_created_at ?? null;
   const updatedAt = table === "cards" ? entity.updated_at : createdAt;
   const deletedAt = table === "cards" ? entity.deleted_at ?? null : null;
   return {
@@ -373,8 +383,99 @@ function rowFromEntity(entity, table) {
 
 function isIncomingCardNewer(incoming, existing) {
   const existingVersion = Number.isInteger(existing.version) ? existing.version : 0;
-  const existingUpdatedAtMs = Number.isInteger(existing.updated_at_ms) ? existing.updated_at_ms : 0;
-  return incoming.version > existingVersion || incoming.updated_at_ms > existingUpdatedAtMs;
+  if (incoming.version !== existingVersion) return incoming.version > existingVersion;
+
+  const updatedAtComparison = compareIsoTimestamps(
+    incoming.updated_at,
+    existing.updated_at,
+    incoming.updated_at_ms,
+    existing.updated_at_ms
+  );
+  if (updatedAtComparison !== 0) return updatedAtComparison > 0;
+
+  const incomingIsTombstone = incoming.deleted_at != null;
+  const existingIsTombstone = existing.deleted_at != null;
+  if (incomingIsTombstone !== existingIsTombstone) {
+    return incomingIsTombstone;
+  }
+  if (incomingIsTombstone && existingIsTombstone) {
+    const deletedAtComparison = compareIsoTimestamps(
+      incoming.deleted_at,
+      existing.deleted_at,
+      incoming.deleted_at_ms,
+      existing.deleted_at_ms
+    );
+    if (deletedAtComparison !== 0) return deletedAtComparison > 0;
+  }
+
+  // A broken clock or imported legacy snapshot can produce the same logical
+  // revision with different contents. Pick a stable final winner so clients do
+  // not permanently retain different active payloads depending on merge order.
+  return stableEntityKey(incoming.body_json) > stableEntityKey(existing.body_json);
+}
+
+function stableEntityKey(bodyJson) {
+  try {
+    const entity = JSON.parse(bodyJson);
+    return [
+      textValue(entity.lemma),
+      textValue(entity.display_word),
+      textValue(entity.meaning_ko),
+      textValue(entity.definition_en),
+      textValue(entity.part_of_speech),
+      textValue(entity.source_sentence_primary),
+      textValue(entity.definition_source_primary),
+      textValue(entity.status),
+      textValue(entity.wordbook, "user"),
+      timestampMilliseconds(entity.due_at),
+      integerValue(entity.interval_days),
+      integerValue(entity.lapse_count),
+      nullableIntegerValue(entity.interval_before_lapse),
+      timestampMilliseconds(entity.recommendation_started_at),
+      timestampMilliseconds(entity.created_at)
+    ].join("\u001f");
+  } catch {
+    return String(bodyJson ?? "");
+  }
+}
+
+function textValue(value, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function timestampMilliseconds(value) {
+  return validDate(value) ? String(Date.parse(value)) : "";
+}
+
+function integerValue(value) {
+  return Number.isInteger(value) ? String(value) : "0";
+}
+
+function nullableIntegerValue(value) {
+  return Number.isInteger(value) ? String(value) : "";
+}
+
+function compareIsoTimestamps(left, right, leftMilliseconds, rightMilliseconds) {
+  const leftMs = Number.isInteger(leftMilliseconds) ? leftMilliseconds : Date.parse(left);
+  const rightMs = Number.isInteger(rightMilliseconds) ? rightMilliseconds : Date.parse(right);
+  if (leftMs !== rightMs) return leftMs > rightMs ? 1 : -1;
+
+  const leftFraction = fractionalSecondDigits(left);
+  const rightFraction = fractionalSecondDigits(right);
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const normalizedLeft = leftFraction.padEnd(width, "0");
+  const normalizedRight = rightFraction.padEnd(width, "0");
+  if (normalizedLeft === normalizedRight) return 0;
+  return normalizedLeft > normalizedRight ? 1 : -1;
+}
+
+function fractionalSecondDigits(value) {
+  const match = /\.(\d+)(?:Z|[+-]\d{2}:?\d{2})$/i.exec(value);
+  return match?.[1] ?? "";
+}
+
+function positiveIntegerOrDefault(value, fallback) {
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 function skip(result, collection, index, reason, entity) {

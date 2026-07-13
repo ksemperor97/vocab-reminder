@@ -3,17 +3,36 @@ import http from "node:http";
 import { ensureDailyBackup } from "./backup.js";
 import { SyncStore } from "./sync.js";
 
-const maxBodyBytes = 1024 * 1024 * 5;
+const defaultMaxBodyBytes = 16 * 1024 * 1024;
 
-export function createSyncServer({ db, dbPath, backupDir, backupRetention, token }) {
+export function createSyncServer({
+  db,
+  dbPath,
+  backupDir,
+  backupRetention,
+  token,
+  maxBodyBytes = defaultMaxBodyBytes,
+  maxCollectionItems
+}) {
   if (!token || token.trim() === "") {
     throw new Error("VOCAB_SYNC_TOKEN is required.");
   }
-  const store = new SyncStore(db);
+  const bodyByteLimit = positiveIntegerOrDefault(maxBodyBytes, defaultMaxBodyBytes);
+  const store = new SyncStore(db, { maxCollectionItems });
 
   const server = http.createServer(async (request, response) => {
     try {
-      await route({ request, response, store, db, dbPath, backupDir, backupRetention, token });
+      await route({
+        request,
+        response,
+        store,
+        db,
+        dbPath,
+        backupDir,
+        backupRetention,
+        token,
+        maxBodyBytes: bodyByteLimit
+      });
     } catch (error) {
       sendError(response, error);
     }
@@ -34,7 +53,7 @@ async function route(context) {
 
   if (url.pathname === "/sync/batch" && request.method === "POST") {
     requireBearer(request, context.token);
-    const payload = await readJsonBody(request);
+    const payload = await readJsonBody(request, context.maxBodyBytes);
     const result = store.applyBatch(payload);
     await maybeBackup(context);
     sendJson(response, 200, result);
@@ -71,15 +90,17 @@ function constantTimeTokenEquals(actual, expected) {
   return crypto.timingSafeEqual(actualHash, expectedHash);
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maxBodyBytes) {
+  const declaredLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) {
+    throw payloadTooLarge();
+  }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.byteLength;
     if (size > maxBodyBytes) {
-      const error = new Error("Request body is too large.");
-      error.status = 413;
-      throw error;
+      throw payloadTooLarge();
     }
     chunks.push(chunk);
   }
@@ -92,6 +113,16 @@ async function readJsonBody(request) {
     error.status = 400;
     throw error;
   }
+}
+
+function payloadTooLarge() {
+  const error = new Error("Request body is too large.");
+  error.status = 413;
+  return error;
+}
+
+function positiveIntegerOrDefault(value, fallback) {
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 function sendError(response, error) {

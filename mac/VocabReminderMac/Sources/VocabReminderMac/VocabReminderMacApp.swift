@@ -175,6 +175,9 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Vocabulary Reminder")
                 .font(.headline)
+            if !store.notificationWarning.isEmpty {
+                NotificationWarningBanner(warning: store.notificationWarning)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("오늘 due: \(store.dueCount)개")
                 Text("새 단어: \(store.activeCards.filter { $0.status == .new }.count)개")
@@ -201,6 +204,10 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedCardId) {
+                if store.activeCards.isEmpty {
+                    Text("아직 저장된 단어가 없습니다. ⌘⌥V로 첫 단어를 잡아보세요.")
+                        .foregroundStyle(.secondary)
+                }
                 Section("내 단어장 \(userCards.count)") {
                     ForEach(userCards) { card in
                         SidebarCardRow(card: card)
@@ -225,6 +232,14 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if !store.notificationWarning.isEmpty {
+                            NotificationWarningBanner(warning: store.notificationWarning)
+                        }
+                        if store.activeCards.isEmpty {
+                            Text("아직 저장된 단어가 없습니다. ⌘⌥V로 첫 단어를 잡아보세요.")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
                         Text("Vocabulary Reminder")
                             .font(.title2)
                             .fontWeight(.semibold)
@@ -283,6 +298,8 @@ struct ContentView: View {
                 }
             }
         }
+        .onAppear(perform: sanitizeSelection)
+        .onChange(of: store.activeCards.map(\.id)) { _, _ in sanitizeSelection() }
     }
 
     private var selectedCard: VocabularyCard? {
@@ -297,6 +314,13 @@ struct ContentView: View {
     private var recommendedCards: [VocabularyCard] {
         store.activeCards.filter { $0.wordbook == .recommended }
     }
+
+    private func sanitizeSelection() {
+        guard let selectedCardId else { return }
+        if store.activeCards.contains(where: { $0.id == selectedCardId }) == false {
+            self.selectedCardId = nil
+        }
+    }
 }
 
 struct SidebarCardRow: View {
@@ -306,9 +330,7 @@ struct SidebarCardRow: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(card.displayWord)
                 .font(.headline)
-            Text(card.meaningKo.isEmpty ? "뜻 없음" : card.meaningKo)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            MeaningFallbackText(card: card, missingText: "뜻 없음")
             Text("\(card.status.rawValue) · 다음 학습: \(relativeDueLabel(card.dueAt))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -362,6 +384,10 @@ struct PreviewView: View {
                     .foregroundStyle(.secondary)
                 TextField("뜻", text: $meaning)
                     .textFieldStyle(.roundedBorder)
+                if meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !result.definitionEn.isEmpty {
+                    EnglishDefinitionFallback(definition: result.definitionEn)
+                }
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("예문")
@@ -404,6 +430,9 @@ struct SettingsView: View {
     @State private var cloudSyncRunning = false
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
     @State private var syncingLaunchAtLoginState = false
+    @State private var quietStartText = ""
+    @State private var quietEndText = ""
+    @State private var quietHoursError = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -417,6 +446,26 @@ struct SettingsView: View {
             Toggle("추천 단어", isOn: $store.settings.enableWordRecommendations)
             Toggle("로그인 시 자동 시작", isOn: $launchAtLoginEnabled)
                 .disabled(!LoginItemController.canManageLoginItem)
+            Text("한글 뜻은 macOS 사전 앱 > 설정에서 영한사전을 활성화하면 자동으로 채워집니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("잠자는 시간")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("시작 HH:mm", text: $quietStartText)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("끝 HH:mm", text: $quietEndText)
+                        .textFieldStyle(.roundedBorder)
+                    Button("저장") { saveQuietHours() }
+                }
+                if !quietHoursError.isEmpty {
+                    Text(quietHoursError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
             HStack {
                 Button("복습 재조정") { store.rebalanceDueCards() }
                 Button("추천 채우기") { store.fillRecommendations() }
@@ -473,6 +522,7 @@ struct SettingsView: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onAppear {
             launchAtLoginEnabled = LoginItemController.isEnabled
+            loadQuietHoursText()
         }
         .onChange(of: launchAtLoginEnabled) { _, enabled in
             guard !syncingLaunchAtLoginState else { return }
@@ -490,6 +540,7 @@ struct SettingsView: View {
             guard settingsUserFieldsChanged(oldValue, newValue) else { return }
             store.persistSettings()
         }
+        .onChange(of: store.settings.updatedAt) { _, _ in loadQuietHoursText() }
     }
 
     private var canCloudSync: Bool {
@@ -579,6 +630,27 @@ struct SettingsView: View {
             oldValue.enableWordRecommendations != newValue.enableWordRecommendations ||
             oldValue.recommendationsIntroducedAt != newValue.recommendationsIntroducedAt
     }
+
+    private func loadQuietHoursText() {
+        quietStartText = store.settings.quietHoursStart
+        quietEndText = store.settings.quietHoursEnd
+        quietHoursError = ""
+    }
+
+    private func saveQuietHours() {
+        let start = quietStartText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let end = quietEndText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isHHMM(start), isHHMM(end) else {
+            quietHoursError = "HH:mm 형식으로 입력하세요."
+            loadQuietHoursText()
+            quietHoursError = "HH:mm 형식으로 입력하세요."
+            return
+        }
+        quietHoursError = ""
+        store.settings.quietHoursStart = start
+        store.settings.quietHoursEnd = end
+        store.persistSettings()
+    }
 }
 
 struct CardEditorView: View {
@@ -616,6 +688,10 @@ struct CardEditorView: View {
                     LabeledContent("뜻") {
                         TextField("뜻", text: $meaningKo)
                             .textFieldStyle(.roundedBorder)
+                    }
+                    if meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       !definitionEn.isEmpty {
+                        EnglishDefinitionFallback(definition: definitionEn)
                     }
                     LabeledContent("품사") {
                         TextField("품사", text: $partOfSpeech)
@@ -663,11 +739,14 @@ struct CardEditorView: View {
                             Button("알아요") { store.softDeleteRecommendation(card, action: "known") }
                             Button("관심 없음") { store.softDeleteRecommendation(card, action: "dismissed") }
                         }
+                    } else if card.status == .suspended {
+                        Button("복습 복구") { store.review(card: card, response: .restore) }
                     } else {
                         HStack {
                             Button("외웠다") { store.review(card: card, response: .remembered) }
                             Button("모르겠음") { store.review(card: card, response: .forgotten) }
                             Button("나중에") { store.review(card: card, response: .unavailable) }
+                            Button("보류") { store.review(card: card, response: .suspend) }
                         }
                     }
                 }
@@ -700,7 +779,7 @@ struct CardRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.displayWord)
                 .font(.headline)
-            Text(card.meaningKo.isEmpty ? "뜻 없음 · 알림 보류" : card.meaningKo)
+            MeaningFallbackText(card: card, missingText: "뜻 없음 · 알림 보류")
             if !card.exampleSentence.isEmpty {
                 Text(card.exampleSentence)
                     .font(.caption)
@@ -715,16 +794,77 @@ struct CardRow: View {
                     Button("알아요") { store.softDeleteRecommendation(card, action: "known") }
                     Button("관심 없음") { store.softDeleteRecommendation(card, action: "dismissed") }
                 }
+            } else if card.status == .suspended {
+                HStack {
+                    Button("복습 복구") { store.review(card: card, response: .restore) }
+                    Button("삭제") { store.softDeleteCard(card) }
+                }
             } else {
                 HStack {
                     Button("외웠다") { store.review(card: card, response: .remembered) }
                     Button("모르겠음") { store.review(card: card, response: .forgotten) }
                     Button("나중에") { store.review(card: card, response: .unavailable) }
+                    Button("보류") { store.review(card: card, response: .suspend) }
                     Button("삭제") { store.softDeleteCard(card) }
                 }
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+struct NotificationWarningBanner: View {
+    var warning: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(warning)
+                .font(.caption)
+            Spacer()
+            Button("시스템 설정 열기") {
+                openNotificationSettings()
+            }
+        }
+        .padding(8)
+        .background(.yellow.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct MeaningFallbackText: View {
+    var card: VocabularyCard
+    var missingText: String
+
+    var body: some View {
+        if !card.meaningKo.isEmpty {
+            Text(card.meaningKo)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        } else if !card.definitionEn.isEmpty {
+            EnglishDefinitionFallback(definition: card.definitionEn)
+        } else {
+            Text(missingText)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}
+
+struct EnglishDefinitionFallback: View {
+    var definition: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("EN")
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+            Text(definition)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
     }
 }
 
@@ -761,6 +901,25 @@ private func relativeDueLabel(_ dueAt: Date, now: Date = Date()) -> String {
         return "내일 \(formatter.string(from: dueAt))"
     }
     return "\(days)일 뒤"
+}
+
+private func openNotificationSettings() {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
+    NSWorkspace.shared.open(url)
+}
+
+private func isHHMM(_ value: String) -> Bool {
+    let parts = value.split(separator: ":")
+    guard parts.count == 2,
+          let hour = Int(parts[0]),
+          let minute = Int(parts[1]),
+          (0...23).contains(hour),
+          (0...59).contains(minute),
+          parts[0].count == 2,
+          parts[1].count == 2 else {
+        return false
+    }
+    return true
 }
 
 struct FlowLayout<Content: View>: View {

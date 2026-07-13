@@ -1,6 +1,7 @@
 package com.vocabreminder.android.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.vocabreminder.android.BuildConfig
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
@@ -130,6 +131,7 @@ data class UserSettingsData(
     val quietHoursEnd: LocalTime = LocalTime.of(9, 0),
     val timezone: ZoneId = ZoneId.of("Asia/Seoul"),
     val enableWordRecommendations: Boolean = true,
+    val enableWatchReplyReview: Boolean = true,
     val recommendationsIntroducedAt: Instant? = null,
     val updatedAt: Instant = Instant.EPOCH
 ) {
@@ -162,6 +164,13 @@ data class CloudSyncResult(
     val snapshotJson: String,
     val skippedSummary: String
 )
+
+data class CardEditResult(
+    val before: VocabularyCard,
+    val after: VocabularyCard
+) {
+    val filledMissingMeaning: Boolean = before.meaningKo.isBlank() && after.meaningKo.isNotBlank()
+}
 
 class LocalVocabularyStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("vocab_reminder_store", Context.MODE_PRIVATE)
@@ -257,9 +266,21 @@ class LocalVocabularyStore(context: Context) {
         saveCloudSyncStatus(
             cloudSyncStatus().copy(
                 lastFailureAt = Instant.now(),
-                lastError = error
+                lastError = error.take(MAX_SYNC_ERROR_LENGTH)
             )
         )
+    }
+
+    fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unregisterChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun isUiRefreshKey(key: String?): Boolean {
+        return key in setOf(KEY_CARDS, KEY_CONTEXTS, KEY_EVENTS, KEY_SETTINGS, KEY_CLOUD_SYNC_STATUS)
     }
 
     fun saveSettings(settings: UserSettingsData) {
@@ -415,6 +436,49 @@ class LocalVocabularyStore(context: Context) {
         saveCards(allCards(includeDeleted = true).map { if (it.id == card.id) card else it })
     }
 
+    fun updateCardDetails(
+        cardId: String,
+        meaningKo: String,
+        exampleSentence: String,
+        now: Instant = Instant.now()
+    ): CardEditResult? {
+        val before = findCard(cardId) ?: return null
+        val trimmedMeaning = meaningKo.trim()
+        val trimmedExample = exampleSentence.trim()
+        val after = before.copy(
+            meaningKo = trimmedMeaning,
+            exampleSentence = trimmedExample,
+            definitionSourcePrimary = if (trimmedMeaning != before.meaningKo) "user" else before.definitionSourcePrimary,
+            updatedAt = now,
+            version = before.version + 1
+        )
+        updateCard(after)
+        appendManualEditEvent(before, after, now)
+        if (before.meaningKo.isNotBlank() || before.definitionEn.isNotBlank()) {
+            appendDefinitionCandidate(
+                cardId = before.id,
+                result = DictionaryResult(
+                    lemma = before.lemma,
+                    displayWord = before.displayWord,
+                    meaningKo = before.meaningKo,
+                    definitionEn = before.definitionEn,
+                    partOfSpeech = before.partOfSpeech,
+                    phonetic = before.phonetic,
+                    exampleSentence = before.exampleSentence,
+                    rawSource = before.definitionEn.ifBlank { before.meaningKo },
+                    sourceType = before.definitionSourcePrimary,
+                    confidence = if (before.meaningKo.isBlank() && before.definitionEn.isBlank()) 0.0 else 1.0,
+                    sourceSentence = before.exampleSentence,
+                    sourceApp = before.sourceAppPrimary,
+                    sourceUrl = before.sourceUrlPrimary
+                ),
+                selected = false,
+                now = now
+            )
+        }
+        return CardEditResult(before = before, after = after)
+    }
+
     fun appendEvent(event: ReviewEventDraft, now: Instant) {
         val stored = StoredReviewEvent(
             id = UUID.randomUUID().toString(),
@@ -430,6 +494,23 @@ class LocalVocabularyStore(context: Context) {
             metadata = event.metadata
         )
         saveEvents(events() + stored)
+    }
+
+    private fun appendManualEditEvent(before: VocabularyCard, after: VocabularyCard, now: Instant) {
+        val event = StoredReviewEvent(
+            id = UUID.randomUUID().toString(),
+            cardId = after.id,
+            response = ReviewResponse.MANUAL_EDIT,
+            previousStatus = before.status,
+            nextStatus = after.status,
+            previousDueAt = before.dueAt,
+            nextDueAt = after.dueAt,
+            previousIntervalDays = before.intervalDays,
+            nextIntervalDays = after.intervalDays,
+            clientCreatedAt = now,
+            metadata = mapOf("action" to "manual_edit", "fields" to "meaning_ko,example_sentence")
+        )
+        saveEvents(events() + event)
     }
 
     fun recentResponses(cardId: String, limit: Int): List<ReviewResponse> {
@@ -571,9 +652,26 @@ class LocalVocabularyStore(context: Context) {
     }
 
     private fun saveEvents(events: List<StoredReviewEvent>) {
+        val (active, archived) = pruneEventsForArchive(events)
         val array = JSONArray()
-        events.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_EVENTS, array.toString()).apply()
+        active.forEach { array.put(it.toJson()) }
+        val editor = prefs.edit().putString(KEY_EVENTS, array.toString())
+        if (archived.isNotEmpty()) {
+            val mergedArchive = (archivedEvents() + archived)
+                .associateBy { it.id }
+                .values
+                .sortedBy { it.clientCreatedAt }
+            val archiveArray = JSONArray()
+            mergedArchive.forEach { archiveArray.put(it.toJson()) }
+            editor.putString(KEY_EVENTS_ARCHIVE, archiveArray.toString())
+        }
+        editor.apply()
+    }
+
+    fun archivedEvents(): List<StoredReviewEvent> {
+        val array = JSONArray(prefs.getString(KEY_EVENTS_ARCHIVE, "[]"))
+        return (0 until array.length()).map { parseEvent(array.getJSONObject(it)) }
+            .sortedBy { it.clientCreatedAt }
     }
 
     private fun saveRecommendationFeedback(feedback: List<RecommendationFeedback>) {
@@ -590,7 +688,9 @@ class LocalVocabularyStore(context: Context) {
     private fun mergeSettings(incoming: UserSettingsData) {
         val local = settings()
         if (incoming.updatedAt > local.updatedAt || (incoming.updatedAt == Instant.EPOCH && local.updatedAt == Instant.EPOCH)) {
-            saveSettings(incoming, preserveUpdatedAt = true)
+            // enableWatchReplyReview is device-local (the paired watch belongs to this
+            // phone); sync payloads never carry it, so keep the local value on merge.
+            saveSettings(incoming.copy(enableWatchReplyReview = local.enableWatchReplyReview), preserveUpdatedAt = true)
         }
     }
 
@@ -606,13 +706,41 @@ class LocalVocabularyStore(context: Context) {
         val byId = local.associateBy { it.id }.toMutableMap()
         for (card in incoming) {
             val existing = byId[card.id]
-            byId[card.id] = if (existing == null || card.updatedAt > existing.updatedAt || card.version > existing.version) {
-                card
-            } else {
-                existing
+            byId[card.id] = when {
+                existing == null -> card
+                card.version > existing.version -> card
+                card.version < existing.version -> existing
+                card.updatedAt > existing.updatedAt -> card
+                card.updatedAt < existing.updatedAt -> existing
+                card.deletedAt != null && existing.deletedAt == null -> card
+                card.deletedAt == null && existing.deletedAt != null -> existing
+                card.deletedAt != null && existing.deletedAt != null && card.deletedAt > existing.deletedAt -> card
+                card.deletedAt != null && existing.deletedAt != null && card.deletedAt < existing.deletedAt -> existing
+                card.stableMergeKey() > existing.stableMergeKey() -> card
+                else -> existing
             }
         }
         return byId.values.toList()
+    }
+
+    private fun VocabularyCard.stableMergeKey(): String {
+        return listOf(
+            lemma,
+            displayWord,
+            meaningKo,
+            definitionEn,
+            partOfSpeech,
+            exampleSentence,
+            definitionSourcePrimary,
+            status.name.lowercase(),
+            wordbook.name.lowercase(),
+            dueAt.toEpochMilli().toString(),
+            intervalDays.toString(),
+            lapseCount.toString(),
+            intervalBeforeLapse?.toString().orEmpty(),
+            recommendationStartedAt?.toEpochMilli()?.toString().orEmpty(),
+            createdAt.toEpochMilli().toString()
+        ).joinToString(separator = "\u001F")
     }
 
     private fun StoredContext.remapCardId(idMap: Map<String, String>): StoredContext {
@@ -724,6 +852,7 @@ class LocalVocabularyStore(context: Context) {
             .put("quiet_hours_end", quietHoursEnd.toString())
             .put("timezone", timezone.id)
             .put("enable_word_recommendations", enableWordRecommendations)
+            .put("enable_watch_reply_review", enableWatchReplyReview)
             .put("recommendations_introduced_at", recommendationsIntroducedAt?.toString())
             .put("settings_updated_at", updatedAt.toString())
     }
@@ -822,10 +951,11 @@ class LocalVocabularyStore(context: Context) {
             dailyWordGoal = json.optInt("daily_word_goal", 10),
             maxQueueSize = json.optInt("max_queue_size", 20),
             snoozeDurationMinutes = json.optLong("snooze_duration_minutes", 60),
-            quietHoursStart = LocalTime.parse(json.optString("quiet_hours_start", "23:00")),
-            quietHoursEnd = LocalTime.parse(json.optString("quiet_hours_end", "09:00")),
-            timezone = ZoneId.of(json.optString("timezone", "Asia/Seoul")),
+            quietHoursStart = parseLocalTimeOrDefault(json.optString("quiet_hours_start", "23:00"), LocalTime.of(23, 0)),
+            quietHoursEnd = parseLocalTimeOrDefault(json.optString("quiet_hours_end", "09:00"), LocalTime.of(9, 0)),
+            timezone = parseZoneOrDefault(json.optString("timezone", "Asia/Seoul"), ZoneId.of("Asia/Seoul")),
             enableWordRecommendations = json.optBoolean("enable_word_recommendations", true),
+            enableWatchReplyReview = json.optBoolean("enable_watch_reply_review", true),
             recommendationsIntroducedAt = json.optInstant("recommendations_introduced_at"),
             updatedAt = json.optInstant("settings_updated_at") ?: Instant.EPOCH
         )
@@ -873,16 +1003,43 @@ class LocalVocabularyStore(context: Context) {
         return parts.joinToString(", ")
     }
 
+    private fun pruneEventsForArchive(events: List<StoredReviewEvent>): Pair<List<StoredReviewEvent>, List<StoredReviewEvent>> {
+        if (events.size <= MAX_ACTIVE_EVENTS) return events to emptyList()
+        val lastSuccess = cloudSyncStatus().lastSuccessAt ?: return events to emptyList()
+        val archiveCutoff = minOf(lastSuccess, Instant.now().minusSeconds(EVENT_ARCHIVE_SAFETY_WINDOW_SECONDS))
+        val sorted = events.sortedBy { it.clientCreatedAt }
+        val archiveTarget = events.size - MAX_ACTIVE_EVENTS
+        val archivedIds = sorted
+            .filter { it.clientCreatedAt.isBefore(archiveCutoff) }
+            .take(archiveTarget)
+            .map { it.id }
+            .toSet()
+        if (archivedIds.isEmpty()) return events to emptyList()
+        return sorted.filterNot { it.id in archivedIds } to sorted.filter { it.id in archivedIds }
+    }
+
+    private fun parseLocalTimeOrDefault(value: String, default: LocalTime): LocalTime {
+        return runCatching { LocalTime.parse(value) }.getOrDefault(default)
+    }
+
+    private fun parseZoneOrDefault(value: String, default: ZoneId): ZoneId {
+        return runCatching { ZoneId.of(value) }.getOrDefault(default)
+    }
+
     private companion object {
         const val KEY_CARDS = "cards"
         const val KEY_CONTEXTS = "contexts"
         const val KEY_DEFINITION_CANDIDATES = "definition_candidates"
         const val KEY_EVENTS = "review_events"
+        const val KEY_EVENTS_ARCHIVE = "review_events_archive"
         const val KEY_RECOMMENDATION_FEEDBACK = "recommendation_feedback"
         const val KEY_SETTINGS = "settings"
         const val KEY_CLOUD_SYNC = "cloud_sync"
         const val KEY_CLOUD_SYNC_STATUS = "cloud_sync_status"
         const val KEY_DEVICE_ID = "device_id"
+        const val MAX_ACTIVE_EVENTS = 5_000
+        const val MAX_SYNC_ERROR_LENGTH = 200
+        const val EVENT_ARCHIVE_SAFETY_WINDOW_SECONDS = 48L * 60L * 60L
         val DEVICE_ID_PATTERN = Regex("^android-[0-9a-fA-F]{8}$")
     }
 }

@@ -243,11 +243,13 @@ enum SchedulerVectorCommand {
         try assertCaptureVectors()
         let robust = DictionaryResolver.resolve("Robustly,")
         try require(robust.lemma == "robust", "Expected robust lemma, got \(robust.lemma)")
-        try require(robust.meaningKo == "견고한, 안정적인", "Unexpected robust meaning")
-        let behemoth = DictionaryResolver.resolve("behemoth")
+        try require(robust.meaningKo.isEmpty == false, "Mac dictionary should provide a Korean robust meaning")
+        let localRobust = DictionaryResolver.resolve(CaptureNormalizer.analyze("Robustly,"), sourceApp: "Self-check") { _ in nil }
+        try require(localRobust.meaningKo == "견고한, 안정적인", "Local robust fallback should stay available")
+        let behemoth = DictionaryResolver.resolve(CaptureNormalizer.analyze("behemoth"), sourceApp: "Self-check") { _ in nil }
         try require(behemoth.lemma == "behemoth", "Expected behemoth lemma, got \(behemoth.lemma)")
         try require(behemoth.meaningKo == "거대한 것, 거대한 짐승", "Unexpected behemoth meaning")
-        let looking = DictionaryResolver.resolve("looking")
+        let looking = DictionaryResolver.resolve(CaptureNormalizer.analyze("looking"), sourceApp: "Self-check") { _ in nil }
         try require(looking.lemma == "look", "Expected look lemma, got \(looking.lemma)")
         try require(looking.meaningKo == "보다, 바라보다; 찾아보다", "Unexpected looking meaning")
         let syncPayload = try SyncBatchFactory.jsonData(
@@ -420,7 +422,12 @@ enum SchedulerVectorCommand {
         try require(idempotentSnapshot.cards.count == mergedSnapshot.cards.count, "Mac sync UI import should be idempotent for cards")
         try require(idempotentSnapshot.contexts.count == mergedSnapshot.contexts.count, "Mac sync UI import should be idempotent for contexts")
         try assertSettingsTimestampMerge()
+        try assertSyncTimestampAndMergeRegression()
+        try assertCloudBatchChunking()
         try assertLocalRecommendedCapturePromotion()
+        try assertDictionaryExtraction()
+        try assertMacStoreBackupRecovery()
+        try assertMacSettingsFallback()
 
         let notificationNow = Date()
         let notificationCards = [
@@ -440,6 +447,11 @@ enum SchedulerVectorCommand {
         )
         try require(disabledMacNotifications.map(\.id) == ["user-due"], "Mac notifications should keep one active prompt when recommendations are disabled")
         try assertMacNotificationReviewAction()
+        try assertMacNotificationStateMachine()
+        try require(
+            MacAutoSyncController.timerIntervalNanoseconds == 15 * 60 * 1_000_000_000,
+            "Mac periodic sync should run every 15 minutes"
+        )
         try assertDueTimeJitter()
 
         try assertRecommendationEngine()
@@ -488,6 +500,267 @@ enum SchedulerVectorCommand {
 
         try require(SyncBatchFactory.merge(local: local, incoming: olderIncoming).settings.dailyWordGoal == 5, "Mac sync should keep newer local settings")
         try require(SyncBatchFactory.merge(local: local, incoming: newerIncoming).settings.dailyWordGoal == 12, "Mac sync should apply newer incoming settings")
+    }
+
+    private static func assertSyncTimestampAndMergeRegression() throws {
+        let microsecondPayload: [String: Any] = [
+            "cards": [[
+                "id": "android-micro-card",
+                "lemma": "fractional",
+                "display_word": "fractional",
+                "meaning_ko": "소수의",
+                "wordbook": "user",
+                "status": "review",
+                "due_at": "2026-07-12T03:04:05.1Z",
+                "interval_days": 3,
+                "lapse_count": 0,
+                "created_at": "2026-07-11T01:02:03.123456Z",
+                "updated_at": "2026-07-11T04:05:06.123456789Z",
+                "version": 6
+            ]],
+            "contexts": [[
+                "id": "android-micro-context",
+                "card_id": "android-micro-card",
+                "source_sentence": "Android emits microseconds.",
+                "capture_method": "android_process_text",
+                "created_at": "2026-07-11T01:02:03.123456Z"
+            ]],
+            "definition_candidates": [],
+            "review_events": [
+                [
+                    "id": "event-later",
+                    "card_id": "android-micro-card",
+                    "response": "remembered",
+                    "previous_status": "learning",
+                    "next_status": "review",
+                    "previous_due_at": "2026-07-11T01:00:00.000001Z",
+                    "next_due_at": "2026-07-12T01:00:00.000001Z",
+                    "previous_interval_days": 1,
+                    "next_interval_days": 3,
+                    "client_created_at": "2026-07-11T02:00:00.000002Z",
+                    "metadata": [:]
+                ],
+                [
+                    "id": "event-earlier",
+                    "card_id": "android-micro-card",
+                    "response": "forgotten",
+                    "previous_status": "new",
+                    "next_status": "relearning",
+                    "previous_due_at": "2026-07-11T00:00:00.000001Z",
+                    "next_due_at": "2026-07-11T00:20:00.000001Z",
+                    "previous_interval_days": 0,
+                    "next_interval_days": 0,
+                    "client_created_at": "2026-07-11T01:00:00.000001Z",
+                    "metadata": [:]
+                ]
+            ],
+            "recommendation_feedback": [],
+            "settings": ["settings_updated_at": "2026-07-11T04:05:06.123456Z"]
+        ]
+        let microsecondData = try JSONSerialization.data(withJSONObject: microsecondPayload)
+        let parsed = try SyncBatchFactory.localSnapshot(from: microsecondData)
+        guard let parsedCard = parsed.cards.first else { throw CheckError("Fractional timestamp card missing") }
+        try require(parsedCard.dueAt > Date(timeIntervalSince1970: 1_700_000_000), "Android one-digit fractional due_at must not become epoch")
+        try require(parsedCard.createdAt > Date(timeIntervalSince1970: 1_700_000_000), "Android microsecond created_at must parse")
+        try require(parsedCard.updatedAt > parsedCard.createdAt, "Android nanosecond updated_at must parse")
+        try require(parsed.reviewEvents.map(\.id) == ["event-later", "event-earlier"], "Raw import preserves source event order until merge")
+
+        var malformed = microsecondPayload
+        var malformedCards = malformed["cards"] as! [[String: Any]]
+        malformedCards[0]["due_at"] = "not-a-date"
+        malformed["cards"] = malformedCards
+        do {
+            _ = try SyncBatchFactory.localSnapshot(from: JSONSerialization.data(withJSONObject: malformed))
+            throw CheckError("Malformed required timestamps must fail import")
+        } catch ImportError.invalidDate(let key, _) {
+            try require(key == "due_at", "Malformed due_at should name its field")
+        }
+
+        let tieTime = Date(timeIntervalSince1970: 2_000)
+        let highVersion = mergeTestCard(id: "merge", meaning: "local-v2", version: 2, updatedAt: Date(timeIntervalSince1970: 100))
+        let lowVersionNewerTime = mergeTestCard(id: "merge", meaning: "incoming-v1", version: 1, updatedAt: Date(timeIntervalSince1970: 300))
+        try require(
+            SyncBatchFactory.merge(local: snapshot(cards: [highVersion]), incoming: snapshot(cards: [lowVersionNewerTime])).cards[0].meaningKo == "local-v2",
+            "Card merge must compare version before updatedAt"
+        )
+
+        let equalVersionOld = mergeTestCard(id: "merge", meaning: "old", version: 3, updatedAt: Date(timeIntervalSince1970: 100))
+        let equalVersionNew = mergeTestCard(id: "merge", meaning: "new", version: 3, updatedAt: Date(timeIntervalSince1970: 300))
+        try require(
+            SyncBatchFactory.merge(local: snapshot(cards: [equalVersionOld]), incoming: snapshot(cards: [equalVersionNew])).cards[0].meaningKo == "new",
+            "Equal-version card merge must use updatedAt"
+        )
+
+        let activeAlpha = mergeTestCard(id: "tie", meaning: "alpha", version: 4, updatedAt: tieTime)
+        let activeOmega = mergeTestCard(id: "tie", meaning: "omega", version: 4, updatedAt: tieTime)
+        let forwardTie = SyncBatchFactory.merge(local: snapshot(cards: [activeAlpha]), incoming: snapshot(cards: [activeOmega])).cards[0]
+        let reverseTie = SyncBatchFactory.merge(local: snapshot(cards: [activeOmega]), incoming: snapshot(cards: [activeAlpha])).cards[0]
+        try require(forwardTie == reverseTie, "Exact active-card ties must converge independent of merge direction")
+
+        var tombstone = activeAlpha
+        tombstone.deletedAt = tieTime
+        let forwardDelete = SyncBatchFactory.merge(local: snapshot(cards: [activeOmega]), incoming: snapshot(cards: [tombstone])).cards[0]
+        let reverseDelete = SyncBatchFactory.merge(local: snapshot(cards: [tombstone]), incoming: snapshot(cards: [activeOmega])).cards[0]
+        try require(forwardDelete.deletedAt != nil && reverseDelete.deletedAt != nil, "Exact card ties must prefer tombstones")
+        var laterTombstone = tombstone
+        laterTombstone.deletedAt = tieTime.addingTimeInterval(60)
+        let forwardTombstone = SyncBatchFactory.merge(local: snapshot(cards: [tombstone]), incoming: snapshot(cards: [laterTombstone])).cards[0]
+        let reverseTombstone = SyncBatchFactory.merge(local: snapshot(cards: [laterTombstone]), incoming: snapshot(cards: [tombstone])).cards[0]
+        try require(
+            forwardTombstone.deletedAt == laterTombstone.deletedAt && reverseTombstone.deletedAt == laterTombstone.deletedAt,
+            "Exact tombstone ties must prefer the later deletion in both directions"
+        )
+
+        let epochLocal = mergeTestCard(
+            id: "fractional-merge",
+            meaning: "damaged",
+            version: 6,
+            updatedAt: Date(timeIntervalSince1970: 0),
+            dueAt: Date(timeIntervalSince1970: 0)
+        )
+        var serverCard = parsedCard
+        serverCard.id = "fractional-merge"
+        let repairedMerge = SyncBatchFactory.merge(local: snapshot(cards: [epochLocal]), incoming: snapshot(cards: [serverCard]))
+        try require(repairedMerge.cards[0].dueAt == serverCard.dueAt, "Equal-version fractional server due_at must repair local epoch damage")
+        try require(repairedMerge.cards[0].updatedAt == serverCard.updatedAt, "Equal-version fractional server updated_at must repair local epoch damage")
+
+        let epochEvent = mergeTestEvent(id: "same-event", clientCreatedAt: Date(timeIntervalSince1970: 0), response: .unavailable)
+        let normalEvent = mergeTestEvent(id: "same-event", clientCreatedAt: Date(timeIntervalSince1970: 500), response: .remembered)
+        let earlierEvent = mergeTestEvent(id: "earlier-event", clientCreatedAt: Date(timeIntervalSince1970: 400), response: .forgotten)
+        let repairedEvents = SyncBatchFactory.merge(
+            local: snapshot(reviewEvents: [epochEvent]),
+            incoming: snapshot(reviewEvents: [normalEvent, earlierEvent])
+        ).reviewEvents
+        try require(repairedEvents.map(\.id) == ["earlier-event", "same-event"], "Merged review events must be chronological")
+        try require(repairedEvents.last?.response == .remembered, "Same-ID normal review timestamp must replace epoch damage")
+
+        let epochContext = StoredContext(
+            id: "same-context",
+            cardId: "event-card",
+            sourceSentence: "damaged",
+            sourceApp: "Mac",
+            captureMethod: .manual,
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        var normalContext = epochContext
+        normalContext.sourceSentence = "repaired"
+        normalContext.createdAt = Date(timeIntervalSince1970: 600)
+        let epochCandidate = StoredDefinitionCandidate(
+            id: "same-candidate",
+            cardId: "event-card",
+            source: "test",
+            rawText: "damaged",
+            parsedMeaningKo: "",
+            parsedDefinitionEn: "",
+            partOfSpeech: "",
+            exampleSentence: "",
+            confidence: 0,
+            selectedAsPrimary: false,
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        var normalCandidate = epochCandidate
+        normalCandidate.rawText = "repaired"
+        normalCandidate.createdAt = Date(timeIntervalSince1970: 700)
+        let epochFeedback = RecommendationFeedback(
+            id: "same-feedback",
+            cardId: "event-card",
+            lemma: "event-card",
+            action: "damaged",
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        var normalFeedback = epochFeedback
+        normalFeedback.action = "known"
+        normalFeedback.createdAt = Date(timeIntervalSince1970: 800)
+        let repairedRelated = SyncBatchFactory.merge(
+            local: snapshot(
+                contexts: [epochContext],
+                definitionCandidates: [epochCandidate],
+                recommendationFeedback: [epochFeedback]
+            ),
+            incoming: snapshot(
+                contexts: [normalContext],
+                definitionCandidates: [normalCandidate],
+                recommendationFeedback: [normalFeedback]
+            )
+        )
+        try require(repairedRelated.contexts[0].sourceSentence == "repaired", "Same-ID normal context should replace epoch damage")
+        try require(repairedRelated.definitionCandidates[0].rawText == "repaired", "Same-ID normal candidate should replace epoch damage")
+        try require(repairedRelated.recommendationFeedback[0].action == "known", "Same-ID normal feedback should replace epoch damage")
+
+        let epochCreationPayload: [String: Any] = [
+            "cards": [[
+                "id": "epoch-created",
+                "lemma": "epoch-created",
+                "display_word": "epoch-created",
+                "meaning_ko": "복구",
+                "wordbook": "user",
+                "status": "new",
+                "due_at": "2026-07-12T03:04:05.123456Z",
+                "interval_days": 0,
+                "lapse_count": 0,
+                "created_at": "1970-01-01T00:00:00Z",
+                "updated_at": "2026-07-11T03:04:05.123456Z",
+                "version": 2
+            ]],
+            "contexts": [[
+                "id": "epoch-evidence",
+                "card_id": "epoch-created",
+                "source_sentence": "Evidence timestamp.",
+                "capture_method": "android_process_text",
+                "created_at": "2026-07-10T01:02:03.654321Z"
+            ]],
+            "definition_candidates": [],
+            "review_events": [],
+            "recommendation_feedback": [],
+            "settings": [:]
+        ]
+        let epochCreationData = try JSONSerialization.data(withJSONObject: epochCreationPayload)
+        let epochRepaired = try SyncBatchFactory.localSnapshot(from: epochCreationData).cards[0]
+        try require(epochRepaired.createdAt > Date(timeIntervalSince1970: 1_700_000_000), "Related context should repair epoch card.createdAt")
+        try require(epochRepaired.version == 3, "Creation-date repair should bump version for server propagation")
+        try require(SyncBatchFactory.epochCreatedCardIds(in: epochCreationData) == ["epoch-created"], "Epoch server card IDs should be detectable for repair push")
+
+        let outbound = SyncBatchFactory.build(
+            cards: [],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [normalEvent],
+            settings: UserSettingsData(),
+            deviceId: "mac-test"
+        )
+        let outboundEvent = (outbound["review_events"] as! [[String: Any]])[0]
+        try require(outboundEvent["server_created_at"] == nil, "Mac must not claim server-owned review event timestamps")
+
+        var startedRecommendation = mergeTestCard(id: "started-rec", meaning: "시작됨", version: 2, updatedAt: tieTime)
+        startedRecommendation.wordbook = .recommended
+        startedRecommendation.recommendationStartedAt = tieTime
+        let startedPayload = SyncBatchFactory.build(
+            cards: [startedRecommendation],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            settings: UserSettingsData(),
+            deviceId: "mac-test"
+        )
+        let startedCardPayload = (startedPayload["cards"] as! [[String: Any]])[0]
+        try require(startedCardPayload["recommendation_started_at"] as? String != nil, "Mac must sync recommendation_started_at to other devices")
+    }
+
+    private static func assertCloudBatchChunking() throws {
+        let payload: [String: Any] = [
+            "cards": (0..<401).map { ["id": "card-\($0)"] },
+            "contexts": [],
+            "definition_candidates": [],
+            "review_events": [],
+            "recommendation_feedback": [],
+            "settings": ["daily_word_goal": 9]
+        ]
+        let batches = CloudSyncClient.splitIntoBatches(payload)
+        try require(batches.count == 2, "401 Mac sync items should split into two batches")
+        try require((batches[0]["cards"] as? [Any])?.count == 400, "First Mac sync batch should contain 400 cards")
+        try require((batches[1]["cards"] as? [Any])?.count == 1, "Second Mac sync batch should contain one card")
+        try require(batches[0]["settings"] is NSNull, "Settings must not be sent before all entity chunks succeed")
+        try require((batches[1]["settings"] as? [String: Any])?["daily_word_goal"] as? Int == 9, "Settings should be sent only in the final chunk")
     }
 
     @MainActor
@@ -548,6 +821,109 @@ enum SchedulerVectorCommand {
         store.softDeleteCard(promoted)
         try require(store.activeCards.isEmpty, "Mac delete should remove card from active list")
         try require(store.cards.first?.deletedAt != nil, "Mac delete should mark deletedAt")
+    }
+
+    @MainActor
+    private static func assertDictionaryExtraction() throws {
+        let koreanDefinition = """
+        resilient
+        /rɪˈzɪljənt/ adjective
+        1. 회복력 있는, 탄력 있는
+        2. 곧 기운을 차리는
+        """
+        try require(DictionaryResolver.extractKoreanMeaning(from: koreanDefinition) == "회복력 있는, 탄력 있는", "Mac dictionary should extract the first Korean meaning")
+
+        let analysis = CaptureNormalizer.analyze("resilient")
+        let result = DictionaryResolver.resolve(analysis, sourceApp: "Self-check") { _ in koreanDefinition }
+        try require(result.meaningKo == "회복력 있는, 탄력 있는", "Mac dictionary resolver should use parsed Korean meaning")
+
+        let newAceDefinition = "re·sil·ient | rizíljənt┃-liənt | 형용사1.〈물체가〉 되튀는; 탄력이 있는(buoyant) ▸ Rubber is more resilient than wood.고무는 나무보다 탄력이 크다. 2.〈사람이〉 곧 기운을 차리는"
+        try require(DictionaryResolver.extractKoreanMeaning(from: newAceDefinition) == "되튀는; 탄력이 있는", "Mac New Ace dictionary should extract Korean meaning without POS prefix")
+        let newAceResult = DictionaryResolver.resolve(analysis, sourceApp: "Self-check") { _ in newAceDefinition }
+        try require(newAceResult.meaningKo == "되튀는; 탄력이 있는", "Mac dictionary resolver should prefer New Ace Korean meaning")
+
+        let englishAnalysis = CaptureNormalizer.analyze("pervasive")
+        let englishOnly = "pervasive per·va·sive | adjective spreading widely throughout an area or a group of people: ageism is pervasive and entrenched in our society"
+        let englishResult = DictionaryResolver.resolve(englishAnalysis, sourceApp: "Self-check") { _ in englishOnly }
+        try require(englishResult.meaningKo.isEmpty, "English-only Mac dictionary result should not invent Korean meaning")
+        try require(englishResult.definitionEn == "spreading widely throughout an area or a group of people", "English-only Mac dictionary result should parse definitionEn")
+        try require(englishResult.exampleSentence == "ageism is pervasive and entrenched in our society", "English-only Mac dictionary result should parse first example")
+        try require(englishResult.partOfSpeech == "adjective", "English-only Mac dictionary result should parse part of speech")
+    }
+
+    @MainActor
+    private static func assertMacStoreBackupRecovery() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "VocabReminderBackupSelfCheck-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appending(path: "vocab-data.json")
+        let backupURL = tempDir.appending(path: "vocab-data.json.bak")
+        let card = VocabularyCard(
+            id: "backup-card",
+            lemma: "backup",
+            displayWord: "backup",
+            meaningKo: "백업",
+            definitionEn: "a spare copy",
+            partOfSpeech: "noun",
+            exampleSentence: "Keep a backup.",
+            definitionSourcePrimary: "test",
+            status: .new,
+            wordbook: .user,
+            dueAt: Date(timeIntervalSince1970: 600),
+            intervalDays: 0,
+            lapseCount: 0,
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 0),
+            version: 1
+        )
+        let snapshot = StoreSnapshot(
+            cards: [card],
+            contexts: [],
+            definitionCandidates: [],
+            reviewEvents: [],
+            recommendationFeedback: [],
+            settings: UserSettingsData()
+        )
+        try Data("{".utf8).write(to: storeURL)
+        try JSONEncoder.vocab.encode(snapshot).write(to: backupURL)
+
+        let store = LocalVocabularyStore(appSupportURL: tempDir, scheduleNotifications: false)
+        try require(store.activeCards.map(\.id) == ["backup-card"], "Mac store should recover cards from backup")
+        try require(store.message == "백업에서 복구했습니다", "Mac store should expose backup recovery message")
+
+        let missingMainDir = tempDir.appending(path: "missing-main", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: missingMainDir, withIntermediateDirectories: true)
+        let missingMainBackup = missingMainDir.appending(path: "vocab-data.json.bak")
+        try JSONEncoder.vocab.encode(snapshot).write(to: missingMainBackup)
+        let missingMainStore = LocalVocabularyStore(appSupportURL: missingMainDir, scheduleNotifications: false)
+        try require(missingMainStore.activeCards.map(\.id) == ["backup-card"], "Mac store should recover when only the backup file exists")
+        try require(
+            FileManager.default.fileExists(atPath: missingMainDir.appending(path: "vocab-data.json").path),
+            "Backup-only recovery should restore the main store file"
+        )
+    }
+
+    private static func assertMacSettingsFallback() throws {
+        let payload: [String: Any] = [
+            "cards": [],
+            "contexts": [],
+            "definition_candidates": [],
+            "review_events": [],
+            "recommendation_feedback": [],
+            "settings": [
+                "daily_word_goal": 12,
+                "quiet_hours_start": "25:00",
+                "quiet_hours_end": "99:99",
+                "timezone": "Not/AZone",
+                "settings_updated_at": "2026-07-03T05:00:00Z"
+            ]
+        ]
+        let snapshot = try SyncBatchFactory.localSnapshot(from: JSONSerialization.data(withJSONObject: payload))
+        try require(snapshot.settings.quietHoursStart == "23:00", "Mac settings import should default invalid quiet start")
+        try require(snapshot.settings.quietHoursEnd == "09:00", "Mac settings import should default invalid quiet end")
+        try require(snapshot.settings.timezone == "Asia/Seoul", "Mac settings import should default invalid timezone")
     }
 
     @MainActor
@@ -644,6 +1020,159 @@ enum SchedulerVectorCommand {
                 category: MacNotificationAction.reviewCategory
             ),
             "Mac notification acknowledge action should only apply to feedback notifications"
+        )
+
+        _ = store.review(cardId: "review-card", response: .unavailable)
+        let firstUnavailableDue = store.cards.first(where: { $0.id == "review-card" })!.dueAt
+        _ = store.review(cardId: "review-card", response: .unavailable)
+        let secondUnavailableDue = store.cards.first(where: { $0.id == "review-card" })!.dueAt
+        try require(firstUnavailableDue < Date().addingTimeInterval(6 * 60 * 60), "First Mac unavailable should use the short snooze")
+        try require(secondUnavailableDue > Date().addingTimeInterval(20 * 60 * 60), "Second Mac unavailable today should move to tomorrow")
+        try require(store.processedNotificationCardIdsToday().count == 1, "Mac daily budget should count repeated responses for one card only once")
+    }
+
+    @MainActor
+    private static func assertMacNotificationStateMachine() throws {
+        let suiteName = "VocabReminderMacNotificationState-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw CheckError("Could not create notification state defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let hold = FeedbackHoldState(
+            phase: "feedback",
+            action: MacNotificationAction.forgotten,
+            cardId: "held-card",
+            identifier: MacNotificationScheduler.notificationIdentifier(cardId: "held-card")
+        )
+        MacNotificationScheduler.saveFeedbackHold(hold, defaults: defaults)
+        try require(MacNotificationScheduler.loadFeedbackHold(defaults: defaults) == hold, "Mac feedback hold should survive app restart")
+        MacNotificationScheduler.saveFeedbackHold(nil, defaults: defaults)
+        try require(MacNotificationScheduler.loadFeedbackHold(defaults: defaults) == nil, "Mac feedback acknowledge should clear persisted hold")
+
+        let settings = UserSettingsData(
+            quietHoursStart: "23:00",
+            quietHoursEnd: "09:00",
+            timezone: "Asia/Seoul"
+        )
+        let firstPrompt = parseDate("2026-07-11T00:30:00Z") // 09:30 KST
+        var reminderState = PromptReminderState(cardId: "rolling-card", firstPromptAt: firstPrompt)
+        let firstReminder = MacNotificationScheduler.nextUnansweredReminderDate(
+            state: reminderState,
+            settings: settings,
+            now: firstPrompt
+        )
+        try require(abs(firstReminder.timeIntervalSince(firstPrompt) - 4 * 60 * 60) < 1, "First unanswered reminder should wait four hours")
+        reminderState = MacNotificationScheduler.recordingUnansweredReminder(in: reminderState, at: firstReminder, settings: settings)
+        let secondReminder = MacNotificationScheduler.nextUnansweredReminderDate(state: reminderState, settings: settings, now: firstReminder)
+        try require(abs(secondReminder.timeIntervalSince(firstReminder) - 4 * 60 * 60) < 1, "Second unanswered reminder should wait another four hours")
+        reminderState = MacNotificationScheduler.recordingUnansweredReminder(in: reminderState, at: secondReminder, settings: settings)
+        let nextDayReminder = MacNotificationScheduler.nextUnansweredReminderDate(state: reminderState, settings: settings, now: secondReminder)
+        var seoulCalendar = Calendar(identifier: .gregorian)
+        seoulCalendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        try require(!seoulCalendar.isDate(nextDayReminder, inSameDayAs: secondReminder), "A third same-day reminder must roll to the next day")
+        reminderState = MacNotificationScheduler.recordingUnansweredReminder(in: reminderState, at: nextDayReminder, settings: settings)
+        let nextDaySecond = MacNotificationScheduler.nextUnansweredReminderDate(state: reminderState, settings: settings, now: nextDayReminder)
+        try require(
+            seoulCalendar.isDate(nextDaySecond, inSameDayAs: nextDayReminder) && abs(nextDaySecond.timeIntervalSince(nextDayReminder) - 4 * 60 * 60) < 1,
+            "Long-unanswered prompts should resume up to two reminders on each later day"
+        )
+
+        let quietMidnight = parseDate("2026-07-11T15:00:00Z")
+        let quietRelease = MacNotificationScheduler.allowedDeliveryDate(quietMidnight, settings: settings)
+        let releaseComponents = seoulCalendar.dateComponents([.hour, .minute], from: quietRelease)
+        try require(releaseComponents.hour == 9 && releaseComponents.minute == 30, "Mac quiet-hours prompt should recover at 09:30")
+        try require(MacNotificationScheduler.isQuietHours(quietMidnight, settings: settings), "Mac should detect overnight quiet hours")
+        try require(MacNotificationScheduler.nextQuietBoundary(after: quietMidnight, settings: settings) != nil, "Mac should schedule a quiet-hours boundary refresh")
+
+        try require(MacNotificationScheduler.producesFeedback(action: MacNotificationAction.start), "Recommendation start should hold the queue for meaning feedback")
+        var recommendation = notificationCard(id: "recommendation", wordbook: .recommended, dueAt: firstPrompt)
+        recommendation.exampleSentence = "A recommendation example."
+        let startFeedback = MacNotificationScheduler.feedbackContent(for: MacNotificationAction.start, card: recommendation)
+        try require(startFeedback?.body.contains("뜻: meaning") == true, "Recommendation start feedback should reveal the meaning")
+        try require(
+            MacNotificationScheduler.resolvedPromptAction(
+                action: UNNotificationDismissActionIdentifier,
+                category: MacNotificationAction.reviewCategory
+            ) == MacNotificationAction.unavailable,
+            "Review prompt swipe should map to unavailable"
+        )
+        try require(
+            MacNotificationScheduler.resolvedPromptAction(
+                action: UNNotificationDismissActionIdentifier,
+                category: MacNotificationAction.recommendationCategory
+            ) == MacNotificationAction.advanceRecommendation,
+            "Recommendation prompt swipe should advance without feedback"
+        )
+        try require(
+            MacNotificationScheduler.failsafeIdentifier(cardId: "one-slot") ==
+                MacNotificationScheduler.notificationIdentifier(cardId: "one-slot") + ".failsafe",
+            "Mac unanswered failsafe should belong to the same card family"
+        )
+
+        let now = Date()
+        var staleReview = notificationCard(id: "stale-review", wordbook: .user, dueAt: now.addingTimeInterval(600))
+        staleReview.status = .review
+        let currentPrompt = PromptReminderState(cardId: staleReview.id, firstPromptAt: now)
+        try require(
+            !MacNotificationScheduler.shouldHandlePromptAction(
+                action: MacNotificationAction.remembered,
+                card: staleReview,
+                promptState: currentPrompt,
+                feedbackHold: nil,
+                now: now
+            ),
+            "A sync-moved future card must reject a stale notification action"
+        )
+        staleReview.dueAt = now
+        try require(
+            MacNotificationScheduler.shouldHandlePromptAction(
+                action: MacNotificationAction.remembered,
+                card: staleReview,
+                promptState: currentPrompt,
+                feedbackHold: nil,
+                now: now
+            ),
+            "The current due review prompt should accept one action"
+        )
+        try require(
+            !MacNotificationScheduler.shouldHandlePromptAction(
+                action: MacNotificationAction.remembered,
+                card: staleReview,
+                promptState: currentPrompt,
+                feedbackHold: hold,
+                now: now
+            ),
+            "A persisted feedback hold must reject duplicate review callbacks"
+        )
+
+        var relearning = notificationCard(id: "relearning", wordbook: .user, dueAt: now)
+        relearning.status = .relearning
+        var review = notificationCard(id: "review", wordbook: .user, dueAt: now.addingTimeInterval(-3600))
+        review.status = .review
+        try require(
+            MacNotificationPlan.scheduledCards(cards: [review, relearning], settings: UserSettingsData()).first?.id == "relearning",
+            "Mac notification plan should use shared relearning-first scheduler priority"
+        )
+        try require(
+            MacNotificationPlan.scheduledCards(
+                cards: [review, relearning],
+                settings: UserSettingsData(dailyWordGoal: 2, maxQueueSize: 20),
+                processedCardIdsToday: ["done-1", "done-2"]
+            ).isEmpty,
+            "Mac notification plan must stop when today's distinct-card budget is exhausted"
+        )
+
+        let epochCard = mergeTestCard(
+            id: "epoch-due",
+            meaning: "damaged",
+            version: 1,
+            updatedAt: Date(timeIntervalSince1970: 0),
+            dueAt: Date(timeIntervalSince1970: 0)
+        )
+        try require(
+            MacNotificationPlan.scheduledCards(cards: [epochCard], settings: UserSettingsData()).isEmpty,
+            "Mac must not notify an epoch-damaged card before startup sync repairs it"
         )
     }
 
@@ -913,6 +1442,70 @@ enum SchedulerVectorCommand {
             createdAt: dueAt,
             updatedAt: dueAt,
             version: 1
+        )
+    }
+
+    private static func mergeTestCard(
+        id: String,
+        meaning: String,
+        version: Int,
+        updatedAt: Date,
+        dueAt: Date = Date(timeIntervalSince1970: 600)
+    ) -> VocabularyCard {
+        VocabularyCard(
+            id: id,
+            lemma: id,
+            displayWord: id,
+            meaningKo: meaning,
+            definitionEn: "",
+            partOfSpeech: "",
+            exampleSentence: "",
+            definitionSourcePrimary: "test",
+            status: .review,
+            wordbook: .user,
+            dueAt: dueAt,
+            intervalDays: 3,
+            lapseCount: 0,
+            createdAt: Date(timeIntervalSince1970: 10),
+            updatedAt: updatedAt,
+            version: version
+        )
+    }
+
+    private static func mergeTestEvent(
+        id: String,
+        clientCreatedAt: Date,
+        response: ReviewResponse
+    ) -> StoredReviewEvent {
+        StoredReviewEvent(
+            id: id,
+            cardId: "event-card",
+            response: response,
+            previousStatus: .new,
+            nextStatus: .learning,
+            previousDueAt: Date(timeIntervalSince1970: 10),
+            nextDueAt: Date(timeIntervalSince1970: 20),
+            previousIntervalDays: 0,
+            nextIntervalDays: 1,
+            clientCreatedAt: clientCreatedAt,
+            metadata: [:]
+        )
+    }
+
+    private static func snapshot(
+        cards: [VocabularyCard] = [],
+        contexts: [StoredContext] = [],
+        definitionCandidates: [StoredDefinitionCandidate] = [],
+        reviewEvents: [StoredReviewEvent] = [],
+        recommendationFeedback: [RecommendationFeedback] = []
+    ) -> StoreSnapshot {
+        StoreSnapshot(
+            cards: cards,
+            contexts: contexts,
+            definitionCandidates: definitionCandidates,
+            reviewEvents: reviewEvents,
+            recommendationFeedback: recommendationFeedback,
+            settings: UserSettingsData()
         )
     }
 

@@ -83,6 +83,7 @@ object SyncPayloadFactory {
             .put("difficulty", JSONObject.NULL)
             .put("lapse_count", lapseCount)
             .put("interval_before_lapse", intervalBeforeLapse ?: JSONObject.NULL)
+            .put("recommendation_started_at", recommendationStartedAt?.toString() ?: JSONObject.NULL)
             .put("deleted_at", deletedAt?.toString() ?: JSONObject.NULL)
             .put("created_device_id", deviceId)
             .put("created_at", createdAt.toString())
@@ -133,7 +134,6 @@ object SyncPayloadFactory {
             .put("previous_interval_days", previousIntervalDays)
             .put("next_interval_days", nextIntervalDays)
             .put("client_created_at", clientCreatedAt.toString())
-            .put("server_created_at", clientCreatedAt.toString())
             .put("metadata", JSONObject(metadata))
     }
 
@@ -259,10 +259,11 @@ object SyncPayloadFactory {
             dailyWordGoal = optInt("daily_word_goal", 10),
             maxQueueSize = optInt("max_queue_size", 20),
             snoozeDurationMinutes = optLong("snooze_duration_minutes", 60),
-            quietHoursStart = LocalTime.parse(string("quiet_hours_start", "23:00")),
-            quietHoursEnd = LocalTime.parse(string("quiet_hours_end", "09:00")),
-            timezone = ZoneId.of(string("timezone", "Asia/Seoul")),
+            quietHoursStart = parseLocalTimeOrDefault(string("quiet_hours_start", "23:00"), LocalTime.of(23, 0)),
+            quietHoursEnd = parseLocalTimeOrDefault(string("quiet_hours_end", "09:00"), LocalTime.of(9, 0)),
+            timezone = parseZoneOrDefault(string("timezone", "Asia/Seoul"), ZoneId.of("Asia/Seoul")),
             enableWordRecommendations = optBoolean("enable_word_recommendations", true),
+            enableWatchReplyReview = optBoolean("enable_watch_reply_review", true),
             recommendationsIntroducedAt = nullableInstant("recommendations_introduced_at"),
             updatedAt = nullableInstant("settings_updated_at") ?: Instant.EPOCH
         )
@@ -298,5 +299,13 @@ object SyncPayloadFactory {
     private fun JSONObject.nullableInt(name: String): Int? {
         if (!has(name) || isNull(name)) return null
         return getInt(name)
+    }
+
+    private fun parseLocalTimeOrDefault(value: String, default: LocalTime): LocalTime {
+        return runCatching { LocalTime.parse(value) }.getOrDefault(default)
+    }
+
+    private fun parseZoneOrDefault(value: String, default: ZoneId): ZoneId {
+        return runCatching { ZoneId.of(value) }.getOrDefault(default)
     }
 }

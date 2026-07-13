@@ -268,7 +268,7 @@ enum Scheduler {
         card.status != .mastered && card.status != .suspended && card.deletedAt == nil && !card.meaningKo.isEmpty
     }
 
-    private static func isHigherPriority(_ left: SchedulerCard, than right: SchedulerCard, now: Date) -> Bool {
+    static func isHigherPriority(_ left: SchedulerCard, than right: SchedulerCard, now: Date) -> Bool {
         let leftRank = priorityRank(left)
         let rightRank = priorityRank(right)
         if leftRank != rightRank { return leftRank > rightRank }

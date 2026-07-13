@@ -43,29 +43,30 @@ enum SyncBatchFactory {
 
     static func localSnapshot(from data: Data) throws -> StoreSnapshot {
         if let snapshot = try? JSONDecoder.vocab.decode(StoreSnapshot.self, from: data) {
-            return canonicalizeDuplicateLemmas(snapshot)
+            return normalize(snapshot)
         }
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ImportError.invalidPayload
         }
 
-        return canonicalizeDuplicateLemmas(StoreSnapshot(
-            cards: array(payload["cards"]).map(cardPayload),
-            contexts: array(payload["contexts"]).map(contextPayload),
-            definitionCandidates: array(payload["definition_candidates"]).map(candidatePayload),
-            reviewEvents: array(payload["review_events"]).map(reviewEventPayload),
-            recommendationFeedback: array(payload["recommendation_feedback"]).map(feedbackPayload),
-            settings: settingsPayload(payload["settings"] as? [String: Any] ?? [:])
+        return normalize(StoreSnapshot(
+            cards: try array(payload["cards"]).map(cardPayload),
+            contexts: try array(payload["contexts"]).map(contextPayload),
+            definitionCandidates: try array(payload["definition_candidates"]).map(candidatePayload),
+            reviewEvents: try array(payload["review_events"]).map(reviewEventPayload),
+            recommendationFeedback: try array(payload["recommendation_feedback"]).map(feedbackPayload),
+            settings: try settingsPayload(payload["settings"] as? [String: Any] ?? [:])
         ))
     }
 
     static func merge(local: StoreSnapshot, incoming: StoreSnapshot) -> StoreSnapshot {
-        canonicalizeDuplicateLemmas(StoreSnapshot(
+        normalize(StoreSnapshot(
             cards: mergeCards(local.cards, incoming.cards),
-            contexts: mergeById(local.contexts, incoming.contexts),
-            definitionCandidates: mergeById(local.definitionCandidates, incoming.definitionCandidates),
-            reviewEvents: mergeById(local.reviewEvents, incoming.reviewEvents),
-            recommendationFeedback: mergeById(local.recommendationFeedback, incoming.recommendationFeedback),
+            contexts: mergeByIdRepairingTimestamp(local.contexts, incoming.contexts, timestamp: \.createdAt),
+            definitionCandidates: mergeByIdRepairingTimestamp(local.definitionCandidates, incoming.definitionCandidates, timestamp: \.createdAt),
+            reviewEvents: mergeByIdRepairingTimestamp(local.reviewEvents, incoming.reviewEvents, timestamp: \.clientCreatedAt)
+                .sorted(by: reviewEventChronologicalOrder),
+            recommendationFeedback: mergeByIdRepairingTimestamp(local.recommendationFeedback, incoming.recommendationFeedback, timestamp: \.createdAt),
             settings: mergeSettings(local.settings, incoming.settings)
         ))
     }
@@ -104,6 +105,7 @@ enum SyncBatchFactory {
             "difficulty": NSNull(),
             "lapse_count": card.lapseCount,
             "interval_before_lapse": card.intervalBeforeLapse.map { $0 as Any } ?? NSNull(),
+            "recommendation_started_at": card.recommendationStartedAt.map { iso($0) as Any } ?? NSNull(),
             "deleted_at": card.deletedAt.map { iso($0) as Any } ?? NSNull(),
             "created_device_id": deviceId,
             "created_at": iso(card.createdAt),
@@ -157,9 +159,19 @@ enum SyncBatchFactory {
             "previous_interval_days": event.previousIntervalDays,
             "next_interval_days": event.nextIntervalDays,
             "client_created_at": iso(event.clientCreatedAt),
-            "server_created_at": iso(event.clientCreatedAt),
             "metadata": event.metadata
         ]
+    }
+
+    static func epochCreatedCardIds(in data: Data) -> Set<String> {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        return Set(array(payload["cards"]).compactMap { card in
+            guard let id = card["id"] as? String,
+                  let raw = card["created_at"] as? String,
+                  let date = parseISO8601(raw),
+                  date <= Date(timeIntervalSince1970: 1) else { return nil }
+            return id
+        })
     }
 
     private static func feedback(_ feedback: RecommendationFeedback) -> [String: Any] {
@@ -204,11 +216,9 @@ enum SyncBatchFactory {
                 byId[card.id] = card
                 continue
             }
-            if card.updatedAt > existing.updatedAt || card.version > existing.version {
-                byId[card.id] = card
-            }
+            byId[card.id] = preferredCard(existing, card)
         }
-        return Array(byId.values)
+        return byId.values.sorted { $0.id < $1.id }
     }
 
     private static func mergeById<T: Identifiable>(_ local: [T], _ incoming: [T]) -> [T] where T.ID == String {
@@ -216,7 +226,83 @@ enum SyncBatchFactory {
         for item in incoming where byId[item.id] == nil {
             byId[item.id] = item
         }
-        return Array(byId.values)
+        return byId.values.sorted { $0.id < $1.id }
+    }
+
+    private static func mergeByIdRepairingTimestamp<T: Identifiable>(
+        _ local: [T],
+        _ incoming: [T],
+        timestamp: (T) -> Date
+    ) -> [T] where T.ID == String {
+        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        for item in incoming {
+            guard let existing = byId[item.id] else {
+                byId[item.id] = item
+                continue
+            }
+            // Earlier Mac imports converted Android fractional timestamps to
+            // epoch. A same-ID server record with its real timestamp repairs
+            // that damage on the next sync instead of being ignored forever.
+            if timestamp(item) > timestamp(existing) {
+                byId[item.id] = item
+            }
+        }
+        return byId.values.sorted { $0.id < $1.id }
+    }
+
+    private static func preferredCard(_ first: VocabularyCard, _ second: VocabularyCard) -> VocabularyCard {
+        if first.version != second.version {
+            return first.version > second.version ? first : second
+        }
+        if first.updatedAt != second.updatedAt {
+            return first.updatedAt > second.updatedAt ? first : second
+        }
+
+        // A delete is a state transition, not missing data. If two devices emit
+        // the same version/timestamp, keeping the tombstone prevents resurrection.
+        if (first.deletedAt != nil) != (second.deletedAt != nil) {
+            return first.deletedAt != nil ? first : second
+        }
+        if let firstDeletedAt = first.deletedAt,
+           let secondDeletedAt = second.deletedAt,
+           firstDeletedAt != secondDeletedAt {
+            return firstDeletedAt > secondDeletedAt ? first : second
+        }
+
+        // The remaining exact-version tie must not depend on pull direction.
+        // This stable key makes merge(a, b) and merge(b, a) choose the same value.
+        return deterministicCardKey(first) >= deterministicCardKey(second) ? first : second
+    }
+
+    private static func deterministicCardKey(_ card: VocabularyCard) -> String {
+        [
+            card.lemma,
+            card.displayWord,
+            card.meaningKo,
+            card.definitionEn,
+            card.partOfSpeech,
+            card.exampleSentence,
+            card.definitionSourcePrimary,
+            card.status.rawValue,
+            card.wordbook.rawValue,
+            epochMillis(card.dueAt),
+            String(card.intervalDays),
+            String(card.lapseCount),
+            card.intervalBeforeLapse.map(String.init) ?? "",
+            card.recommendationStartedAt.map(epochMillis) ?? "",
+            epochMillis(card.createdAt)
+        ].joined(separator: "\u{1f}")
+    }
+
+    private static func epochMillis(_ date: Date) -> String {
+        String(Int64((date.timeIntervalSince1970 * 1_000).rounded(.towardZero)))
+    }
+
+    private static func reviewEventChronologicalOrder(_ left: StoredReviewEvent, _ right: StoredReviewEvent) -> Bool {
+        if left.clientCreatedAt != right.clientCreatedAt {
+            return left.clientCreatedAt < right.clientCreatedAt
+        }
+        return left.id < right.id
     }
 
     private static func mergeSettings(_ local: UserSettingsData, _ incoming: UserSettingsData) -> UserSettingsData {
@@ -237,7 +323,7 @@ enum SyncBatchFactory {
         value as? [[String: Any]] ?? []
     }
 
-    private static func cardPayload(_ payload: [String: Any]) -> VocabularyCard {
+    private static func cardPayload(_ payload: [String: Any]) throws -> VocabularyCard {
         VocabularyCard(
             id: string(payload, "id"),
             lemma: string(payload, "lemma"),
@@ -249,30 +335,30 @@ enum SyncBatchFactory {
             definitionSourcePrimary: string(payload, "definition_source_primary", fallback: "unknown"),
             status: CardStatus(rawValue: string(payload, "status", fallback: "new")) ?? .new,
             wordbook: Wordbook(rawValue: string(payload, "wordbook", fallback: "user")) ?? .user,
-            dueAt: date(payload, "due_at"),
+            dueAt: try requiredDate(payload, "due_at"),
             intervalDays: int(payload, "interval_days"),
             lapseCount: int(payload, "lapse_count"),
             intervalBeforeLapse: optionalInt(payload, "interval_before_lapse"),
-            recommendationStartedAt: optionalDate(payload, "recommendation_started_at"),
-            deletedAt: optionalDate(payload, "deleted_at"),
-            createdAt: date(payload, "created_at"),
-            updatedAt: date(payload, "updated_at"),
+            recommendationStartedAt: try optionalDate(payload, "recommendation_started_at"),
+            deletedAt: try optionalDate(payload, "deleted_at"),
+            createdAt: try requiredDate(payload, "created_at"),
+            updatedAt: try requiredDate(payload, "updated_at"),
             version: int(payload, "version", fallback: 1)
         )
     }
 
-    private static func contextPayload(_ payload: [String: Any]) -> StoredContext {
+    private static func contextPayload(_ payload: [String: Any]) throws -> StoredContext {
         StoredContext(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
             sourceSentence: string(payload, "source_sentence"),
             sourceApp: string(payload, "source_app"),
             captureMethod: CaptureMethod(rawValue: string(payload, "capture_method", fallback: "manual")) ?? .manual,
-            createdAt: date(payload, "created_at")
+            createdAt: try requiredDate(payload, "created_at")
         )
     }
 
-    private static func candidatePayload(_ payload: [String: Any]) -> StoredDefinitionCandidate {
+    private static func candidatePayload(_ payload: [String: Any]) throws -> StoredDefinitionCandidate {
         StoredDefinitionCandidate(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
@@ -284,47 +370,50 @@ enum SyncBatchFactory {
             exampleSentence: string(payload, "example_sentence"),
             confidence: double(payload, "confidence"),
             selectedAsPrimary: bool(payload, "selected_as_primary"),
-            createdAt: date(payload, "created_at")
+            createdAt: try requiredDate(payload, "created_at")
         )
     }
 
-    private static func reviewEventPayload(_ payload: [String: Any]) -> StoredReviewEvent {
+    private static func reviewEventPayload(_ payload: [String: Any]) throws -> StoredReviewEvent {
         StoredReviewEvent(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
             response: ReviewResponse(rawValue: string(payload, "response", fallback: "unavailable")) ?? .unavailable,
             previousStatus: CardStatus(rawValue: string(payload, "previous_status", fallback: "new")) ?? .new,
             nextStatus: CardStatus(rawValue: string(payload, "next_status", fallback: "new")) ?? .new,
-            previousDueAt: date(payload, "previous_due_at"),
-            nextDueAt: date(payload, "next_due_at"),
+            previousDueAt: try requiredDate(payload, "previous_due_at"),
+            nextDueAt: try requiredDate(payload, "next_due_at"),
             previousIntervalDays: int(payload, "previous_interval_days"),
             nextIntervalDays: int(payload, "next_interval_days"),
-            clientCreatedAt: date(payload, "client_created_at"),
+            clientCreatedAt: try requiredDate(payload, "client_created_at"),
             metadata: payload["metadata"] as? [String: String] ?? [:]
         )
     }
 
-    private static func feedbackPayload(_ payload: [String: Any]) -> RecommendationFeedback {
+    private static func feedbackPayload(_ payload: [String: Any]) throws -> RecommendationFeedback {
         RecommendationFeedback(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
             lemma: string(payload, "lemma"),
             action: string(payload, "action"),
-            createdAt: date(payload, "created_at")
+            createdAt: try requiredDate(payload, "created_at")
         )
     }
 
-    private static func settingsPayload(_ payload: [String: Any]) -> UserSettingsData {
-        UserSettingsData(
+    private static func settingsPayload(_ payload: [String: Any]) throws -> UserSettingsData {
+        let quietStart = validHHMM(string(payload, "quiet_hours_start", fallback: "23:00")) ? string(payload, "quiet_hours_start", fallback: "23:00") : "23:00"
+        let quietEnd = validHHMM(string(payload, "quiet_hours_end", fallback: "09:00")) ? string(payload, "quiet_hours_end", fallback: "09:00") : "09:00"
+        let timezone = TimeZone(identifier: string(payload, "timezone", fallback: "Asia/Seoul")) != nil ? string(payload, "timezone", fallback: "Asia/Seoul") : "Asia/Seoul"
+        return UserSettingsData(
             dailyWordGoal: int(payload, "daily_word_goal", fallback: 10),
             maxQueueSize: int(payload, "max_queue_size", fallback: 20),
             snoozeDurationMinutes: int(payload, "snooze_duration_minutes", fallback: 60),
-            quietHoursStart: string(payload, "quiet_hours_start", fallback: "23:00"),
-            quietHoursEnd: string(payload, "quiet_hours_end", fallback: "09:00"),
-            timezone: string(payload, "timezone", fallback: "Asia/Seoul"),
+            quietHoursStart: quietStart,
+            quietHoursEnd: quietEnd,
+            timezone: timezone,
             enableWordRecommendations: bool(payload, "enable_word_recommendations", fallback: true),
-            recommendationsIntroducedAt: optionalDate(payload, "recommendations_introduced_at"),
-            updatedAt: optionalDate(payload, "settings_updated_at") ?? Date(timeIntervalSince1970: 0)
+            recommendationsIntroducedAt: try optionalDate(payload, "recommendations_introduced_at"),
+            updatedAt: try optionalDate(payload, "settings_updated_at") ?? Date(timeIntervalSince1970: 0)
         )
     }
 
@@ -353,14 +442,82 @@ enum SyncBatchFactory {
         return value as? Bool ?? (value as? NSNumber)?.boolValue ?? fallback
     }
 
-    private static func date(_ payload: [String: Any], _ key: String) -> Date {
-        optionalDate(payload, key) ?? Date(timeIntervalSince1970: 0)
+    private static func validHHMM(_ value: String) -> Bool {
+        let parts = value.split(separator: ":")
+        guard parts.count == 2,
+              let hour = Int(parts[0]),
+              let minute = Int(parts[1]),
+              parts[0].count == 2,
+              parts[1].count == 2 else {
+            return false
+        }
+        return (0...23).contains(hour) && (0...59).contains(minute)
     }
 
-    private static func optionalDate(_ payload: [String: Any], _ key: String) -> Date? {
+    private static func requiredDate(_ payload: [String: Any], _ key: String) throws -> Date {
+        guard let parsed = try optionalDate(payload, key) else {
+            throw ImportError.missingDate(key)
+        }
+        return parsed
+    }
+
+    private static func optionalDate(_ payload: [String: Any], _ key: String) throws -> Date? {
         guard let value = payload[key], !(value is NSNull) else { return nil }
-        guard let raw = value as? String else { return nil }
-        return ISO8601DateFormatter().date(from: raw)
+        guard let raw = value as? String else {
+            throw ImportError.invalidDate(key: key, value: String(describing: value))
+        }
+        guard let parsed = parseISO8601(raw) else {
+            throw ImportError.invalidDate(key: key, value: raw)
+        }
+        return parsed
+    }
+
+    private static func parseISO8601(_ raw: String) -> Date? {
+        // Android/Java commonly emits 3, 6, or 9 fractional digits while the
+        // Foundation default formatter only accepts the non-fractional form.
+        if raw.contains(".") {
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let parsed = fractional.date(from: raw) { return parsed }
+        }
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return wholeSeconds.date(from: raw)
+    }
+
+    private static func normalize(_ snapshot: StoreSnapshot) -> StoreSnapshot {
+        repairEpochCardCreationDates(canonicalizeDuplicateLemmas(snapshot))
+    }
+
+    private static func repairEpochCardCreationDates(_ snapshot: StoreSnapshot) -> StoreSnapshot {
+        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
+        var evidenceByCardId: [String: [Date]] = [:]
+        for context in snapshot.contexts where context.createdAt > epochDamageUpperBound {
+            evidenceByCardId[context.cardId, default: []].append(context.createdAt)
+        }
+        for candidate in snapshot.definitionCandidates where candidate.createdAt > epochDamageUpperBound {
+            evidenceByCardId[candidate.cardId, default: []].append(candidate.createdAt)
+        }
+        for event in snapshot.reviewEvents where event.clientCreatedAt > epochDamageUpperBound {
+            evidenceByCardId[event.cardId, default: []].append(event.clientCreatedAt)
+        }
+        for feedback in snapshot.recommendationFeedback where feedback.createdAt > epochDamageUpperBound {
+            evidenceByCardId[feedback.cardId, default: []].append(feedback.createdAt)
+        }
+
+        var repaired = snapshot
+        repaired.cards = snapshot.cards.map { card in
+            guard card.createdAt <= epochDamageUpperBound,
+                  let evidence = evidenceByCardId[card.id]?.min() else { return card }
+            var updated = card
+            updated.createdAt = evidence
+            // Bump progress metadata once so the repaired creation date is sent
+            // back to the server instead of losing to the same-ID epoch record.
+            updated.updatedAt = max(updated.updatedAt, evidence)
+            updated.version += 1
+            return updated
+        }
+        return repaired
     }
 
     private static func canonicalizeDuplicateLemmas(_ snapshot: StoreSnapshot) -> StoreSnapshot {
@@ -506,6 +663,19 @@ enum SyncBatchFactory {
     }
 }
 
-enum ImportError: Error {
+enum ImportError: LocalizedError {
     case invalidPayload
+    case missingDate(String)
+    case invalidDate(key: String, value: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPayload:
+            return "Invalid sync payload."
+        case let .missingDate(key):
+            return "Missing required sync timestamp: \(key)."
+        case let .invalidDate(key, value):
+            return "Invalid sync timestamp for \(key): \(value)."
+        }
+    }
 }

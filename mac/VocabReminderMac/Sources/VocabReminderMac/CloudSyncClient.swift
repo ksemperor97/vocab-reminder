@@ -38,6 +38,15 @@ enum CloudSyncError: Error, LocalizedError {
 }
 
 final class CloudSyncClient {
+    static let maxItemsPerBatch = 400
+    private static let collectionKeys = [
+        "cards",
+        "contexts",
+        "definition_candidates",
+        "review_events",
+        "recommendation_feedback"
+    ]
+
     private let config: CloudSyncConfig
     private let session: URLSession
 
@@ -47,13 +56,21 @@ final class CloudSyncClient {
     }
 
     func pushAndPull(localBatch: [String: Any]) async throws -> Data {
-        _ = try await post("sync/batch", body: localBatch)
+        _ = try await push(localBatch: localBatch)
         let snapshot = try await get("sync/snapshot")
         return try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
     }
 
     func push(localBatch: [String: Any]) async throws -> [String: Any] {
-        try await post("sync/batch", body: localBatch)
+        var aggregate: [String: Any] = [
+            "applied": [String: Int](),
+            "skipped": ["reasons": [Any]()] as [String: Any]
+        ]
+        for batch in Self.splitIntoBatches(localBatch) {
+            let result = try await post("sync/batch", body: batch)
+            aggregate = Self.mergingPushResult(aggregate, result)
+        }
+        return aggregate
     }
 
     func pullSnapshot() async throws -> Data {
@@ -97,5 +114,60 @@ final class CloudSyncClient {
             throw CloudSyncError.server(error["message"] as? String ?? "Sync failed.")
         }
         return payload
+    }
+
+    static func splitIntoBatches(_ localBatch: [String: Any]) -> [[String: Any]] {
+        let arrays = Dictionary(uniqueKeysWithValues: collectionKeys.map { key in
+            (key, localBatch[key] as? [Any] ?? [])
+        })
+        let batchCount = max(
+            1,
+            arrays.values.map { ($0.count + maxItemsPerBatch - 1) / maxItemsPerBatch }.max() ?? 1
+        )
+        let settings = localBatch["settings"] ?? NSNull()
+
+        return (0..<batchCount).map { batchIndex in
+            var batch: [String: Any] = [:]
+            for key in collectionKeys {
+                let source = arrays[key] ?? []
+                let start = batchIndex * maxItemsPerBatch
+                let end = min(source.count, start + maxItemsPerBatch)
+                batch[key] = start < end ? Array(source[start..<end]) : []
+            }
+            // Settings are applied only after all entity chunks have succeeded. A retry
+            // after a partial upload is safe because server writes are idempotent.
+            batch["settings"] = batchIndex == batchCount - 1 ? settings : NSNull()
+            return batch
+        }
+    }
+
+    private static func mergingPushResult(_ aggregate: [String: Any], _ incoming: [String: Any]) -> [String: Any] {
+        var result = aggregate
+        result["applied"] = mergeCounts(
+            aggregate["applied"] as? [String: Any] ?? [:],
+            incoming["applied"] as? [String: Any] ?? [:]
+        )
+
+        let aggregateSkipped = aggregate["skipped"] as? [String: Any] ?? [:]
+        let incomingSkipped = incoming["skipped"] as? [String: Any] ?? [:]
+        var skipped = mergeCounts(aggregateSkipped, incomingSkipped, ignoredKeys: ["reasons"])
+        skipped["reasons"] = (aggregateSkipped["reasons"] as? [Any] ?? []) +
+            (incomingSkipped["reasons"] as? [Any] ?? [])
+        result["skipped"] = skipped
+        return result
+    }
+
+    private static func mergeCounts(
+        _ aggregate: [String: Any],
+        _ incoming: [String: Any],
+        ignoredKeys: Set<String> = []
+    ) -> [String: Any] {
+        var result = aggregate
+        for (key, value) in incoming where !ignoredKeys.contains(key) {
+            let oldCount = (result[key] as? NSNumber)?.intValue ?? result[key] as? Int ?? 0
+            let newCount = (value as? NSNumber)?.intValue ?? value as? Int ?? 0
+            result[key] = oldCount + newCount
+        }
+        return result
     }
 }

@@ -54,5 +54,15 @@
       "lemma": "look",
       "candidates": ["looking"]
     }
+  },
+  {
+    "name": "emoji and non ascii symbols are ignored around word",
+    "raw": "🔥 Robustly™ ✨",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "Robustly",
+      "lemma": "robust",
+      "candidates": ["robustly"]
+    }
   }
 ]

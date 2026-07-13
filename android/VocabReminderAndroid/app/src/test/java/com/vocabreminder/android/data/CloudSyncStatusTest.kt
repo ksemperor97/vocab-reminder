@@ -46,4 +46,11 @@ class CloudSyncStatusTest {
         assertNotNull(status.lastFailureAt)
         assertEquals("Network timeout", status.lastError)
     }
+
+    @Test
+    fun failureMessageIsTruncatedForUi() {
+        store.recordCloudSyncFailure("x".repeat(260))
+
+        assertEquals(200, store.cloudSyncStatus().lastError.length)
+    }
 }

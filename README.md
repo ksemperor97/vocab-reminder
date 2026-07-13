@@ -67,6 +67,7 @@ Current Android slice:
 - Save preview with local dictionary fallback and 4+ word candidate selection.
 - First review scheduled through WorkManager at save time + 10 minutes.
 - Review notification actions for `remembered`, `forgotten`, and `unavailable`.
+- Galaxy Fit3 mirrored notifications support quick replies: `네`/`좋습니다` = remembered, `아니오`/`아니` = forgotten, and `나중에 연락드리겠습니다`/`나중에` = unavailable; meaning notifications advance on any reply.
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
@@ -78,7 +79,7 @@ Current Android slice:
 - Review events are stored append-only in local app storage.
 - Sync-shaped batches can be exported/imported locally and pushed to the self-hosted server.
 - Sync import folds active duplicate lemmas into one card, keeps their contexts attached, and preserves the most advanced review progress when a recommended duplicate is promoted to the user wordbook.
-- Target sync UX: Android release builds use a fixed HTTPS tunnel endpoint, with foreground sync, after-change debounce, and a 6-hour WorkManager retry.
+- Target sync UX: Android release builds use a fixed HTTPS tunnel endpoint, with foreground sync, after-change immediate sync, and 2-hour WorkManager recovery.
 - Debug builds can override server URL + bearer token for local development.
 
 Current sync server slice:

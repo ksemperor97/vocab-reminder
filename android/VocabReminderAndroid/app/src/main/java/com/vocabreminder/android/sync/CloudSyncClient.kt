@@ -77,11 +77,16 @@ class CloudSyncClient(
     private val transport: CloudSyncTransport = HttpUrlConnectionSyncTransport()
 ) {
     fun push(localBatch: JSONObject): JSONObject {
-        return transport.postJson(
-            url = config.endpoint("sync/batch"),
-            body = localBatch,
-            bearerToken = config.bearerToken
-        ).throwIfError()
+        val aggregate = emptyPushResult()
+        splitIntoBatches(localBatch).forEach { batch ->
+            val result = transport.postJson(
+                url = config.endpoint("sync/batch"),
+                body = batch,
+                bearerToken = config.bearerToken
+            ).throwIfError()
+            mergePushResult(aggregate, result)
+        }
+        return aggregate
     }
 
     fun pullSnapshot(): JSONObject {
@@ -108,5 +113,75 @@ class CloudSyncClient(
             throw CloudSyncException(error.optString("message", "Sync failed."))
         }
         return this
+    }
+
+    internal fun splitIntoBatches(localBatch: JSONObject): List<JSONObject> {
+        val arrays = COLLECTION_KEYS.associateWith { key ->
+            localBatch.optJSONArray(key) ?: org.json.JSONArray()
+        }
+        val batchCount = maxOf(
+            1,
+            arrays.values.maxOfOrNull { array ->
+                (array.length() + MAX_ITEMS_PER_BATCH - 1) / MAX_ITEMS_PER_BATCH
+            } ?: 1
+        )
+        val settings = if (localBatch.has("settings")) localBatch.opt("settings") else JSONObject.NULL
+
+        return (0 until batchCount).map { batchIndex ->
+            val batch = JSONObject()
+            COLLECTION_KEYS.forEach { key ->
+                val source = arrays.getValue(key)
+                val start = batchIndex * MAX_ITEMS_PER_BATCH
+                val end = minOf(source.length(), start + MAX_ITEMS_PER_BATCH)
+                val slice = org.json.JSONArray()
+                for (index in start until end) slice.put(source.get(index))
+                batch.put(key, slice)
+            }
+            // Apply settings only after every entity chunk has been accepted. Retrying a
+            // partially completed upload is safe because every collection is idempotent.
+            batch.put("settings", if (batchIndex == batchCount - 1) settings else JSONObject.NULL)
+        }
+    }
+
+    private fun emptyPushResult(): JSONObject {
+        return JSONObject()
+            .put("applied", JSONObject())
+            .put("skipped", JSONObject().put("reasons", org.json.JSONArray()))
+    }
+
+    private fun mergePushResult(aggregate: JSONObject, result: JSONObject) {
+        mergeCountObject(aggregate.getJSONObject("applied"), result.optJSONObject("applied"))
+        val aggregateSkipped = aggregate.getJSONObject("skipped")
+        val resultSkipped = result.optJSONObject("skipped")
+        mergeCountObject(aggregateSkipped, resultSkipped, ignoredKeys = setOf("reasons"))
+        val aggregateReasons = aggregateSkipped.getJSONArray("reasons")
+        val resultReasons = resultSkipped?.optJSONArray("reasons")
+        if (resultReasons != null) {
+            for (index in 0 until resultReasons.length()) aggregateReasons.put(resultReasons.get(index))
+        }
+    }
+
+    private fun mergeCountObject(
+        aggregate: JSONObject,
+        incoming: JSONObject?,
+        ignoredKeys: Set<String> = emptySet()
+    ) {
+        if (incoming == null) return
+        incoming.keys().forEach { key ->
+            if (key !in ignoredKeys) {
+                aggregate.put(key, aggregate.optInt(key, 0) + incoming.optInt(key, 0))
+            }
+        }
+    }
+
+    companion object {
+        internal const val MAX_ITEMS_PER_BATCH = 400
+        private val COLLECTION_KEYS = listOf(
+            "cards",
+            "contexts",
+            "definition_candidates",
+            "review_events",
+            "recommendation_feedback"
+        )
     }
 }

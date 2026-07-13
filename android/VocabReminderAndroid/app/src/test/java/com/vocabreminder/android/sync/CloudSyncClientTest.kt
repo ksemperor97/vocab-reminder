@@ -84,6 +84,43 @@ class CloudSyncClientTest {
         assertEquals("Authentication required.", error.message)
     }
 
+    @Test
+    fun chunksLargeSnapshotsAndAggregatesPushResults() {
+        val cards = JSONArray()
+        repeat(401) { index -> cards.put(JSONObject().put("id", "card-$index")) }
+        val localBatch = JSONObject()
+            .put("cards", cards)
+            .put("contexts", JSONArray())
+            .put("definition_candidates", JSONArray())
+            .put("review_events", JSONArray())
+            .put("recommendation_feedback", JSONArray())
+            .put("settings", JSONObject().put("daily_word_goal", 10))
+        val transport = FakeTransport(
+            mutableListOf(
+                JSONObject()
+                    .put("applied", JSONObject().put("cards", 400))
+                    .put("skipped", JSONObject().put("cards", 0).put("reasons", JSONArray())),
+                JSONObject()
+                    .put("applied", JSONObject().put("cards", 1).put("settings", 1))
+                    .put("skipped", JSONObject().put("cards", 0).put("reasons", JSONArray()))
+            )
+        )
+        val client = CloudSyncClient(
+            CloudSyncConfig("https://vocab-sync.example.invalid", "token-123"),
+            transport
+        )
+
+        val result = client.push(localBatch)
+
+        assertEquals(2, transport.requests.size)
+        assertEquals(400, transport.requests[0].body!!.getJSONArray("cards").length())
+        assertEquals(1, transport.requests[1].body!!.getJSONArray("cards").length())
+        assertEquals(true, transport.requests[0].body!!.isNull("settings"))
+        assertEquals(10, transport.requests[1].body!!.getJSONObject("settings").getInt("daily_word_goal"))
+        assertEquals(401, result.getJSONObject("applied").getInt("cards"))
+        assertEquals(1, result.getJSONObject("applied").getInt("settings"))
+    }
+
     private data class Request(
         val method: String,
         val url: String,

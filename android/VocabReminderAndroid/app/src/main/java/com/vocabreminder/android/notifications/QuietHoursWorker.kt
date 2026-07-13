@@ -27,8 +27,9 @@ class QuietHoursWorker(
 
         if (inQuiet) {
             // guide 6.6/14.5: unanswered notifications are withdrawn during quiet hours.
-            store.cards().forEach { ReminderNotifications.cancel(applicationContext, it) }
+            QuietHoursBoundaryScheduler.withdrawActiveNotifications(applicationContext)
         } else {
+            ReminderNotifications.restoreActiveNotification(applicationContext, store, now)
             DailyReviewPlanner.planAndSchedule(applicationContext, now)
         }
         return Result.success()

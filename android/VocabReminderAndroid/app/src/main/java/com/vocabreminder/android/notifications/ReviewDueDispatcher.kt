@@ -24,19 +24,28 @@ object ReviewDueDispatcher {
             return false
         }
 
+        if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
+            val suppressedUntil = ReminderNotifications.recommendationSuppressedUntil(context, card.id, now)
+            if (suppressedUntil != null) {
+                ReminderNotifications.cancel(context, card)
+                ReminderScheduler.scheduleAt(context, card, suppressedUntil, now)
+                return false
+            }
+        }
+
         if (isQuietHour(now, settings)) {
             val releaseDue = Scheduler.avoidQuietHours(now, settings)
-            val updated = card.copy(dueAt = releaseDue, updatedAt = now, version = card.version + 1)
-            store.updateCard(updated)
-            ReminderNotifications.cancel(context, updated)
-            ReminderScheduler.schedule(context, updated, now)
+            ReminderNotifications.cancel(context, card)
+            // Quiet-hours deferral is device-local scheduling state, not learning progress;
+            // mutating the synced due/version here causes cross-device divergence.
+            ReminderScheduler.scheduleAt(context, card, releaseDue, now)
             return false
         }
 
         if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
-            return ReminderNotifications.showRecommendation(context, card)
+            return ReminderNotifications.showRecommendation(context, card, now = now)
         } else {
-            return ReminderNotifications.showReview(context, card)
+            return ReminderNotifications.showReview(context, card, now = now)
         }
     }
 

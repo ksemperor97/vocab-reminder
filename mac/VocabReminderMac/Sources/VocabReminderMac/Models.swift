@@ -182,5 +182,5 @@ struct CaptureAnalysis: Equatable {
     var sourceSentence: String
     var candidates: [String]
 
-    var needsWordSelection: Bool { wordCount >= 4 }
+    var needsWordSelection: Bool { wordCount >= 4 && !candidates.isEmpty }
 }

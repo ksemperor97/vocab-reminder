@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -49,6 +50,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -58,10 +60,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.vocabreminder.android.capture.CaptureAnalysis
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
@@ -168,6 +174,7 @@ private fun VocabReminderApp(
     initialSourceApp: String
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val store = remember { LocalVocabularyStore(context) }
     val initialCloudCredentials = remember { store.cloudSyncCredentials() }
@@ -251,7 +258,7 @@ private fun VocabReminderApp(
 
     fun saveResolved(result: DictionaryResult, method: CaptureMethod): Boolean {
         val now = Instant.now()
-        val schedulerSettings = settings.toSchedulerSettings()
+        val schedulerSettings = store.settings().toSchedulerSettings()
         val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
         val normalizedLemma = result.lemma.ifBlank { CaptureNormalizer.lemma(result.displayWord) }
         val existingBefore = store.cards().firstOrNull { it.lemma.equals(normalizedLemma, ignoreCase = true) }
@@ -291,7 +298,7 @@ private fun VocabReminderApp(
         preview = null
         pendingAnalysis = null
         reload()
-        SyncWorker.enqueueDebounced(context)
+        SyncWorker.enqueueImmediate(context)
         finishExternalCaptureIfNeeded(context, method)
         return true
     }
@@ -307,7 +314,7 @@ private fun VocabReminderApp(
             return false
         }
         val now = Instant.now()
-        val schedulerSettings = settings.toSchedulerSettings()
+        val schedulerSettings = store.settings().toSchedulerSettings()
         val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
         val card = store.addCard(
             displayWord = trimmedWord,
@@ -327,7 +334,7 @@ private fun VocabReminderApp(
         manualFieldsVisible = false
         message = "${card.displayWord} 저장됨 · 첫 알림까지 ${Duration.between(now, card.dueAt).toMinutes()}분"
         reload()
-        SyncWorker.enqueueDebounced(context)
+        SyncWorker.enqueueImmediate(context)
         return true
     }
 
@@ -469,8 +476,91 @@ private fun VocabReminderApp(
         ReminderScheduler.cancel(context, deleted)
         ReminderNotifications.cancel(context, deleted)
         reload()
-        SyncWorker.enqueueDebounced(context)
+        SyncWorker.enqueueImmediate(context)
         message = "${card.displayWord} 삭제됨"
+    }
+
+    fun saveCardEdit(card: VocabularyCard, editedMeaning: String, editedExample: String) {
+        val result = store.updateCardDetails(
+            cardId = card.id,
+            meaningKo = editedMeaning,
+            exampleSentence = editedExample
+        )
+        if (result == null) {
+            message = "${card.displayWord} 수정 실패"
+            return
+        }
+        if (result.filledMissingMeaning) {
+            ReminderScheduler.schedule(context, result.after)
+            ReminderNotifications.clearStalePrompt(context, store)
+            DailyReviewPlanner.planAndSchedule(context)
+        }
+        reload()
+        SyncWorker.enqueueImmediate(context)
+        message = "${result.after.displayWord} 수정됨"
+    }
+
+    fun reviewCardInApp(card: VocabularyCard, response: ReviewResponse) {
+        val now = Instant.now()
+        val schedulerSettings = store.settings().toSchedulerSettings()
+        val result = DueTimeJitter.apply(
+            Scheduler.applyReview(
+                card = card.toSchedulerCard(),
+                response = response,
+                settings = schedulerSettings,
+                now = now,
+                recentResponses = store.recentResponses(card.id, 2),
+                unavailableCountToday = store.unavailableCountToday(card.id, schedulerSettings.timezone, now),
+                forgottenCountToday = store.forgottenCountToday(card.id, schedulerSettings.timezone, now)
+            ),
+            now,
+            schedulerSettings
+        )
+        val updated = card.withSchedulerCard(result.card, now)
+        store.updateCard(updated)
+        store.appendEvent(result.event, now)
+        ReminderNotifications.clearActivePrompt(context, card.id)
+        ReminderNotifications.cancel(context, card)
+        ReminderScheduler.schedule(context, updated, now)
+        DailyReviewPlanner.planAndSchedule(context, now)
+        reload()
+        SyncWorker.enqueueImmediate(context)
+        message = context.getString(
+            when (response) {
+                ReviewResponse.REMEMBERED -> R.string.card_review_remembered_message
+                ReviewResponse.FORGOTTEN -> R.string.card_review_forgotten_message
+                ReviewResponse.UNAVAILABLE -> R.string.card_review_unavailable_message
+                ReviewResponse.SUSPEND -> R.string.card_review_suspended_message
+                ReviewResponse.RESTORE -> R.string.card_review_restored_message
+                else -> R.string.card_review_saved_message
+            },
+            updated.displayWord
+        )
+    }
+
+    fun handleRecommendationInApp(card: VocabularyCard, action: String) {
+        val now = Instant.now()
+        when (action) {
+            ReminderNotifications.RECOMMENDATION_START -> {
+                store.markRecommendationStarted(card.id, now)
+                store.findCard(card.id)?.let { ReminderScheduler.schedule(context, it, now) }
+                message = context.getString(R.string.card_recommendation_started_message, card.displayWord)
+            }
+            ReminderNotifications.RECOMMENDATION_KNOWN -> {
+                store.softDeleteRecommendation(card.id, "known", now)
+                message = context.getString(R.string.card_recommendation_known_message, card.displayWord)
+            }
+            ReminderNotifications.RECOMMENDATION_DISMISS -> {
+                store.softDeleteRecommendation(card.id, "dismissed", now)
+                message = context.getString(R.string.card_recommendation_dismissed_message, card.displayWord)
+            }
+            else -> return
+        }
+        ReminderNotifications.clearActivePrompt(context, card.id)
+        ReminderNotifications.cancel(context, card)
+        DailyReviewPlanner.planAndSchedule(context, now)
+        reload()
+        SyncWorker.enqueueImmediate(context)
     }
 
     LaunchedEffect(Unit) {
@@ -480,6 +570,29 @@ private fun VocabReminderApp(
         SyncWorker.enqueueImmediate(context)
         if (initialText.isNotBlank()) {
             showPreview(initialText, initialMethod, initialSourceApp)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, store) {
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                reload()
+                syncStatus = store.cloudSyncStatus()
+            }
+        }
+        val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (store.isUiRefreshKey(key)) {
+                scope.launch {
+                    reload()
+                    syncStatus = store.cloudSyncStatus()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        store.registerChangeListener(prefsListener)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+            store.unregisterChangeListener(prefsListener)
         }
     }
 
@@ -545,18 +658,26 @@ private fun VocabReminderApp(
                         cards = cards.filter { it.wordbook == Wordbook.USER },
                         contexts = contexts,
                         events = events,
+                        message = message,
                         weakWordIds = weakWordIds.value,
                         timezone = settings.timezone,
                         needsNotificationPermission = needsNotificationPermission,
                         onRequestNotificationPermission = { showNotificationPermissionDialog = true },
+                        onEditSave = { card, editedMeaning, editedExample -> saveCardEdit(card, editedMeaning, editedExample) },
+                        onReview = { card, response -> reviewCardInApp(card, response) },
                         onDelete = { deleteCard(it) }
                     )
                     AppTab.RECOMMENDED -> RecommendationWordbookScreen(
                         cards = cards.filter { it.wordbook == Wordbook.RECOMMENDED },
+                        userWordCount = cards.count { it.wordbook == Wordbook.USER },
                         contexts = contexts,
                         events = events,
+                        message = message,
                         weakWordIds = weakWordIds.value,
                         timezone = settings.timezone,
+                        onEditSave = { card, editedMeaning, editedExample -> saveCardEdit(card, editedMeaning, editedExample) },
+                        onReview = { card, response -> reviewCardInApp(card, response) },
+                        onRecommendationAction = { card, action -> handleRecommendationInApp(card, action) },
                         onDelete = { deleteCard(it) }
                     )
                     AppTab.SETTINGS -> SettingsScreen(
@@ -699,10 +820,13 @@ private fun UserWordbookScreen(
     cards: List<VocabularyCard>,
     contexts: List<StoredContext>,
     events: List<StoredReviewEvent>,
+    message: String,
     weakWordIds: Set<String>,
     timezone: ZoneId,
     needsNotificationPermission: Boolean,
     onRequestNotificationPermission: () -> Unit,
+    onEditSave: (VocabularyCard, String, String) -> Unit,
+    onReview: (VocabularyCard, ReviewResponse) -> Unit,
     onDelete: (VocabularyCard) -> Unit
 ) {
     WordbookScreen(
@@ -710,17 +834,18 @@ private fun UserWordbookScreen(
         cards = cards,
         contexts = contexts,
         events = events,
+        message = message,
         weakWordIds = weakWordIds,
         timezone = timezone,
         emptyText = "아직 저장된 단어가 없습니다.",
         header = {
             val now = Instant.now()
             val dueToday = cards.count { card ->
-                val days = ChronoUnit.DAYS.between(
-                    now.atZone(timezone).toLocalDate(),
-                    card.dueAt.atZone(timezone).toLocalDate()
-                )
-                days <= 0
+                card.meaningKo.isNotBlank() &&
+                    card.deletedAt == null &&
+                    card.status != CardStatus.MASTERED &&
+                    card.status != CardStatus.SUSPENDED &&
+                    !card.dueAt.isAfter(now)
             }
             Text(
                 text = stringResource(
@@ -735,6 +860,9 @@ private fun UserWordbookScreen(
                 NotificationPermissionCard(onRequestNotificationPermission)
             }
         },
+        onEditSave = onEditSave,
+        onReview = onReview,
+        onRecommendationAction = { _, _ -> },
         onDelete = onDelete
     )
 }
@@ -742,10 +870,15 @@ private fun UserWordbookScreen(
 @Composable
 private fun RecommendationWordbookScreen(
     cards: List<VocabularyCard>,
+    userWordCount: Int,
     contexts: List<StoredContext>,
     events: List<StoredReviewEvent>,
+    message: String,
     weakWordIds: Set<String>,
     timezone: ZoneId,
+    onEditSave: (VocabularyCard, String, String) -> Unit,
+    onReview: (VocabularyCard, ReviewResponse) -> Unit,
+    onRecommendationAction: (VocabularyCard, String) -> Unit,
     onDelete: (VocabularyCard) -> Unit
 ) {
     WordbookScreen(
@@ -753,15 +886,19 @@ private fun RecommendationWordbookScreen(
         cards = cards,
         contexts = contexts,
         events = events,
+        message = message,
         weakWordIds = weakWordIds,
         timezone = timezone,
-        emptyText = "추천 단어가 없습니다.",
+        emptyText = stringResource(R.string.recommendation_waiting_text, userWordCount),
         header = {
             Text(
                 text = "추천 단어 ${cards.size}개",
                 style = MaterialTheme.typography.titleMedium
             )
         },
+        onEditSave = onEditSave,
+        onReview = onReview,
+        onRecommendationAction = onRecommendationAction,
         onDelete = onDelete
     )
 }
@@ -772,10 +909,14 @@ private fun WordbookScreen(
     cards: List<VocabularyCard>,
     contexts: List<StoredContext>,
     events: List<StoredReviewEvent>,
+    message: String,
     weakWordIds: Set<String>,
     timezone: ZoneId,
     emptyText: String,
     header: @Composable () -> Unit,
+    onEditSave: (VocabularyCard, String, String) -> Unit,
+    onReview: (VocabularyCard, ReviewResponse) -> Unit,
+    onRecommendationAction: (VocabularyCard, String) -> Unit,
     onDelete: (VocabularyCard) -> Unit
 ) {
     LazyColumn(
@@ -790,6 +931,11 @@ private fun WordbookScreen(
         item {
             header()
         }
+        if (message.isNotBlank()) {
+            item {
+                StatusSnackbar(message = message)
+            }
+        }
         if (cards.isEmpty()) {
             item {
                 Text(emptyText, style = MaterialTheme.typography.bodyMedium)
@@ -800,11 +946,14 @@ private fun WordbookScreen(
                     card = card,
                     weak = card.id in weakWordIds,
                     contexts = contexts.filter { it.cardId == card.id },
-                    events = events.filter { it.cardId == card.id },
-                    timezone = timezone,
-                    onDelete = { onDelete(card) }
-                )
-            }
+                        events = events.filter { it.cardId == card.id },
+                        timezone = timezone,
+                        onEditSave = { editedMeaning, editedExample -> onEditSave(card, editedMeaning, editedExample) },
+                        onReview = { response -> onReview(card, response) },
+                        onRecommendationAction = { action -> onRecommendationAction(card, action) },
+                        onDelete = { onDelete(card) }
+                    )
+                }
         }
     }
 }
@@ -1267,6 +1416,12 @@ private fun SettingsPanel(
     onPlan: () -> Unit,
     onRebalance: () -> Unit
 ) {
+    var showWatchReplyHelp by remember { mutableStateOf(false) }
+    var quietStartError by remember { mutableStateOf("") }
+    var quietEndError by remember { mutableStateOf("") }
+    var timezoneError by remember { mutableStateOf("") }
+    val timeErrorText = stringResource(R.string.settings_time_error)
+    val timezoneErrorText = stringResource(R.string.settings_timezone_error)
     Card {
         Column(
             modifier = Modifier
@@ -1276,23 +1431,59 @@ private fun SettingsPanel(
         ) {
             Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.titleMedium)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                NumberField(stringResource(R.string.settings_daily_goal_label), settings.dailyWordGoal.toString()) {
-                    onSettingsChange(settings.copy(dailyWordGoal = it.toIntOrNull()?.coerceAtLeast(1) ?: settings.dailyWordGoal))
+                NumberField(stringResource(R.string.settings_daily_goal_label), settings.dailyWordGoal.toString()) { raw ->
+                    raw.toIntOrNull()?.takeIf { it >= 1 }?.let {
+                        onSettingsChange(settings.copy(dailyWordGoal = it))
+                    }
                 }
-                NumberField(stringResource(R.string.settings_queue_cap_label), settings.maxQueueSize.toString()) {
-                    onSettingsChange(settings.copy(maxQueueSize = it.toIntOrNull()?.coerceAtLeast(1) ?: settings.maxQueueSize))
+                NumberField(stringResource(R.string.settings_queue_cap_label), settings.maxQueueSize.toString()) { raw ->
+                    raw.toIntOrNull()?.takeIf { it >= 1 }?.let {
+                        onSettingsChange(settings.copy(maxQueueSize = it))
+                    }
                 }
-                NumberField(stringResource(R.string.settings_snooze_label), settings.snoozeDurationMinutes.toString()) {
-                    onSettingsChange(settings.copy(snoozeDurationMinutes = it.toLongOrNull()?.coerceAtLeast(1) ?: settings.snoozeDurationMinutes))
+                NumberField(stringResource(R.string.settings_snooze_label), settings.snoozeDurationMinutes.toString()) { raw ->
+                    raw.toLongOrNull()?.takeIf { it >= 1 }?.let {
+                        onSettingsChange(settings.copy(snoozeDurationMinutes = it))
+                    }
                 }
-                TimeField(stringResource(R.string.settings_quiet_start_label), settings.quietHoursStart.toString()) {
-                    runCatching { LocalTime.parse(it) }.getOrNull()?.let { time -> onSettingsChange(settings.copy(quietHoursStart = time)) }
+                TimeField(
+                    label = stringResource(R.string.settings_quiet_start_label),
+                    value = settings.quietHoursStart.toString(),
+                    error = quietStartError
+                ) { raw ->
+                    runCatching { LocalTime.parse(raw) }.fold(
+                        onSuccess = { time ->
+                            quietStartError = ""
+                            onSettingsChange(settings.copy(quietHoursStart = time))
+                        },
+                        onFailure = { quietStartError = timeErrorText }
+                    )
                 }
-                TimeField(stringResource(R.string.settings_quiet_end_label), settings.quietHoursEnd.toString()) {
-                    runCatching { LocalTime.parse(it) }.getOrNull()?.let { time -> onSettingsChange(settings.copy(quietHoursEnd = time)) }
+                TimeField(
+                    label = stringResource(R.string.settings_quiet_end_label),
+                    value = settings.quietHoursEnd.toString(),
+                    error = quietEndError
+                ) { raw ->
+                    runCatching { LocalTime.parse(raw) }.fold(
+                        onSuccess = { time ->
+                            quietEndError = ""
+                            onSettingsChange(settings.copy(quietHoursEnd = time))
+                        },
+                        onFailure = { quietEndError = timeErrorText }
+                    )
                 }
-                TimeField(stringResource(R.string.settings_timezone_label), settings.timezone.id) {
-                    runCatching { ZoneId.of(it) }.getOrNull()?.let { zone -> onSettingsChange(settings.copy(timezone = zone)) }
+                TimeField(
+                    label = stringResource(R.string.settings_timezone_label),
+                    value = settings.timezone.id,
+                    error = timezoneError
+                ) { raw ->
+                    runCatching { ZoneId.of(raw) }.fold(
+                        onSuccess = { zone ->
+                            timezoneError = ""
+                            onSettingsChange(settings.copy(timezone = zone))
+                        },
+                        onFailure = { timezoneError = timezoneErrorText }
+                    )
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1300,6 +1491,22 @@ private fun SettingsPanel(
                 Switch(
                     checked = settings.enableWordRecommendations,
                     onCheckedChange = { onSettingsChange(settings.copy(enableWordRecommendations = it)) }
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.settings_watch_reply_label))
+                Switch(
+                    checked = settings.enableWatchReplyReview,
+                    onCheckedChange = { onSettingsChange(settings.copy(enableWatchReplyReview = it)) }
+                )
+            }
+            TextButton(onClick = { showWatchReplyHelp = !showWatchReplyHelp }) {
+                Text(stringResource(R.string.settings_watch_reply_help_button))
+            }
+            if (showWatchReplyHelp) {
+                Text(
+                    text = stringResource(R.string.settings_watch_reply_help),
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1313,16 +1520,16 @@ private fun SettingsPanel(
 
 @Composable
 private fun NumberField(label: String, value: String, onChange: (String) -> Unit) {
-    SettingsTextField(label = label, value = value, onChange = onChange)
+    SettingsTextField(label = label, value = value, error = "", onChange = onChange)
 }
 
 @Composable
-private fun TimeField(label: String, value: String, onChange: (String) -> Unit) {
-    SettingsTextField(label = label, value = value, onChange = onChange)
+private fun TimeField(label: String, value: String, error: String, onChange: (String) -> Unit) {
+    SettingsTextField(label = label, value = value, error = error, onChange = onChange)
 }
 
 @Composable
-private fun SettingsTextField(label: String, value: String, onChange: (String) -> Unit) {
+private fun SettingsTextField(label: String, value: String, error: String, onChange: (String) -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1336,8 +1543,16 @@ private fun SettingsTextField(label: String, value: String, onChange: (String) -
             modifier = Modifier.fillMaxWidth(),
             value = value,
             onValueChange = onChange,
+            isError = error.isNotBlank(),
             singleLine = true
         )
+        if (error.isNotBlank()) {
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 
@@ -1360,9 +1575,15 @@ private fun CardSummary(
     contexts: List<StoredContext>,
     events: List<StoredReviewEvent>,
     timezone: ZoneId,
+    onEditSave: (String, String) -> Unit,
+    onReview: (ReviewResponse) -> Unit,
+    onRecommendationAction: (String) -> Unit,
     onDelete: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var editing by remember(card.id) { mutableStateOf(false) }
+    var editMeaning by remember(card.id, card.meaningKo) { mutableStateOf(card.meaningKo) }
+    var editExample by remember(card.id, card.exampleSentence) { mutableStateOf(card.exampleSentence) }
     Card(
         modifier = Modifier.clickable { expanded = !expanded }
     ) {
@@ -1422,6 +1643,72 @@ private fun CardSummary(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (card.wordbook == Wordbook.RECOMMENDED && card.recommendationStartedAt == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            modifier = Modifier.testTag("start_recommendation_${card.lemma}"),
+                            onClick = { onRecommendationAction(ReminderNotifications.RECOMMENDATION_START) }
+                        ) {
+                            Text(stringResource(R.string.card_recommendation_start_button))
+                        }
+                        TextButton(
+                            modifier = Modifier.testTag("known_recommendation_${card.lemma}"),
+                            onClick = { onRecommendationAction(ReminderNotifications.RECOMMENDATION_KNOWN) }
+                        ) {
+                            Text(stringResource(R.string.card_recommendation_known_button))
+                        }
+                        TextButton(
+                            modifier = Modifier.testTag("dismiss_recommendation_${card.lemma}"),
+                            onClick = { onRecommendationAction(ReminderNotifications.RECOMMENDATION_DISMISS) }
+                        ) {
+                            Text(stringResource(R.string.card_recommendation_dismiss_button))
+                        }
+                    }
+                } else if (card.meaningKo.isNotBlank()) {
+                    if (card.status == CardStatus.SUSPENDED) {
+                        Button(
+                            modifier = Modifier.testTag("restore_card_${card.lemma}"),
+                            onClick = { onReview(ReviewResponse.RESTORE) }
+                        ) {
+                            Text(stringResource(R.string.card_restore_button))
+                        }
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                Button(
+                                    modifier = Modifier.testTag("review_remembered_${card.lemma}"),
+                                    onClick = { onReview(ReviewResponse.REMEMBERED) }
+                                ) {
+                                    Text(stringResource(R.string.card_review_remembered_button))
+                                }
+                            }
+                            item {
+                                Button(
+                                    modifier = Modifier.testTag("review_forgotten_${card.lemma}"),
+                                    onClick = { onReview(ReviewResponse.FORGOTTEN) }
+                                ) {
+                                    Text(stringResource(R.string.card_review_forgotten_button))
+                                }
+                            }
+                            item {
+                                TextButton(
+                                    modifier = Modifier.testTag("review_unavailable_${card.lemma}"),
+                                    onClick = { onReview(ReviewResponse.UNAVAILABLE) }
+                                ) {
+                                    Text(stringResource(R.string.card_review_unavailable_button))
+                                }
+                            }
+                            item {
+                                TextButton(
+                                    modifier = Modifier.testTag("suspend_card_${card.lemma}"),
+                                    onClick = { onReview(ReviewResponse.SUSPEND) }
+                                ) {
+                                    Text(stringResource(R.string.card_suspend_button))
+                                }
+                            }
+                        }
+                    }
+                }
                 if (BuildConfig.DEBUG) {
                     val weakLabel = if (weak) " · weak" else ""
                     Text(
@@ -1429,6 +1716,53 @@ private fun CardSummary(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                if (editing) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("edit_meaning_${card.lemma}"),
+                        value = editMeaning,
+                        onValueChange = { editMeaning = it },
+                        label = { Text(stringResource(R.string.card_edit_meaning_label)) },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("edit_example_${card.lemma}"),
+                        value = editExample,
+                        onValueChange = { editExample = it },
+                        label = { Text(stringResource(R.string.card_edit_example_label)) }
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            modifier = Modifier.testTag("save_edit_${card.lemma}"),
+                            onClick = {
+                                onEditSave(editMeaning, editExample)
+                                editing = false
+                            }
+                        ) {
+                            Text(stringResource(R.string.card_edit_save_button))
+                        }
+                        TextButton(
+                            modifier = Modifier.testTag("cancel_edit_${card.lemma}"),
+                            onClick = {
+                                editMeaning = card.meaningKo
+                                editExample = card.exampleSentence
+                                editing = false
+                            }
+                        ) {
+                            Text(stringResource(R.string.card_edit_cancel_button))
+                        }
+                    }
+                } else {
+                    Button(
+                        modifier = Modifier.testTag("edit_card_${card.lemma}"),
+                        onClick = { editing = true }
+                    ) {
+                        Text(stringResource(R.string.card_edit_button))
+                    }
                 }
             }
             Button(
@@ -1450,7 +1784,7 @@ private fun StatusBadge(card: VocabularyCard) {
         card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.secondaryContainer
         card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.tertiaryContainer
         card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.errorContainer
-        card.status == CardStatus.MASTERED -> MaterialTheme.colorScheme.surfaceVariant
+        card.status == CardStatus.MASTERED -> Color(0xFFE0E0E0)
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when {
@@ -1459,6 +1793,7 @@ private fun StatusBadge(card: VocabularyCard) {
         card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.onSecondaryContainer
         card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.onTertiaryContainer
         card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.onErrorContainer
+        card.status == CardStatus.MASTERED -> Color(0xFF424242)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(

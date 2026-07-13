@@ -26,6 +26,14 @@ export function readConfig(overrides = {}) {
   loadEnvFile(overrides.envPath);
   const port = numberValue(overrides.port ?? process.env.VOCAB_SYNC_PORT ?? process.env.PORT, 8787);
   const backupRetention = numberValue(overrides.backupRetention ?? process.env.VOCAB_SYNC_BACKUP_RETENTION, 30);
+  const maxBodyBytes = positiveIntegerValue(
+    overrides.maxBodyBytes ?? process.env.VOCAB_SYNC_MAX_BODY_BYTES,
+    16 * 1024 * 1024
+  );
+  const maxCollectionItems = positiveIntegerValue(
+    overrides.maxCollectionItems ?? process.env.VOCAB_SYNC_MAX_COLLECTION_ITEMS,
+    10_000
+  );
   const dbPath = resolveServerPath(overrides.dbPath ?? process.env.VOCAB_SYNC_DB_PATH ?? "./data/vocab-sync.sqlite");
   const backupDir = resolveServerPath(overrides.backupDir ?? process.env.VOCAB_SYNC_BACKUP_DIR ?? "./backups");
 
@@ -35,13 +43,20 @@ export function readConfig(overrides = {}) {
     token: String(overrides.token ?? process.env.VOCAB_SYNC_TOKEN ?? ""),
     dbPath,
     backupDir,
-    backupRetention
+    backupRetention,
+    maxBodyBytes,
+    maxCollectionItems
   };
 }
 
 function numberValue(raw, fallback) {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function positiveIntegerValue(raw, fallback) {
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function resolveServerPath(raw) {

@@ -69,7 +69,7 @@ object CaptureNormalizer {
     }
 
     fun normalizeText(value: String): String {
-        return value
+        return stripNonAsciiSymbols(value)
             .trim()
             .replace(Regex("""\s+"""), " ")
             .replace(edgePunctuation, "")
@@ -105,5 +105,18 @@ object CaptureNormalizer {
         val last = last()
         val previous = this[length - 2]
         return if (last == previous && last !in setOf('a', 'e', 'i', 'o', 'u')) dropLast(1) else this
+    }
+
+    private fun stripNonAsciiSymbols(value: String): String {
+        return value.filter { char ->
+            char.code < 128 || when (Character.getType(char)) {
+                Character.MATH_SYMBOL.toInt(),
+                Character.CURRENCY_SYMBOL.toInt(),
+                Character.MODIFIER_SYMBOL.toInt(),
+                Character.OTHER_SYMBOL.toInt(),
+                Character.SURROGATE.toInt() -> false
+                else -> true
+            }
+        }
     }
 }

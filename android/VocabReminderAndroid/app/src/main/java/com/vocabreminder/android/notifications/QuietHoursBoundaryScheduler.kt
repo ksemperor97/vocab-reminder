@@ -30,7 +30,11 @@ object QuietHoursBoundaryScheduler {
     fun handleBoundary(context: Context, action: String, now: Instant = Instant.now()) {
         when (action) {
             ACTION_QUIET_START -> withdrawActiveNotifications(context)
-            ACTION_QUIET_END -> DailyReviewPlanner.planAndSchedule(context, now)
+            ACTION_QUIET_END -> {
+                val store = LocalVocabularyStore(context)
+                ReminderNotifications.restoreActiveNotification(context, store, now)
+                DailyReviewPlanner.planAndSchedule(context, now)
+            }
         }
         schedule(context, now)
     }
@@ -42,7 +46,12 @@ object QuietHoursBoundaryScheduler {
 
     fun withdrawActiveNotifications(context: Context) {
         val store = LocalVocabularyStore(context)
-        store.cards().forEach { ReminderNotifications.cancel(context, it) }
+        val solicitedFeedbackCardId = ReminderNotifications.activeNotificationState(context)
+            ?.takeIf { it.phase == NotificationPhase.FEEDBACK }
+            ?.cardId
+        store.cards()
+            .filterNot { it.id == solicitedFeedbackCardId }
+            .forEach { ReminderNotifications.cancel(context, it) }
         ReminderNotifications.cancelRecommendationIntro(context)
     }
 

@@ -125,8 +125,8 @@
   그대로 남는다. UPDATE(WorkManager 2.8+, 미지원이면 CANCEL_AND_REENQUEUE)로
   바꿔 기존 기기에도 새 주기가 적용되게 한다.
 - 알림 액션(외웠다/못외웠다/나중에/추천 액션) 처리 경로가 로컬 store 변경 후
-  enqueueDebounced()를 타는지 확인한다. 리시버가 store 변경 후 sync를
-  트리거하지 않으면 액션 처리 완료 지점에 enqueueDebounced(context) 추가.
+  즉시 sync work를 enqueue하는지 확인한다. 리시버가 store 변경 후 sync를
+  트리거하지 않으면 액션 처리 완료 지점에 enqueueImmediate(context) 추가.
   (이미 store 변경 훅으로 트리거된다면 코드 추가 없이 확인 결과만 기록.)
 - 네트워크 제약(NetworkType.CONNECTED)과 backoff는 그대로 유지. 배터리를 위해
   주기를 2시간 미만으로 줄이지 않는다.
@@ -135,11 +135,12 @@
 - 단위 테스트 또는 WorkManager TestDriver로 주기 2시간 + 정책 변경 확인.
 - 실기기: adb로 WorkManager 잡 덤프(`adb shell dumpsys jobscheduler` 또는
   `adb shell am broadcast ...` 기존 QC 방식)에서 2시간 주기 등록 증거 저장.
-- 액션 후 sync: 알림에서 [외웠다] 처리 → 5분 debounce 잡 등록됨을 덤프로 확인.
+- 액션 후 sync: 알림에서 [외웠다] 처리 → 즉시 sync 잡 등록됨을 덤프로 확인.
 ```
 
 - [x] S3 완료
   - 완료(2026-07-04): Android periodic sync 2시간, `ExistingPeriodicWorkPolicy.UPDATE`, 액션 후 debounced sync 등록 테스트 추가. Galaxy SM-F766N QA 패키지에서 WorkManager periodic job `+1h59m59s`와 review action 후 debounced job `+4m59s` 등록을 확인했고, action receiver가 `REMEMBERED` 이벤트와 다음 due를 기록함을 확인. 증거: `/tmp/vocab_sync_worklist_20260704/android_gradle_verify.log`, `/tmp/vocab_sync_worklist_20260704/adb_devices_authorized.txt`, `/tmp/vocab_sync_worklist_20260704/deviceqa_jobscheduler_qa_blocks_after_review_action.txt`, `/tmp/vocab_sync_worklist_20260704/deviceqa_store_after_runas_user0_review_action.xml`, `/tmp/vocab_sync_worklist_20260704/deviceqa_review_action_runas_user0_broadcast.txt`.
+  - 변경(2026-07-07): 사용자 요청에 따라 저장/편집/삭제/복습/recommendation action 후 Android sync를 5분 debounce에서 immediate work로 바꿨고, 앱 시작 시 legacy `local-sync-debounced` work를 취소한다.
 
 ---
 

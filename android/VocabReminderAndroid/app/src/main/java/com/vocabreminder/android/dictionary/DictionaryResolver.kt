@@ -2,6 +2,7 @@ package com.vocabreminder.android.dictionary
 
 import com.vocabreminder.android.capture.CaptureAnalysis
 import com.vocabreminder.android.capture.CaptureNormalizer
+import com.vocabreminder.android.recommendation.RecommendationCatalog
 
 data class DictionaryResult(
     val lemma: String,
@@ -70,6 +71,12 @@ object DictionaryResolver {
             partOfSpeech = "adjective",
             exampleSentence = "The salient feature was the delayed response."
         ),
+        "resilient" to LocalEntry(
+            meaningKo = "회복력 있는, 탄력 있는",
+            definitionEn = "able to recover quickly from difficulty",
+            partOfSpeech = "adjective",
+            exampleSentence = "A resilient system recovers quickly."
+        ),
         "mitigate" to LocalEntry(
             meaningKo = "완화하다, 줄이다",
             definitionEn = "to make something less harmful or serious",
@@ -77,13 +84,26 @@ object DictionaryResolver {
             exampleSentence = "The protocol mitigated measurement noise."
         )
     )
+    private val catalogEntries by lazy {
+        RecommendationCatalog.seeds.associate { seed ->
+            seed.lemma to LocalEntry(
+                meaningKo = seed.meaningKo,
+                definitionEn = seed.definitionEn,
+                partOfSpeech = seed.partOfSpeech,
+                exampleSentence = seed.exampleSentence
+            )
+        }
+    }
 
     fun resolve(rawText: String, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
         return resolve(CaptureNormalizer.analyze(rawText), sourceApp, sourceUrl)
     }
 
     fun resolve(analysis: CaptureAnalysis, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
-        val entry = localEntries[analysis.lemma] ?: localEntries[analysis.displayWord.lowercase()]
+        val entry = localEntries[analysis.lemma]
+            ?: localEntries[analysis.displayWord.lowercase()]
+            ?: catalogEntries[analysis.lemma]
+            ?: catalogEntries[analysis.displayWord.lowercase()]
         val exampleSentence = analysis.sourceSentence.ifBlank { entry?.exampleSentence.orEmpty() }
         return if (entry != null) {
             // guide 10.4: Android uses app/local dictionary before cloud fallback.

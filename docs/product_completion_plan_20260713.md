@@ -1,0 +1,507 @@
+# VocabReminder 제품 완성도 마감 실행 계획
+
+작성일: 2026-07-13
+
+대상: Mac 앱 + Android 앱 + Mac mini sync 서버 + Cloudflare tunnel 운영 경로
+
+근거 문서: `vocab_reminder_claude_guide.md`, `vocab_reminder_user_experience.md`, `local_sync_server_plan.md`, `automatic_sync_tunnel_plan.md`, `codex_completeness_worklist.md`, `STATUS.md`
+
+## 0. 결론
+
+현재 구현은 캡처, 저장, 알림 복습, 로컬 우선 동작, 양방향 sync까지 연결된 **고급 MVP**다. 핵심 학습 로직은 상당히 구현됐지만, 다음 문제가 남아 있어 아직 “안심하고 계속 쓰는 완성품”이라고 보기는 어렵다.
+
+1. 서버가 Node native module ABI와 Dropbox 경로에 묶여 재시작 안정성이 부족하다.
+2. quick tunnel 프로세스가 살아 있으면서 연결만 죽는 경우 자동 복구하지 못한다.
+3. 일반 단어의 한국어 뜻 자동 해석 범위가 매우 제한적이고, 실패 후 자동 보강도 없다.
+4. 동시 뜻 편집에서 양쪽 사용자가 만든 뜻을 모두 보존한다는 보장이 없다.
+5. 카드의 문맥·뜻 후보·학습 이력 전체를 확인하고 복구하는 UI가 부족하다.
+6. Mac 테스트가 실행 파일 내부의 현재 시각 의존 self-check에 머물러 있다.
+7. Android 배포 서명, secret 운용, 문서 정합성이 시험 운영 수준이다.
+8. 추천 카탈로그의 양과 품질·라이선스가 장기 사용 기준에 못 미친다.
+
+따라서 구현 순서는 **운영 기반 안정화(P0) → 뜻 자동 해석(P1) → 데이터 무손실과 카드 전기(P2) → 배포·온보딩(P3) → 추천 품질(P4) → 전체 품질 게이트(P5)**로 고정한다. P0가 끝나기 전에는 새 기능 확대보다 서버·데이터 복구 가능성을 먼저 확보한다.
+
+---
+
+## 1. 제품 의도와 고정 원칙
+
+이 계획에서 바꾸지 않는 제품 의도는 다음과 같다.
+
+- 사용자가 다른 앱에서 영어 단어를 발견하면 Mac 우클릭/단축키 또는 Android 선택/공유로 즉시 저장한다.
+- 가능한 경우 뜻과 문맥을 자동으로 붙이고, 실패해도 캡처 자체는 막지 않는다.
+- Mac과 Android가 같은 단어장, 문맥, 뜻 후보, 복습 이벤트, 설정을 공유한다.
+- Android를 중심으로 짧은 알림 복습을 제공하고 Mac도 동일한 학습 상태를 따른다.
+- 사용자가 뜻을 잊었을 때 즉시 뜻을 보여 주고 짧은 간격으로 다시 묻는다.
+- 네트워크·서버가 없어도 캡처, 열람, 편집, 복습은 동작하는 local-first 앱이다.
+
+기존 사용자 결정도 그대로 유지한다.
+
+- 단독 사용자용이며 Firebase를 사용하지 않는다.
+- 24시간 켜진 Mac mini가 authoritative sync 서버다.
+- Android 사용자는 VPN, 공유기, 서버 주소, 토큰을 직접 설정하지 않는다.
+- 유료 도메인 없이 현재 `workers.dev + quick tunnel` 구조를 유지한다.
+- 외부 사전/번역/LLM 호출은 기본값이 아니다. 로컬 또는 Mac mini의 오프라인 데이터가 우선이다.
+- 제3자에게 문맥 문장을 보내는 기능은 명시적 opt-in과 전송 범위 표시가 있을 때만 허용한다.
+- iOS, 브라우저 확장, TTS, 통계 대시보드, full FSRS는 이번 마감 범위가 아니다.
+
+---
+
+## 2. 현재 기준선
+
+2026-07-13 감사 시점의 기준선이다. 이후 구현자는 착수 직전에 같은 검증을 다시 실행하고 결과를 이 표에 갱신한다.
+
+| 영역 | 현재 결과 | 판정 | 마감에 필요한 조치 |
+|---|---|---|---|
+| Android unit/build | JVM 테스트 88건 중 87 통과, 1 skip; debug 및 androidTest APK 빌드 성공 | 양호 | lint, release signing, 실기기 instrumentation까지 정식 게이트화 |
+| Mac build | `swift build` 성공 | 양호 | XCTest target과 결정적 clock 추가 |
+| Mac scheduler self-check | quiet hours 경계에서 현재 시각에 따라 실패 | 불안정 | `Date()` 의존 제거 후 고정 시각 테스트로 이전 |
+| Server test | 디스크의 `better-sqlite3` ABI와 현재 Node ABI 불일치로 test 시작 전 실패 | 차단 | Node pin, 배포 디렉터리 격리, native module preflight |
+| Local server health | 실행 중 프로세스는 `/health` 200 | 조건부 | 재시작해도 같은 결과가 나오는지 보장 필요 |
+| Stable HTTPS endpoint | Worker가 죽은 quick tunnel을 가리켜 530 | 실패 | tunnel child health 감시와 자동 재발급·재게시 |
+| Release artifact 검사 | URL/token, manifest, capture service, scheme 검사 통과 | 양호 | 실제 release key와 재현 가능한 패키징 추가 |
+| Runtime data | SQLite 자체 무결성은 정상이나 Dropbox conflict WAL/SHM 흔적 존재 | 고위험 | 실행 데이터·로그·백업을 Dropbox 밖으로 이동 |
+| 일반 단어 해석 | Android는 소수 local entry와 추천 seed 의존, 미등록 단어는 빈 뜻 가능 | 미완성 | provider-neutral resolver와 background enrichment |
+| 카드 전기 | Android/Mac 모두 문맥·이벤트·뜻 후보 전체 탐색이 어려움 | 미완성 | 전체 이력 UI와 후보 복구 기능 |
+| 추천 데이터 | 완전 보강된 release catalog가 149개 수준 | 미완성 | 라이선스가 확인된 장기 분량과 품질 benchmark |
+| Git 기준점 | tracked 수정 다수와 untracked 핵심 파일이 함께 존재 | 고위험 | 변경분 보존·분류 후 복구 가능한 기준점 확립 |
+
+---
+
+## 3. 완료의 정의
+
+다음 조건을 모두 만족해야 제품 마감 완료로 판정한다.
+
+```text
+1. P0~P5의 필수 체크박스가 모두 [x]다.
+2. §11의 자동 검증, 실기기 검증, 장애 복구 검증을 모두 통과한다.
+3. 서버와 tunnel을 강제로 종료해도 수동 개입 없이 복구된다.
+4. Mac mini 재부팅 후 server/tunnel/sync가 자동 복구된다.
+5. 네트워크가 끊긴 동안 생성한 데이터가 복구 후 무손실로 합쳐진다.
+6. 같은 카드의 동시 뜻 편집 결과가 둘 다 후보로 남는다.
+7. 일반 단어 benchmark가 §5의 품질 기준을 만족한다.
+8. release APK와 Mac app이 디버그 설정 없이 동일한 운영 endpoint에서 동작한다.
+9. STATUS, UX, 운영 runbook의 현재 동작 설명이 서로 모순되지 않는다.
+10. 열린 P0/P1 결함과 데이터 유실 가능 결함이 0건이다.
+```
+
+작업 규칙:
+
+- 기존 사용자 변경은 되돌리거나 덮어쓰지 않는다.
+- 각 태스크는 코드, 자동 테스트, 실제 동작 증거, 문서 갱신을 한 묶음으로 닫는다.
+- “빌드 성공”만으로 사용자 동작 태스크를 완료 처리하지 않는다.
+- 실기기 증거는 `/tmp/vocab_product_completion_<YYYYMMDD>/` 아래에 보관한다.
+- 각 완료 기록에는 실행 명령, exit code, 장비, 앱 버전, 결과 파일 경로를 남긴다.
+- 토큰, keystore 암호, 실제 secret은 로그·스크린샷·Git에 남기지 않는다.
+
+---
+
+## 4. P0 — 운영 기반과 데이터 안전성
+
+P0는 다른 마일스톤의 선행 조건이다.
+
+### P0-1. 현재 변경분을 복구 가능한 기준점으로 만든다
+
+- [ ] `git status --short`, `git diff --stat`, untracked 목록을 증거 폴더에 저장한다.
+- [ ] 변경분을 Android, Mac, server/tunnel, docs/tools 단위로 분류한다.
+- [ ] 사용자 변경을 삭제하지 않고 논리 단위 커밋 또는 별도 보존 branch로 기준점을 만든다.
+- [ ] build artifact, runtime DB, secret, log가 Git에 들어가지 않도록 ignore 규칙을 재검증한다.
+- [ ] 이후 각 마일스톤은 독립적으로 되돌릴 수 있는 크기의 커밋으로 유지한다.
+
+완료 기준: 현재 기능을 재현할 수 있는 commit SHA가 있고, 의도하지 않은 파일 삭제가 0건이다.
+
+### P0-2. 실행 환경을 소스 checkout과 분리한다
+
+- [ ] 서버 운영본을 Dropbox checkout에서 직접 실행하지 않는다.
+- [ ] 설치 스크립트가 source를 versioned deploy 디렉터리로 복사하고, launchd는 그 경로만 실행하게 한다.
+- [ ] DB, WAL/SHM, backup, log, PID/runtime state는 `~/Library/Application Support/VocabReminderServer/` 계열의 Dropbox 밖 경로에 둔다.
+- [ ] Node major와 실제 binary 절대 경로를 pin하고 `package-lock.json` 기준으로 설치한다.
+- [ ] 시작 전에 `better-sqlite3` import, Node module ABI, DB open, port bind를 preflight한다.
+- [ ] 새 배포가 preflight에 실패하면 실행 중인 직전 배포를 유지하거나 자동 rollback한다.
+- [ ] server와 tunnel 로그에 rotation/보존 한도를 둔다.
+
+완료 기준:
+
+- launchd 재시작과 Mac mini 재부팅 후 native module 오류 없이 `/health` 200.
+- source checkout을 다른 위치로 옮겨도 배포 중인 서버는 계속 동작.
+- Dropbox conflict file이 runtime 디렉터리에 생성되지 않음.
+
+### P0-3. 기존 DB를 안전하게 이전하고 복구 훈련을 한다
+
+- [ ] 쓰기 중지 → WAL checkpoint → SQLite backup API 또는 안전한 snapshot → integrity check → 새 경로 시작 순으로 이전한다.
+- [ ] 이전 전후 cards/contexts/candidates/events/settings 수와 핵심 ID checksum을 비교한다.
+- [ ] 매일 backup이 실제 DB 무결성 검사를 통과한 뒤에만 정상 backup으로 표시되게 한다.
+- [ ] backup retention 30개와 최소 7일간의 복구점을 보장한다.
+- [ ] 빈 임시 서버에 최신 backup을 복구하고 `/sync/snapshot`까지 읽는 restore drill을 자동화한다.
+- [ ] restore 절차와 예상 소요 시간을 `sync_tunnel_runbook.md`에 기록한다.
+
+완료 기준: 최신 backup으로 별도 임시 디렉터리에 복구했을 때 원본의 엔티티 수와 checksum이 일치한다.
+
+### P0-4. quick tunnel을 프로세스가 아니라 연결 상태로 감시한다
+
+- [ ] `run_cloudflare_quick_worker.mjs`를 supervisor loop 구조로 바꾼다.
+- [ ] child process 생존 여부와 별개로 local upstream, quick tunnel URL, stable Worker URL을 주기적으로 확인한다.
+- [ ] 연속 health 실패 시 cloudflared child를 종료하고 backoff 후 새 quick tunnel을 발급한다.
+- [ ] 새 URL을 Worker KV에 게시한 뒤 stable URL에서 token 200/wrong-token 401을 확인해야 generation을 성공 처리한다.
+- [ ] Worker에 upstream generation, updated_at, 마지막 성공 health를 저장한다.
+- [ ] upstream이 죽었을 때 raw 530 대신 식별 가능한 JSON 503과 request ID를 반환한다.
+- [ ] 재시작 폭주를 막기 위해 exponential backoff와 상한을 둔다.
+- [ ] server 또는 tunnel crash loop를 사용자에게 보여 주는 로컬 상태/로그 요약을 제공한다.
+
+완료 기준:
+
+- cloudflared 강제 종료 후 stable endpoint가 120초 안에 자동 복구.
+- 네트워크 5분 차단 후 재연결 시 수동 명령 없이 자동 복구.
+- Mac mini 재부팅 후 180초 안에 server, tunnel, stable `/health` 모두 정상.
+- 24시간 soak 동안 수동 복구 0회, DB 손상 0건, crash loop 0건.
+
+### P0-5. `sync:doctor`를 운영 진실의 단일 명령으로 만든다
+
+- [ ] Node binary/version/ABI와 `better-sqlite3` import를 검사한다.
+- [ ] launchd 등록뿐 아니라 실제 PID, child tunnel health, stable endpoint generation을 검사한다.
+- [ ] DB가 Dropbox/iCloud 등 동기화 폴더에 있으면 hard failure로 처리한다.
+- [ ] DB integrity, 마지막 정상 backup 시각, restore drill 결과를 검사한다.
+- [ ] local health 200, stable health 200, wrong token 401을 각각 분리해 보여 준다.
+- [ ] release artifact URL과 현재 stable endpoint가 다르면 실패시킨다.
+- [ ] Android 장비 미연결은 운영 서버 실패가 아닌 별도 warning으로 표시한다.
+- [ ] 진단 결과에 secret 원문을 출력하지 않는다.
+- [ ] 자주 발생하는 ABI/tunnel/launchd 문제를 한 명령으로 복구하는 idempotent repair 명령을 추가한다.
+
+완료 기준: 정상 상태에서 failure 0이며, ABI 불일치·stale tunnel·Dropbox DB를 각각 의도적으로 만들었을 때 모두 정확히 탐지한다.
+
+---
+
+## 5. P1 — 일반 단어 뜻 자동 해석과 사후 보강
+
+### P1-1. resolver 계약을 플랫폼 공통 개념으로 정리한다
+
+- [ ] 결과 모델을 lemma, 품사, 한국어 뜻, 영어 정의, 예문, source, confidence, attempted_at, error_code로 정의한다.
+- [ ] provider 순서를 `on-device → Mac system dictionary → Mac mini offline dictionary → opt-in external provider`로 고정한다.
+- [ ] Android와 Mac이 같은 normalization, lemma, source label 규칙을 공유한다.
+- [ ] 카드에 `pending/resolved/failed/user_locked` 해석 상태를 저장한다.
+- [ ] 사용자가 직접 뜻을 편집한 카드는 `user_locked`로 보고 자동 해석이 덮어쓰지 못하게 한다.
+- [ ] provider 장애와 “해당 단어 없음”을 구분해 재시도 정책을 다르게 적용한다.
+
+### P1-2. Mac mini에 오프라인 사전 서비스를 둔다
+
+- [ ] 배포·2차 가공·앱 제공이 가능한 데이터 source만 선정하고 라이선스/attribution 검토 결과를 문서화한다.
+- [ ] 원본 다운로드와 변환 결과의 version, checksum, attribution을 기록한다.
+- [ ] `/dict/:lemma` 또는 batch lookup endpoint를 추가하되 기존 bearer auth와 rate limit을 적용한다.
+- [ ] 형태 변화, 품사, 다의어 후보를 보존하고 context 없이 임의의 한 뜻만 진실로 확정하지 않는다.
+- [ ] 사전 index 갱신은 서버 실행과 분리하고 실패 시 직전 index를 유지한다.
+- [ ] 사전 데이터가 없어도 sync 서버와 앱의 기본 기능은 정상 동작하게 한다.
+
+### P1-3. 캡처와 background enrichment를 분리한다
+
+- [ ] 캡처 시 local resolver 결과가 있으면 즉시 preview하고 저장한다.
+- [ ] 뜻이 없어도 카드를 즉시 저장하고 `pending`으로 표시한다.
+- [ ] Android WorkManager와 Mac background task가 네트워크 복구 후 pending 카드를 batch로 보강한다.
+- [ ] 재시도는 지수 backoff와 최대 횟수를 적용하고, 사용자가 “다시 해석”을 수동 실행할 수 있게 한다.
+- [ ] 뜻이 보강되면 sync하고, 의미가 없어 보류됐던 첫 알림을 정상 스케줄한다.
+- [ ] 보강 성공/실패가 UI에 보이되 캡처 흐름을 막지 않는다.
+- [ ] 문맥을 외부 provider로 보내는 기능은 기본 off이며, 전송될 텍스트를 사전에 보여 준다.
+
+### P1-4. 뜻 품질 benchmark를 제품 게이트로 만든다
+
+고정 benchmark를 저장소에 둔다.
+
+- 일반 어휘 120개
+- 학술·전문 어휘 40개
+- 굴절형/파생형 20개
+- 구동사·구문 10개
+- 문맥에 따라 뜻이 바뀌는 다의어 10개
+
+완료 기준:
+
+- 캡처 저장 자체는 offline에서도 100% 성공한다.
+- on-device/local hit는 p95 500ms 이내에 preview된다.
+- Mac mini가 online일 때 200개 중 95% 이상이 10초 안에 비어 있지 않은 한국어 뜻 또는 명확한 영어 정의를 얻는다.
+- 다의어 10개는 문맥 기준 사람 검수 정확도 80% 이상이며, 낮은 confidence는 후보 선택으로 표시한다.
+- 사용자가 입력한 뜻을 자동 처리로 덮어쓴 사례 0건.
+- 네트워크 복구 후 pending 카드의 95% 이상이 5분 안에 자동 재처리된다.
+- provider source와 attribution이 카드 상세 또는 앱 정보에서 추적 가능하다.
+
+---
+
+## 6. P2 — 동기화 무손실, 카드 전기, 출처 정합성
+
+### P2-1. 모든 뜻 편집을 append-only 후보로 보존한다
+
+- [ ] 사용자가 저장한 **새 뜻**마다 새 `definition_candidate`를 만든다.
+- [ ] card에는 현재 선택된 `primary_definition_candidate_id`를 두고 `meaningKo`는 호환 projection으로 취급한다.
+- [ ] candidate는 생성 후 수정하지 않고 교체·선택 이벤트만 추가한다.
+- [ ] 양 기기의 동시 편집은 후보 두 개를 모두 보존하고, primary만 deterministic rule로 정한다.
+- [ ] 충돌이 있었으면 카드 상세에 배지를 보여 주고 사용자가 다른 후보를 primary로 복구할 수 있게 한다.
+- [ ] 구버전 client가 `meaningKo`만 보낸 경우 server가 candidate를 합성해 호환한다.
+- [ ] server, Android, Mac의 merge vector를 하나의 shared fixture로 검증한다.
+
+완료 기준: offline 상태에서 같은 카드의 뜻을 양쪽에서 다르게 수정한 뒤 sync해도 두 뜻이 모두 남고 어느 쪽에서도 복구할 수 있다.
+
+### P2-2. 카드의 전체 전기를 보여 준다
+
+- [ ] Android와 Mac 상세 화면에 문맥, 뜻 후보, 복습 이벤트, 수동 편집, sync 충돌을 시간순으로 표시한다.
+- [ ] 현재의 `take(3)` 제한 대신 “최근 3개 + 전체 보기” 또는 pagination을 제공한다.
+- [ ] 뜻 후보마다 source, created_at, confidence, 현재 primary 여부를 표시한다.
+- [ ] 문맥마다 source app, title, URL, captured_at을 가능한 범위에서 표시한다.
+- [ ] 이벤트 원문은 읽기 전용으로 두고, 사용자가 이해할 수 있는 상태 문구로 변환한다.
+- [ ] 데이터가 많아도 상세 화면이 멈추지 않도록 lazy list/pagination을 사용한다.
+
+### P2-3. 출처를 꾸며내지 않고 정확히 기록한다
+
+- [ ] Android selection/share intent에서 OS가 제공하는 calling package, referrer, URL/title을 수집한다.
+- [ ] OS가 실제 source를 주지 않으면 `Android selection`을 실제 앱 이름처럼 취급하지 않고 “출처 확인 불가”로 저장한다.
+- [ ] Mac service, hotkey, URL scheme의 source naming 규칙을 통일한다.
+- [ ] URL은 허용된 scheme만 저장하고 credential/query secret을 제거한다.
+- [ ] 동일 문맥 중복 판정 규칙을 양 플랫폼에서 같게 만든다.
+
+### P2-4. 데이터 정합성 회귀 묶음을 만든다
+
+- [ ] 같은 lemma 동시 생성 → 카드 1개, 문맥 2개.
+- [ ] 같은 카드 동시 뜻 편집 → 후보 2개 이상 모두 보존.
+- [ ] 같은 batch 재전송 → event/candidate 중복 0건.
+- [ ] delete와 offline edit 충돌 → tombstone 규칙대로 결정되고 유실 이유가 추적 가능.
+- [ ] 오래된 client payload → migration 또는 명시적 skipped reason.
+- [ ] 잘못된 timestamp, enum, 필수 필드 누락 → 기존 데이터 무손상, skipped count 표시.
+- [ ] settings 동시 변경 → `settings_updated_at` 기준 deterministic 결과.
+- [ ] recommendation feedback와 review event가 재시작·재전송 후에도 idempotent.
+
+---
+
+## 7. P3 — 온보딩, 배포, 보안 경계
+
+### P3-1. 첫 실행에서 필수 기능을 스스로 진단한다
+
+Android:
+
+- [ ] 알림 권한 요청 전에 왜 필요한지 설명한다.
+- [ ] 선택/공유 캡처 방법을 30초 안에 끝나는 첫 실행 안내로 제공한다.
+- [ ] 알림 차단, 배터리 제한, WorkManager 지연, 마지막 sync 실패를 상태 화면에서 구분한다.
+- [ ] 권한이 꺼진 경우 설정 바로가기와 복귀 후 재검사를 제공한다.
+
+Mac:
+
+- [ ] capture Service 설치·활성 여부를 첫 실행과 설정 화면에서 검사한다.
+- [ ] Service 누락 시 앱 안에서 설치/재설치 동작과 정확한 설정 경로를 제공한다.
+- [ ] 단축키 충돌, 알림 권한, 로그인 시 자동 실행, 사전 활성 상태를 각각 보여 준다.
+- [ ] 캡처 성공 여부를 로그를 열지 않고 앱 UI에서 확인할 수 있게 한다.
+
+완료 기준: 새 사용자 상태의 장비에서 README나 Terminal 없이 첫 단어 저장과 첫 복습까지 성공한다.
+
+### P3-2. release 빌드를 시험용 서명에서 분리한다
+
+- [ ] Android release에서 debug signing을 제거한다.
+- [ ] 전용 keystore를 repo 밖 안전한 위치에 보관하고 backup/rotation 절차를 문서화한다.
+- [ ] `versionCode`, `versionName`, changelog, artifact checksum을 build마다 생성한다.
+- [ ] 동일 key로 기존 설치본을 data 삭제 없이 upgrade하는 테스트를 한다.
+- [ ] 실행 시점의 현재 Android 요구 target SDK를 확인하고 지원 범위를 문서화한다.
+- [ ] Mac private 배포는 재현 가능한 ad-hoc package와 checksum을 필수로 하고, 외부 배포 시 Developer ID/notarization을 별도 필수 gate로 승격한다.
+- [ ] release artifact가 어느 commit과 설정에서 생성됐는지 manifest로 남긴다.
+
+### P3-3. single-user secret의 위협 모델을 명시한다
+
+- [ ] sync token과 Worker admin token을 분리하고 권한을 최소화한다.
+- [ ] secret을 source, generated docs, test fixture, build log에 남기지 않는다.
+- [ ] 개인 소유 장비에만 sideload한다는 현재 배포 경계를 문서에 명시한다.
+- [ ] sync token rotation 시 server, Android, Mac artifact를 안전하게 교체하는 절차를 자동화한다.
+- [ ] 분실 장비의 token을 폐기하고 새 token으로 재배포하는 복구 훈련을 한다.
+- [ ] 앱을 제3자에게 배포하는 시점에는 embedded shared token 방식을 금지하고 per-device one-time pairing으로 전환한다.
+
+현재 단독 사용자 범위에서는 주소·토큰 입력 없는 UX를 유지할 수 있다. 다만 shared token이 들어 있는 앱을 불특정 사용자에게 배포한 상태를 “보안 완료”로 판정해서는 안 된다.
+
+---
+
+## 8. P4 — 추천 단어의 장기 사용 품질
+
+### P4-1. 카탈로그를 라이선스가 확인된 장기 분량으로 만든다
+
+- [ ] recommendation source별 license, attribution, 재배포 가능 범위를 기록한다.
+- [ ] 모든 항목에 lemma, 한국어 뜻, 예문, 난이도, source를 채운다.
+- [ ] 불완전 entry는 release catalog에서 제외하고 fill queue에 남긴다.
+- [ ] 기본 3개/일 기준 최소 12개월 무반복 분량을 확보한다.
+- [ ] 목표치는 완전한 entry 2,000개로 두되, 품질 검수를 통과하지 못한 수량은 포함하지 않는다.
+- [ ] catalog build가 deterministic하고 source checksum이 같으면 결과 checksum도 같게 한다.
+
+### P4-2. 개인화가 복습을 방해하지 않게 한다
+
+- [ ] review due가 있으면 추천이 학습 큐를 밀어내지 못하게 한다.
+- [ ] 이미 저장·dismiss·known 처리한 단어를 재추천하지 않는다.
+- [ ] 사용자의 저장 문맥에서 topic 신호를 local로 계산하고 raw 문맥을 외부로 보내지 않는다.
+- [ ] 난이도, 최근 topic, known/dismiss 피드백을 후보 score에 반영한다.
+- [ ] 추천 이유를 “난이도”, “최근 주제”, “빈도” 수준으로 설명한다.
+- [ ] Android와 Mac이 같은 catalog/version/vector에서 동일한 결과를 낸다.
+
+완료 기준: 30일 simulation에서 중복 0건, dismissed/known 재등장 0건, due review starvation 0건, 양 플랫폼 추천 ID 불일치 0건.
+
+---
+
+## 9. P5 — 테스트 구조, 관측성, 문서 정합성
+
+### P5-1. Mac self-check를 정식 XCTest로 이전한다
+
+- [ ] `Package.swift`에 test target을 추가한다.
+- [ ] scheduler, quiet hours, daily boundary가 `Clock` 또는 `NowProvider`를 주입받게 한다.
+- [ ] assertion 전후의 직접 `Date()` 호출을 제거하고 하나의 고정 `now`를 사용한다.
+- [ ] 현재 `--check-scheduler-vectors`의 vector를 XCTest/shared fixture로 이전한다.
+- [ ] 시간대, DST, 23:00 quiet-hours 진입, 자정, 첫/두 번째 `unavailable`을 명시적으로 테스트한다.
+- [ ] self-check CLI는 호환용 wrapper로 남기거나 XCTest 완전 이전 후 제거한다.
+
+### P5-2. 한 명령 품질 게이트를 만든다
+
+- [ ] root에 `npm run qc:all` 또는 동등한 script를 추가한다.
+- [ ] server native preflight, server test, Android unit/lint/build, Mac test/build, shared vector, artifact scan을 순서대로 실행한다.
+- [ ] 각 단계의 시작·종료·실패 원인을 요약하고 secret은 masking한다.
+- [ ] 장비가 없을 때 실기기 단계를 성공으로 위장하지 않고 `NOT RUN`으로 기록한다.
+- [ ] 생성된 evidence manifest에 Git SHA, Node/Java/Swift/Android 도구 버전을 기록한다.
+
+### P5-3. 운영 로그와 사용자 상태를 연결한다
+
+- [ ] 모든 sync 요청에 request ID를 부여하고 client/server/Worker 로그에서 연결한다.
+- [ ] 앱에는 마지막 성공 sync, pending 개수, 마지막 오류 범주, 재시도 예정 시각만 노출한다.
+- [ ] server/tunnel 상태에는 마지막 정상 health, upstream generation, backup 시각을 노출한다.
+- [ ] token, 캡처 문장 전문, 사전 query 원문이 불필요하게 로그에 남지 않게 한다.
+- [ ] 진단 export는 사용자가 검토할 수 있는 redacted zip 또는 디렉터리로 만든다.
+
+### P5-4. 문서를 현재 동작과 일치시킨다
+
+- [ ] `STATUS.md`를 증거 기반 현재 상태로 갱신한다.
+- [ ] `vocab_reminder_user_experience.md`의 무응답 알림 동작을 현재 정책과 일치시킨다.
+- [ ] 설치·복구·token rotation·DB restore·재부팅 검증을 `sync_tunnel_runbook.md`에 반영한다.
+- [ ] 완료된 과거 worklist는 과거 기록으로 유지하고 새 정본 문서를 명시한다.
+- [ ] 서로 다른 문서에서 같은 설정 기본값을 중복 정의하지 않고 정본 링크를 사용한다.
+- [ ] 문서의 마지막 검증일과 artifact version을 명시한다.
+
+---
+
+## 10. 권장 실행 순서와 예상 기간
+
+1인 작업, 기존 코드를 최대한 유지하고 사전 데이터 라이선스 결정 지연이 없다는 전제의 추정이다.
+
+| 주차 | 목표 | 종료 조건 |
+|---|---|---|
+| 1주차 | P0-1~P0-3 | 기준점, 배포 격리, DB 이전·restore drill |
+| 2주차 | P0-4~P0-5, P5-1 일부 | tunnel 자동 복구, doctor, Mac 결정적 테스트 |
+| 3주차 | P1 | offline/server resolver, background enrichment, benchmark |
+| 4주차 | P2 | 동시 편집 무손실, 카드 전체 이력, provenance |
+| 5주차 | P3~P5 | 온보딩, release signing, recommendation catalog, 전체 gate |
+
+예상 총량은 약 4~5주다. P4 데이터 확보가 늦어져도 P0~P3 안정화를 멈추지 않되, P4를 생략한 상태로 전체 완료를 선언하지 않는다.
+
+마일스톤 종료 보고는 다음 형식을 사용한다.
+
+```text
+[Px-y] 완료
+- 변경: 사용자 관점 한 문장
+- 자동 검증: 명령 + 결과
+- 실기기 검증: 장비 + 시나리오 + 결과
+- 장애 검증: 강제로 만든 실패 + 복구 시간
+- 증거: /tmp/vocab_product_completion_<날짜>/...
+- 남은 위험: 없음 또는 구체적인 항목
+```
+
+---
+
+## 11. 최종 품질 게이트
+
+### 11.1 Server와 sync
+
+```bash
+cd /Users/sjk/Dropbox/Python/260702_vocaApp/server
+node --input-type=module -e "await import('better-sqlite3'); console.log(process.version, process.versions.modules)"
+npm test
+
+cd /Users/sjk/Dropbox/Python/260702_vocaApp
+npm run sync:local-smoke
+npm run sync:smoke
+VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
+npm run sync:check-artifacts
+```
+
+필수 장애 시나리오:
+
+- server process kill → launchd 자동 복구.
+- cloudflared child kill → 새 URL 발급·게시 후 stable endpoint 자동 복구.
+- 네트워크 5분 단절 → 재연결 후 자동 복구.
+- stale Worker upstream 주입 → doctor 탐지와 supervisor 교정.
+- DB 잠금, 손상 복사본, backup restore → 원본 보호와 명시적 오류.
+- Mac mini 재부팅 → 180초 이내 전체 경로 복구.
+
+### 11.2 Android
+
+```bash
+cd /Users/sjk/Dropbox/Python/260702_vocaApp/android/VocabReminderAndroid
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+./gradlew --no-daemon \
+  :app:testDebugUnitTest \
+  :app:lintDebug \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest \
+  :app:assembleRelease
+```
+
+추가 필수:
+
+- 실제 지원 Android 버전에서 instrumentation test가 0건 시작 실패하지 않고 통과.
+- release APK signature, version, non-debuggable, stable endpoint 주입 확인.
+- 기존 release 설치본 위에 upgrade 후 로컬 단어·설정 유지.
+- 알림 허용/거부, 재부팅, battery restriction, offline capture, sync 복구 확인.
+
+### 11.3 Mac
+
+```bash
+cd /Users/sjk/Dropbox/Python/260702_vocaApp/mac/VocabReminderMac
+swift test
+swift build
+swift build -c release
+swift run VocabReminderMac --check-scheduler-vectors
+test -n "${VOCAB_SYNC_RELEASE_TOKEN:?보호된 로컬 secret source에서 release token을 먼저 불러올 것}"
+VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev \
+VOCAB_SYNC_DEFAULT_TOKEN="$VOCAB_SYNC_RELEASE_TOKEN" \
+CONFIGURATION=release ./package_app.sh
+codesign --verify --deep --strict --verbose=2 VocabReminder.app
+```
+
+추가 필수:
+
+- 고정 시각 test가 서울 시간 22:59, 23:00, 00:00, quiet-hours 종료에서 반복 실행해도 동일 결과.
+- capture Service 설치 전/후, 빈 clipboard, 실제 일반 단어 캡처 확인.
+- 앱 재시작과 Mac 재부팅 후 자동 실행·알림·sync 확인.
+- package artifact의 endpoint, token placeholder, debug 문자열 검사.
+
+### 11.4 양 기기 무손실 E2E
+
+- Android offline 캡처 3건 → online → Mac에 모두 표시.
+- Mac offline 캡처 3건 → online → Android에 모두 표시.
+- 동일 lemma를 양쪽에서 다른 문맥으로 저장 → 카드 1개, 문맥 2개.
+- 같은 카드 뜻을 양쪽에서 다르게 편집 → 후보 2개 보존, primary deterministic.
+- Android에서 복습 응답 → Mac의 due/status와 일치.
+- Mac에서 삭제와 Android에서 offline 편집을 동시에 수행 → 문서화한 tombstone 결과와 일치.
+- 같은 batch 3회 전송 → 중복 event/candidate 0건.
+- 잘못된 token은 401, 깨진 record는 skipped reason, 기존 데이터 손상 0건.
+- 뜻 없는 카드 저장 → network 복구 → 자동 보강 → 알림 스케줄 정상 시작.
+
+### 11.5 Release 승인 조건
+
+- [ ] §11.1~11.4 전부 통과.
+- [ ] P0/P1 미해결 결함 0건.
+- [ ] 데이터 유실·중복·secret 노출 결함 0건.
+- [ ] 24시간 soak와 Mac mini 재부팅 검증 통과.
+- [ ] 사전 benchmark와 추천 simulation 기준 통과.
+- [ ] 실제 장비 evidence와 artifact checksum 보관.
+- [ ] `STATUS.md`가 이 결과와 같은 날짜·버전을 가리킴.
+- [ ] rollback 및 DB restore를 실제로 한 번 수행함.
+
+---
+
+## 12. 이번 마감에서 하지 않을 것
+
+다음은 제품의 다음 단계이며, 위 완료 조건을 흐리지 않도록 이번 계획에 섞지 않는다.
+
+- iOS 앱과 Safari/Chrome 확장
+- 다중 사용자 계정과 공유 단어장
+- TTS 음성 캐시와 발음 평가
+- 통계/학습 분석 대시보드
+- full FSRS 또는 학습 알고리즘 전면 교체
+- 유료 SaaS backend 전환
+- 제3자 공개 배포용 계정·과금·운영자 콘솔
+
+이 항목들은 P0~P5가 끝난 뒤 별도 product roadmap으로 다룬다.

@@ -12,7 +12,9 @@ const { server } = createSyncServer({
   dbPath: config.dbPath,
   backupDir: config.backupDir,
   backupRetention: config.backupRetention,
-  token: config.token
+  token: config.token,
+  maxBodyBytes: config.maxBodyBytes,
+  maxCollectionItems: config.maxCollectionItems
 });
 
 server.listen(config.port, config.host, () => {

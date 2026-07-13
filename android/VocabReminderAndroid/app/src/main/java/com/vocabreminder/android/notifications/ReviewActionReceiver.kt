@@ -28,6 +28,13 @@ class ReviewActionReceiver : BroadcastReceiver() {
             return
         }
         val now = Instant.now()
+        val activeState = ReminderNotifications.activeNotificationState(context)
+        if (activeState == null || activeState.cardId != card.id || activeState.phase != NotificationPhase.PROMPT) {
+            if (activeState?.cardId == card.id && activeState.phase == NotificationPhase.FEEDBACK) {
+                ReminderNotifications.restoreActiveNotification(context, store, now)
+            }
+            return
+        }
         if (card.status == CardStatus.SUSPENDED || card.dueAt.isAfter(now)) {
             ReminderNotifications.clearActivePrompt(context, card.id)
             ReminderNotifications.cancel(context, card)
@@ -47,7 +54,7 @@ class ReviewActionReceiver : BroadcastReceiver() {
             applyReviewResponse(context, store, card, ReviewResponse.UNAVAILABLE, now)
         }
 
-        private fun applyReviewResponse(
+        internal fun applyReviewResponse(
             context: Context,
             store: LocalVocabularyStore,
             card: VocabularyCard,
@@ -74,8 +81,8 @@ class ReviewActionReceiver : BroadcastReceiver() {
             store.appendEvent(result.event, now)
 
             when (response) {
-                ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated)
-                ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated)
+                ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated, now)
+                ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated, now)
                 ReviewResponse.UNAVAILABLE -> {
                     ReminderNotifications.clearActivePrompt(context, updated.id)
                     ReminderNotifications.cancel(context, updated)
@@ -90,7 +97,7 @@ class ReviewActionReceiver : BroadcastReceiver() {
             if (response != ReviewResponse.REMEMBERED && response != ReviewResponse.FORGOTTEN) {
                 ReminderNotifications.scheduleQueueAdvance(context)
             }
-            SyncWorker.enqueueDebounced(context)
+            SyncWorker.enqueueImmediate(context)
         }
     }
 }

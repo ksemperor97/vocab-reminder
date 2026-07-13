@@ -8,6 +8,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.scheduler.CardStatus
 import java.time.Duration
@@ -15,12 +16,29 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 object ReminderScheduler {
+    fun reconcileAll(
+        context: Context,
+        store: LocalVocabularyStore = LocalVocabularyStore(context),
+        now: Instant = Instant.now()
+    ) {
+        store.allCards(includeDeleted = true).forEach { schedule(context, it, now) }
+    }
+
     fun schedule(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
+        scheduleAt(context, card, card.dueAt, now)
+    }
+
+    fun scheduleAt(
+        context: Context,
+        card: VocabularyCard,
+        triggerAt: Instant,
+        now: Instant = Instant.now()
+    ) {
         if (card.meaningKo.isBlank() || card.deletedAt != null || card.status == CardStatus.MASTERED || card.status == CardStatus.SUSPENDED) {
             cancel(context, card)
             return
         }
-        val delayMillis = Duration.between(now, card.dueAt).toMillis().coerceAtLeast(0)
+        val delayMillis = Duration.between(now, triggerAt).toMillis().coerceAtLeast(0)
         val request = OneTimeWorkRequestBuilder<ReviewNotificationWorker>()
             .setInputData(workDataOf(ReviewNotificationWorker.KEY_CARD_ID to card.id))
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)

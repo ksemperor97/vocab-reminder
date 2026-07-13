@@ -82,6 +82,24 @@ class CaptureDictionaryTest {
     }
 
     @Test
+    fun resilientResolvesToKoreanMeaning() {
+        val result = DictionaryResolver.resolve("resilient", sourceApp = "test")
+
+        assertEquals("resilient", result.lemma)
+        assertEquals("회복력 있는, 탄력 있는", result.meaningKo)
+        assertEquals("local_dictionary", result.sourceType)
+    }
+
+    @Test
+    fun generatedRecommendationCatalogAlsoBacksCaptureLookup() {
+        val result = DictionaryResolver.resolve("protocol", sourceApp = "test")
+
+        assertEquals("protocol", result.lemma)
+        assertEquals("절차, 실험 계획", result.meaningKo)
+        assertEquals("local_dictionary", result.sourceType)
+    }
+
+    @Test
     fun unknownWordCanStillBeSavedWithoutMeaning() {
         val result = DictionaryResolver.resolve("perovskite")
 
