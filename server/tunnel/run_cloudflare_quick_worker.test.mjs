@@ -9,10 +9,29 @@ import { fileURLToPath } from "node:url";
 
 import {
   isDirectExecution,
+  loadConfiguration,
   QuickTunnelSupervisor,
   resolveStateFile,
   writeJsonAtomically,
 } from "./run_cloudflare_quick_worker.mjs";
+
+test("default health timing leaves enough budget for connection recovery within 120 seconds", () => {
+  const config = loadConfiguration({
+    CF_WORKER_PUBLIC_URL: "https://stable.example.test",
+    CF_WORKER_ADMIN_TOKEN: "admin-secret",
+    VOCAB_SYNC_TOKEN: "sync-secret",
+  });
+  const worstCaseBudget =
+    config.healthIntervalMs * config.healthFailureThreshold +
+    config.healthTimeoutMs * config.healthFailureThreshold +
+    config.childStopGraceMs +
+    config.restartBaseMs +
+    config.tunnelReadyTimeoutMs;
+
+  assert.equal(config.healthIntervalMs, 10_000);
+  assert.equal(config.healthFailureThreshold, 2);
+  assert.ok(worstCaseBudget < 120_000, `recovery budget was ${worstCaseBudget} ms`);
+});
 
 test("direct execution detection follows a versioned current symlink", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "vocab-tunnel-symlink-test-"));
