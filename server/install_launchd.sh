@@ -349,7 +349,7 @@ set_symlink() {
   local temporary="$link.new.$$"
   rm -f "$temporary"
   ln -s "$target" "$temporary"
-  /bin/mv -f "$temporary" "$link"
+  /bin/mv -h -f "$temporary" "$link"
 }
 
 render_plist() {
