@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/server/tunnel/cloudflare_worker"
 WRANGLER_TOML="$WORKER_DIR/wrangler.toml"
-TUNNEL_ENV="$ROOT_DIR/server/tunnel/.env"
+RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+TUNNEL_ENV="${VOCAB_SYNC_TUNNEL_ENV_FILE:-$RUNTIME_ROOT/tunnel.env}"
 WORKER_NAME="${CF_WORKER_NAME:-vocab-sync}"
 KV_BINDING="SYNC_UPSTREAM"
 
@@ -56,6 +57,21 @@ is_auth_error() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "$1 is required."
+}
+
+env_value() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 0
+  awk -F= -v key="$key" '
+    $1 == key {
+      value=$0
+      sub(/^[^=]*=/, "", value)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "$file"
 }
 
 extract_kv_id() {
@@ -155,6 +171,7 @@ write_tunnel_env() {
   local worker_url="$1"
   local admin_token="$2"
   umask 077
+  mkdir -p "$(dirname "$TUNNEL_ENV")"
   cat > "$TUNNEL_ENV" <<EOF
 TUNNEL_PROVIDER=cloudflare_quick_worker
 CF_WORKER_PUBLIC_URL=$worker_url
@@ -178,7 +195,8 @@ write_wrangler_toml "$kv_id"
 echo "Using KV namespace id: $kv_id"
 
 section "Set Worker admin secret"
-admin_token="${CF_WORKER_ADMIN_TOKEN:-$(openssl rand -hex 32)}"
+existing_admin_token="$(env_value "$TUNNEL_ENV" CF_WORKER_ADMIN_TOKEN)"
+admin_token="${CF_WORKER_ADMIN_TOKEN:-${existing_admin_token:-$(openssl rand -hex 32)}}"
 put_admin_secret "$admin_token" >/dev/null
 echo "ADMIN_TOKEN secret set in Cloudflare Worker."
 
@@ -188,7 +206,7 @@ echo "Worker URL: $worker_url"
 
 section "Write Mac mini tunnel env"
 write_tunnel_env "$worker_url" "$admin_token"
-echo "Wrote server/tunnel/.env for cloudflare_quick_worker."
+echo "Wrote isolated runtime tunnel.env for cloudflare_quick_worker."
 
 cat <<EOF
 
