@@ -131,10 +131,17 @@ mkdir \
   die "offline dictionary catalog is missing: $DICTIONARY_CATALOG_SOURCE"
 /bin/cp "$DICTIONARY_CATALOG_SOURCE" "$STAGING_DIR/catalog/recommendation_catalog.json"
 
-SWIFTC_BIN="${VOCAB_SYNC_SWIFTC_BIN:-$(xcrun --find swiftc 2>/dev/null || command -v swiftc || true)}"
-[[ -n "$SWIFTC_BIN" && -x "$SWIFTC_BIN" ]] || \
+if [[ -n "${VOCAB_SYNC_SWIFTC_BIN:-}" ]]; then
+  [[ -x "$VOCAB_SYNC_SWIFTC_BIN" ]] || die "VOCAB_SYNC_SWIFTC_BIN is not executable."
+  SWIFTC_COMMAND=("$VOCAB_SYNC_SWIFTC_BIN")
+elif command -v xcrun >/dev/null 2>&1; then
+  SWIFTC_COMMAND=(xcrun swiftc)
+elif command -v swiftc >/dev/null 2>&1; then
+  SWIFTC_COMMAND=(swiftc)
+else
   die "swiftc is required to build the local Mac dictionary helper."
-"$SWIFTC_BIN" \
+fi
+"${SWIFTC_COMMAND[@]}" \
   -framework CoreServices \
   "$STAGING_DIR/tools/mac_dictionary_lookup.swift" \
   -o "$STAGING_DIR/bin/mac_dictionary_lookup"
