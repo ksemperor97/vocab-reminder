@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const cardStatuses = new Set(["new", "learning", "review", "relearning", "mastered", "suspended"]);
 const wordbooks = new Set(["user", "recommended"]);
 const captureMethods = new Set([
@@ -105,9 +107,17 @@ export class SyncStore {
     };
 
     const tx = this.db.transaction(() => {
-      this.applyCards(payload.cards, result);
-      this.insertOnly("contexts", payload.contexts, validateContext, result);
+      // Candidates are append-only and are applied first so a modern client that
+      // sends both its edited card and candidate does not receive a redundant
+      // compatibility candidate for the same meaning.
       this.insertOnly("definition_candidates", payload.definition_candidates, validateDefinitionCandidate, result);
+      const candidateFingerprints = new Set(
+        this.allEntities("definition_candidates")
+          .map(definitionCandidateFingerprint)
+          .filter((fingerprint) => fingerprint != null)
+      );
+      this.applyCards(payload.cards, result, candidateFingerprints);
+      this.insertOnly("contexts", payload.contexts, validateContext, result);
       this.insertOnly("review_events", payload.review_events, validateReviewEvent, result, serverReceivedAt);
       this.insertOnly("recommendation_feedback", payload.recommendation_feedback, validateRecommendationFeedback, result);
       this.applySettings(payload.settings, result);
@@ -136,7 +146,7 @@ export class SyncStore {
     return row ? JSON.parse(row.body_json) : null;
   }
 
-  applyCards(cards, result) {
+  applyCards(cards, result, candidateFingerprints = new Set()) {
     for (let index = 0; index < cards.length; index += 1) {
       const validation = validateCard(cards[index]);
       if (!validation.ok) {
@@ -144,6 +154,7 @@ export class SyncStore {
         continue;
       }
       const entity = validation.entity;
+      this.ensureMeaningCandidate(entity, candidateFingerprints, result);
       const row = rowFromEntity(entity, "cards");
       const existing = this.statements.get.get("cards").get(entity.id);
       if (!existing) {
@@ -155,6 +166,21 @@ export class SyncStore {
         this.statements.replace.get("cards").run(row);
         result.applied.cards += 1;
       }
+    }
+  }
+
+  ensureMeaningCandidate(card, candidateFingerprints, result) {
+    const candidate = synthesizedMeaningCandidate(card);
+    if (candidate == null) return;
+    const fingerprint = definitionCandidateFingerprint(candidate);
+    if (fingerprint == null || candidateFingerprints.has(fingerprint)) return;
+
+    const info = this.statements.insertIgnore.get("definition_candidates").run(
+      rowFromEntity(candidate, "definition_candidates")
+    );
+    if (info.changes > 0) {
+      candidateFingerprints.add(fingerprint);
+      result.applied.definition_candidates += 1;
     }
   }
 
@@ -264,6 +290,46 @@ function validateDefinitionCandidate(value) {
   if (entity.entity.confidence != null && typeof entity.entity.confidence !== "number") return bad("confidence must be a number or null.");
   if (!validDate(entity.entity.created_at)) return bad("created_at must be an ISO timestamp.");
   return entity;
+}
+
+function synthesizedMeaningCandidate(card) {
+  const cardId = nonEmptyTrimmedString(card.id);
+  const meaning = nonEmptyTrimmedString(card.meaning_ko);
+  if (cardId == null || meaning == null) return null;
+
+  const fingerprint = definitionCandidateFingerprint({
+    card_id: cardId,
+    parsed_meaning_ko: meaning
+  });
+  const digest = createHash("sha256").update(fingerprint).digest("hex");
+  return {
+    id: `card-meaning-${digest}`,
+    card_id: cardId,
+    source: "card_snapshot",
+    raw_text: meaning,
+    parsed_meaning_ko: meaning,
+    parsed_definition_en: textValue(card.definition_en),
+    part_of_speech: textValue(card.part_of_speech),
+    phonetic: textValue(card.phonetic),
+    example_sentence: textValue(card.source_sentence_primary),
+    confidence: 1,
+    selected_as_primary: true,
+    created_at: card.updated_at
+  };
+}
+
+function definitionCandidateFingerprint(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const cardId = nonEmptyTrimmedString(candidate.card_id);
+  const meaning = nonEmptyTrimmedString(candidate.parsed_meaning_ko);
+  if (cardId == null || meaning == null) return null;
+  return `${cardId}\u001f${meaning}`;
+}
+
+function nonEmptyTrimmedString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function validateReviewEvent(value) {

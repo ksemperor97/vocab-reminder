@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export const serverRoot = fileURLToPath(new URL("..", import.meta.url));
 
-export function loadEnvFile(envPath = path.join(serverRoot, ".env")) {
+export function loadEnvFile(envPath = defaultEnvPath()) {
   if (!fs.existsSync(envPath)) return;
   const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
   for (const line of lines) {
@@ -23,7 +23,10 @@ export function loadEnvFile(envPath = path.join(serverRoot, ".env")) {
 }
 
 export function readConfig(overrides = {}) {
-  loadEnvFile(overrides.envPath);
+  const runtimeRoot = path.resolve(String(
+    overrides.runtimeRoot ?? process.env.VOCAB_SYNC_RUNTIME_ROOT ?? serverRoot
+  ));
+  loadEnvFile(overrides.envPath ?? process.env.VOCAB_SYNC_ENV_PATH ?? path.join(runtimeRoot, ".env"));
   const port = numberValue(overrides.port ?? process.env.VOCAB_SYNC_PORT ?? process.env.PORT, 8787);
   const backupRetention = numberValue(overrides.backupRetention ?? process.env.VOCAB_SYNC_BACKUP_RETENTION, 30);
   const maxBodyBytes = positiveIntegerValue(
@@ -34,10 +37,17 @@ export function readConfig(overrides = {}) {
     overrides.maxCollectionItems ?? process.env.VOCAB_SYNC_MAX_COLLECTION_ITEMS,
     10_000
   );
-  const dbPath = resolveServerPath(overrides.dbPath ?? process.env.VOCAB_SYNC_DB_PATH ?? "./data/vocab-sync.sqlite");
-  const backupDir = resolveServerPath(overrides.backupDir ?? process.env.VOCAB_SYNC_BACKUP_DIR ?? "./backups");
+  const dbPath = resolveRuntimePath(
+    overrides.dbPath ?? process.env.VOCAB_SYNC_DB_PATH ?? "./data/vocab-sync.sqlite",
+    runtimeRoot
+  );
+  const backupDir = resolveRuntimePath(
+    overrides.backupDir ?? process.env.VOCAB_SYNC_BACKUP_DIR ?? "./backups",
+    runtimeRoot
+  );
 
   return {
+    runtimeRoot,
     host: String(overrides.host ?? process.env.VOCAB_SYNC_HOST ?? "127.0.0.1"),
     port,
     token: String(overrides.token ?? process.env.VOCAB_SYNC_TOKEN ?? ""),
@@ -59,7 +69,12 @@ function positiveIntegerValue(raw, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveServerPath(raw) {
+function resolveRuntimePath(raw, runtimeRoot) {
   const value = String(raw);
-  return path.isAbsolute(value) ? value : path.join(serverRoot, value);
+  return path.isAbsolute(value) ? value : path.resolve(runtimeRoot, value);
+}
+
+function defaultEnvPath() {
+  const runtimeRoot = process.env.VOCAB_SYNC_RUNTIME_ROOT;
+  return process.env.VOCAB_SYNC_ENV_PATH ?? path.join(runtimeRoot || serverRoot, ".env");
 }

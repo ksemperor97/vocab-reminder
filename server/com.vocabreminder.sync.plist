@@ -7,19 +7,43 @@
   <string>com.vocabreminder.sync</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>cd "__SERVER_DIR__" &amp;&amp; "__NPM_BIN__" start</string>
+    <string>__NODE_BIN__</string>
+    <string>__CURRENT_DIR__/src/index.js</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>WorkingDirectory</key>
-  <string>__SERVER_DIR__</string>
+  <string>__CURRENT_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>PATH</key>
+    <string>__NODE_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>VOCAB_SYNC_RUNTIME_ROOT</key>
+    <string>__RUNTIME_ROOT__</string>
+    <key>VOCAB_SYNC_ENV_PATH</key>
+    <string>__ENV_PATH__</string>
+    <key>VOCAB_SYNC_DB_PATH</key>
+    <string>__DB_PATH__</string>
+    <key>VOCAB_SYNC_BACKUP_DIR</key>
+    <string>__BACKUP_DIR__</string>
+    <key>VOCAB_SYNC_PORT</key>
+    <string>__SYNC_PORT__</string>
+    <key>VOCAB_DICTIONARY_CATALOG_PATH</key>
+    <string>__DICTIONARY_CATALOG__</string>
+    <key>VOCAB_DICTIONARY_HELPER_PATH</key>
+    <string>__DICTIONARY_HELPER__</string>
+  </dict>
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>__SERVER_DIR__/logs/sync.out.log</string>
+  <string>__LOG_DIR__/sync.out.log</string>
   <key>StandardErrorPath</key>
-  <string>__SERVER_DIR__/logs/sync.err.log</string>
+  <string>__LOG_DIR__/sync.err.log</string>
 </dict>
 </plist>

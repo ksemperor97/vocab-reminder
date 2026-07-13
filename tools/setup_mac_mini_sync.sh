@@ -2,8 +2,9 @@
 set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_ENV="$ROOT_DIR/server/.env"
-TUNNEL_ENV="$ROOT_DIR/server/tunnel/.env"
+RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+SERVER_ENV="$RUNTIME_ROOT/.env"
+TUNNEL_ENV="$RUNTIME_ROOT/tunnel.env"
 
 section() {
   printf '\n== %s ==\n' "$1"
@@ -19,6 +20,7 @@ write_tunnel_env_from_process_env() {
   [[ -n "${CF_WORKER_PUBLIC_URL:-}" || -n "${CF_WORKER_ADMIN_TOKEN:-}" || -n "${CLOUDFLARED_TUNNEL_TOKEN:-}" || -n "${CLOUDFLARED_CONFIG:-}" ]] || return 0
 
   umask 077
+  mkdir -p "$RUNTIME_ROOT"
   {
     if [[ -n "${CF_WORKER_PUBLIC_URL:-}" || -n "${CF_WORKER_ADMIN_TOKEN:-}" ]]; then
       printf 'TUNNEL_PROVIDER=cloudflare_quick_worker\n'
@@ -44,7 +46,7 @@ section "Install vocab-sync server"
 "$ROOT_DIR/server/install_launchd.sh" || exit $?
 
 if [[ ! -f "$SERVER_ENV" ]]; then
-  die "server/.env was not created by server/install_launchd.sh." 78
+  die "Runtime server env was not created at $SERVER_ENV." 78
 fi
 
 section "Install outbound tunnel"
@@ -59,7 +61,7 @@ Tunnel setup paused.
 
 Cloudflare free path, no purchased domain.
 
-Edit server/tunnel/.env with:
+Edit $TUNNEL_ENV with:
 
   TUNNEL_PROVIDER=cloudflare_quick_worker
   CF_WORKER_PUBLIC_URL=https://vocab-sync.<your-workers-subdomain>.workers.dev

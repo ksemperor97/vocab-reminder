@@ -1,9 +1,18 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { ensureDailyBackup } from "./backup.js";
+import {
+  createDictionaryResolver,
+  normalizeDictionaryLemma,
+  normalizeDictionaryResult,
+  pendingDictionaryResult
+} from "./dictionary.js";
 import { SyncStore } from "./sync.js";
 
 const defaultMaxBodyBytes = 16 * 1024 * 1024;
+const defaultMaxDictionaryBatchItems = 50;
+const hardMaxDictionaryBatchItems = 100;
+const dictionaryBatchConcurrency = 4;
 
 export function createSyncServer({
   db,
@@ -12,12 +21,18 @@ export function createSyncServer({
   backupRetention,
   token,
   maxBodyBytes = defaultMaxBodyBytes,
-  maxCollectionItems
+  maxCollectionItems,
+  dictionaryResolver = createDictionaryResolver(),
+  maxDictionaryBatchItems = defaultMaxDictionaryBatchItems
 }) {
   if (!token || token.trim() === "") {
     throw new Error("VOCAB_SYNC_TOKEN is required.");
   }
   const bodyByteLimit = positiveIntegerOrDefault(maxBodyBytes, defaultMaxBodyBytes);
+  const dictionaryBatchLimit = Math.min(
+    positiveIntegerOrDefault(maxDictionaryBatchItems, defaultMaxDictionaryBatchItems),
+    hardMaxDictionaryBatchItems
+  );
   const store = new SyncStore(db, { maxCollectionItems });
 
   const server = http.createServer(async (request, response) => {
@@ -31,7 +46,9 @@ export function createSyncServer({
         backupDir,
         backupRetention,
         token,
-        maxBodyBytes: bodyByteLimit
+        maxBodyBytes: bodyByteLimit,
+        dictionaryResolver,
+        maxDictionaryBatchItems: dictionaryBatchLimit
       });
     } catch (error) {
       sendError(response, error);
@@ -51,6 +68,30 @@ async function route(context) {
     return;
   }
 
+  if (url.pathname.startsWith("/dict/") && request.method === "GET") {
+    requireBearer(request, context.token);
+    const lemma = dictionaryLemmaFromPath(url.pathname);
+    sendJson(response, 200, await lookupDictionary(context.dictionaryResolver, lemma));
+    return;
+  }
+
+  if (url.pathname === "/dict/batch" && request.method === "POST") {
+    requireBearer(request, context.token);
+    const payload = await readJsonBody(request, context.maxBodyBytes);
+    const lemmas = dictionaryBatchLemmas(payload, context.maxDictionaryBatchItems);
+    const uniqueLemmas = [...new Set(lemmas)];
+    const uniqueResults = await mapWithConcurrency(
+      uniqueLemmas,
+      dictionaryBatchConcurrency,
+      (lemma) => lookupDictionary(context.dictionaryResolver, lemma)
+    );
+    const resultByLemma = new Map(uniqueResults.map((result) => [result.lemma, result]));
+    sendJson(response, 200, {
+      results: lemmas.map((lemma) => ({ ...resultByLemma.get(lemma) }))
+    });
+    return;
+  }
+
   if (url.pathname === "/sync/batch" && request.method === "POST") {
     requireBearer(request, context.token);
     const payload = await readJsonBody(request, context.maxBodyBytes);
@@ -67,6 +108,55 @@ async function route(context) {
   }
 
   sendJson(response, 404, { error: { message: "Not found." } });
+}
+
+async function lookupDictionary(resolver, lemma) {
+  try {
+    const raw = typeof resolver === "function"
+      ? await resolver(lemma)
+      : resolver && typeof resolver.lookup === "function"
+        ? await resolver.lookup(lemma)
+        : null;
+    return normalizeDictionaryResult(lemma, raw);
+  } catch {
+    return pendingDictionaryResult(lemma, "provider_failure");
+  }
+}
+
+function dictionaryLemmaFromPath(pathname) {
+  const encoded = pathname.slice("/dict/".length);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(encoded);
+  } catch {
+    throw badRequest("Dictionary lemma must use valid URL encoding.");
+  }
+  return normalizeDictionaryLemma(decoded);
+}
+
+function dictionaryBatchLemmas(payload, limit) {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.lemmas)) {
+    throw badRequest("Dictionary batch body must contain a lemmas array.");
+  }
+  if (payload.lemmas.length === 0 || payload.lemmas.length > limit) {
+    throw badRequest(`Dictionary batch must contain between 1 and ${limit} lemmas.`);
+  }
+  return payload.lemmas.map(normalizeDictionaryLemma);
+}
+
+async function mapWithConcurrency(items, concurrency, transform) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await transform(items[index]);
+    }
+  }
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 }
 
 async function maybeBackup({ db, dbPath, backupDir, backupRetention }) {
@@ -118,6 +208,12 @@ async function readJsonBody(request, maxBodyBytes) {
 function payloadTooLarge() {
   const error = new Error("Request body is too large.");
   error.status = 413;
+  return error;
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
   return error;
 }
 

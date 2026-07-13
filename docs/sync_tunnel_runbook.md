@@ -34,8 +34,9 @@ Mac mini에서는 두 프로세스가 계속 돈다.
    - 127.0.0.1:8787에만 bind
    - /health, /sync/batch, /sync/snapshot 제공
    - Bearer token으로 요청 검증
-   - server/data/vocab-sync.sqlite에 저장
-   - server/backups/에 일일 백업 생성
+   - checkout을 직접 실행하지 않고 versioned runtime release를 실행
+   - `~/Library/Application Support/VocabReminderServer/data/`에 저장
+   - runtime `backups/`에 무결성 manifest가 있는 일일 백업 생성
 
 2. tunnel agent
    - Cloudflare quick tunnel에 outbound 연결을 유지
@@ -46,10 +47,10 @@ Mac mini에서는 두 프로세스가 계속 돈다.
 
 ## 2. Mac mini 최초 설치 체크리스트
 
-### A. Sync 서버
+### A. 격리 Sync 서버
 
-- [x] Mac mini에 Node 20+가 설치되어 있다.
-- [x] repo를 Mac mini의 항상 접근 가능한 경로에 둔다.
+- [x] Mac mini에 Node 22가 설치되어 있다(`server/.node-version`이 정본).
+- [x] 운영 runtime은 repo 위치와 무관하게 Dropbox/iCloud 밖에 둔다.
 - [x] `server/.env.example`의 기본 host가 `127.0.0.1`인지 확인한다.
 - [x] 아래 명령으로 sync 서버와 tunnel launchd agent 설치를 시작한다.
 
@@ -57,10 +58,14 @@ Mac mini에서는 두 프로세스가 계속 돈다.
 npm run sync:setup-mac-mini
 ```
 
-`server/tunnel/.env`가 아직 없으면 이 명령은 tunnel env template을 만들고 멈춘다.
+최초 실행은 기존 DB를 WAL checkpoint한 뒤 count/ID/content checksum을 비교하여 runtime으로 이전한다. 새 release는 `npm ci`, native ABI, 임시 DB, port bind preflight를 모두 통과해야 `current`가 된다. health 실패 시 직전 release와 plist로 자동 rollback한다.
+
+runtime `tunnel.env`가 아직 없으면 이 명령은 tunnel env template을 만들고 멈춘다.
 기본 경로에서는 Cloudflare Worker URL과 admin token을 넣은 뒤 같은 명령을 다시 실행한다.
 
-- [x] `server/.env`가 생성되었고 `VOCAB_SYNC_TOKEN`이 들어 있다.
+- [x] runtime `.env`가 생성되었고 `VOCAB_SYNC_TOKEN`이 들어 있다.
+- [x] `current`와 필요 시 `previous`가 versioned release를 가리킨다.
+- [x] `state/deployment.json`과 `state/last_restore_drill.json`이 성공 상태다.
 - [x] launchd agent가 올라와 있다.
 
 ```sh
@@ -70,7 +75,8 @@ launchctl print "gui/$(id -u)/com.vocabreminder.sync"
 - [x] Mac mini 내부에서 health check가 성공한다.
 
 ```sh
-TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' server/.env)"
+RUNTIME="$HOME/Library/Application Support/VocabReminderServer"
+TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$RUNTIME/.env")"
 curl -i -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/health
 ```
 
@@ -93,13 +99,13 @@ CLOUDFLARE_API_TOKEN=<paste-token-here> npm run sync:setup-cloudflare-worker
 ```
 
   - token 권한: Account Settings Read, Workers Scripts Edit, Workers KV Storage Edit, User Details Read, Memberships Read.
-  - script가 `server/tunnel/.env`를 `cloudflare_quick_worker` 형태로 쓴다.
+  - script가 runtime `tunnel.env`를 `cloudflare_quick_worker` 형태로 쓴다.
 - [x] `server/tunnel/cloudflare_worker` Worker가 deploy된다.
 - [x] Worker KV namespace `SYNC_UPSTREAM`이 연결된다.
 - [x] Worker secret `ADMIN_TOKEN`이 설정된다.
 - [x] deploy output의 stable URL을 기록한다.
   - 현재 배포 URL: `https://vocab-sync.vocab-reminder-sjk.workers.dev`
-- [x] `server/tunnel/.env`에 Worker URL/admin token을 넣는다.
+- [x] runtime `tunnel.env`에 Worker URL/admin token을 넣는다.
 
 ```env
 TUNNEL_PROVIDER=cloudflare_quick_worker
@@ -110,11 +116,13 @@ CF_WORKER_ADMIN_TOKEN=<worker admin token>
 - [x] tunnel agent를 launchd로 등록한다.
   - repo 제공 스크립트: `server/tunnel/install_tunnel.sh`
   - 서버와 tunnel을 같이 준비하는 명령: `npm run sync:setup-mac-mini`
-- [x] tunnel 로그가 `server/logs/`에 남는다.
+- [x] tunnel 로그가 runtime `logs/`에 남는다.
+- [x] `state/tunnel-supervisor.json`이 local/direct tunnel/stable Worker health를 분리해 기록한다.
 - [x] 외부 네트워크에서 stable HTTPS URL health check가 성공한다.
 
 ```sh
-TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' server/.env)"
+RUNTIME="$HOME/Library/Application Support/VocabReminderServer"
+TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$RUNTIME/.env")"
 curl -i -H "Authorization: Bearer $TOKEN" https://vocab-sync.vocab-reminder-sjk.workers.dev/health
 ```
 
@@ -136,7 +144,13 @@ Mac mini 준비 상태 전체 점검:
 VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
 ```
 
-`sync:doctor`는 파일을 만들거나 서버를 켜지 않는다. `server/.env`, `server/tunnel/.env`, launchd agent, local health, stable HTTPS endpoint, release artifact endpoint, Android adb 연결 상태를 읽어서 `PASS/WARN/FAIL`로 보여준다.
+`sync:doctor`는 파일을 만들거나 서버를 켜지 않는다. runtime/env/current release, pinned Node ABI, launchd PID, DB/backup integrity, restore drill, tunnel supervisor state, local/stable 200, wrong-token 401, release endpoint, Android adb 상태를 읽어서 `PASS/WARN/FAIL`로 보여준다.
+
+ABI, 배포본, launchd, tunnel을 같은 절차로 다시 맞추는 idempotent 복구 명령:
+
+```sh
+npm run sync:repair
+```
 
 현재 다음 Mac mini 명령은 Worker deploy 뒤 실행한다.
 
@@ -273,24 +287,41 @@ npm run sync:tunnel-smoke
 
 - [ ] Mac mini가 켜져 있다.
 - [ ] `com.vocabreminder.sync` launchd agent가 살아 있다.
-- [ ] `server/logs/sync.err.log`에 crash가 없다.
-- [ ] `server/.env`에 token이 있다.
+- [ ] runtime `logs/sync.err.log`에 crash가 없다.
+- [ ] runtime `.env`에 token이 있다.
+- [ ] `current`가 유효한 versioned release를 가리킨다.
+- [ ] pinned Node와 `better-sqlite3` ABI가 일치한다.
 - [ ] `curl http://127.0.0.1:8787/health`가 Mac mini 내부에서 성공한다.
 
 ### 외부에서만 안 될 때
 
 - [ ] tunnel agent가 살아 있다.
+- [ ] `state/tunnel-supervisor.json`이 3분 이내이고 `supervisor_status=healthy`다.
 - [ ] Worker URL이 살아 있고 KV에 current quick tunnel URL이 들어 있다.
 - [ ] stable workers.dev URL이 `http://127.0.0.1:8787`로 연결된다.
-- [ ] `server/logs/tunnel.err.log`에 인증/연결 오류가 없다.
+- [ ] runtime `logs/tunnel.err.log`에 인증/연결 오류가 없다.
 - [ ] Android에서 AdGuard를 끄지 않고 다시 시도한다.
 
 ### 데이터가 이상해 보일 때
 
-- [ ] `server/backups/`에 최근 백업이 있다.
+- [ ] runtime `backups/`에 36시간 이내 백업과 `.manifest.json`이 있다.
+- [ ] `state/last_restore_drill.json`이 `status=passed`다.
 - [ ] 같은 batch를 두 번 push해도 중복이 생기지 않는다.
 - [ ] 깨진 record가 skip count로 보고되고 기존 데이터가 바뀌지 않는다.
 - [ ] Android/MacBook 로컬 데이터는 서버 장애 중에도 저장/복습이 가능하다.
+
+수동 무결성·복원 훈련:
+
+```sh
+RUNTIME="$HOME/Library/Application Support/VocabReminderServer"
+NODE="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$HOME/Library/LaunchAgents/com.vocabreminder.sync.plist")"
+"$NODE" "$RUNTIME/current/tools/db_admin.mjs" inspect --db "$RUNTIME/data/vocab-sync.sqlite"
+"$NODE" "$RUNTIME/current/tools/db_admin.mjs" restore-drill \
+  --backup-dir "$RUNTIME/backups" \
+  --state "$RUNTIME/state/last_restore_drill.json"
+```
+
+실행 중인 `.sqlite`, `-wal`, `-shm`을 Finder나 `cp`로 따로 옮기지 않는다. 배포기와 `db_admin.mjs`만 사용한다. 기존 Dropbox DB는 자동 삭제하지 않으며 이전 검증/비상 복구 원본으로 남긴다.
 
 ## 6. 최종 인수 체크리스트
 

@@ -30,21 +30,79 @@ test("roundtrips a sync batch through the HTTP server and writes a daily backup"
   assert.equal(fs.readdirSync(app.backupDir).filter((name) => name.endsWith(".sqlite")).length, 1);
 });
 
-test("ignores duplicate append-only events by id", async (t) => {
+test("keeps append-only entities immutable and idempotent by id", async (t) => {
   const app = await startTestServer(t);
   const batch = fullBatch();
   await postJson(app.url("/sync/batch"), batch, token);
   const duplicate = await postJson(app.url("/sync/batch"), {
+    definition_candidates: [{
+      ...batch.definition_candidates[0],
+      raw_text: "must not replace the original",
+      parsed_meaning_ko: "변조된 뜻"
+    }],
     review_events: batch.review_events,
     recommendation_feedback: batch.recommendation_feedback
   }, token);
 
+  assert.equal(duplicate.body.applied.definition_candidates, 0);
   assert.equal(duplicate.body.applied.review_events, 0);
   assert.equal(duplicate.body.applied.recommendation_feedback, 0);
 
   const snapshot = await getJson(app.url("/sync/snapshot"), token);
+  assert.equal(snapshot.body.definition_candidates.length, 1);
+  assert.equal(snapshot.body.definition_candidates[0].parsed_meaning_ko, "회복력 있는");
   assert.equal(snapshot.body.review_events.length, 1);
   assert.equal(snapshot.body.recommendation_feedback.length, 1);
+});
+
+test("synthesizes one deterministic meaning candidate for legacy card-only retries", async (t) => {
+  const app = await startTestServer(t);
+  const legacyCard = cardPayload({
+    id: "legacy-card-only",
+    meaning_ko: "구버전에서 저장한 뜻",
+    definition_en: "saved by a legacy client",
+    updated_at: "2026-07-03T04:00:00.000Z"
+  });
+
+  const first = await postJson(app.url("/sync/batch"), { cards: [legacyCard] }, token);
+  const firstSnapshot = await getJson(app.url("/sync/snapshot"), token);
+  const firstCandidate = firstSnapshot.body.definition_candidates[0];
+
+  assert.equal(first.body.applied.cards, 1);
+  assert.equal(first.body.applied.definition_candidates, 1);
+  assert.equal(firstCandidate.source, "card_snapshot");
+  assert.equal(firstCandidate.parsed_meaning_ko, legacyCard.meaning_ko);
+
+  const retry = await postJson(app.url("/sync/batch"), { cards: [legacyCard] }, token);
+  const retrySnapshot = await getJson(app.url("/sync/snapshot"), token);
+  assert.equal(retry.body.applied.cards, 0);
+  assert.equal(retry.body.applied.definition_candidates, 0);
+  assert.equal(retrySnapshot.body.definition_candidates.length, 1);
+  assert.equal(retrySnapshot.body.definition_candidates[0].id, firstCandidate.id);
+});
+
+test("retains both simultaneous offline meanings while the existing card merge picks one primary", async (t) => {
+  const app = await startTestServer(t);
+  const sharedRevision = cardPayload({
+    id: "simultaneous-meaning-edit",
+    version: 2,
+    updated_at: "2026-07-03T05:00:00.000Z"
+  });
+  const alphaEdit = { ...sharedRevision, meaning_ko: "alpha meaning" };
+  const zetaEdit = { ...sharedRevision, meaning_ko: "zeta meaning" };
+
+  await postJson(app.url("/sync/batch"), { cards: [alphaEdit] }, token);
+  await postJson(app.url("/sync/batch"), { cards: [zetaEdit] }, token);
+  const snapshot = await getJson(app.url("/sync/snapshot"), token);
+
+  assert.equal(snapshot.body.cards[0].meaning_ko, "zeta meaning");
+  assert.deepEqual(
+    snapshot.body.definition_candidates
+      .filter((candidate) => candidate.card_id === sharedRevision.id)
+      .map((candidate) => candidate.parsed_meaning_ko)
+      .sort(),
+    ["alpha meaning", "zeta meaning"]
+  );
 });
 
 test("skips broken records without coercing core memory fields", async (t) => {

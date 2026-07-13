@@ -16,6 +16,8 @@
     "sync:check-endpoint": "bash tools/check_sync_endpoint.sh",
     "sync:check-artifacts": "bash tools/check_sync_release_artifacts.sh",
     "sync:doctor": "bash tools/sync_doctor.sh",
+    "sync:repair": "bash tools/repair_sync_runtime.sh",
+    "qc:all": "bash tools/qc_all.sh",
     "mac:install-capture-service": "bash tools/install_mac_capture_service.sh",
     "sync:setup-cloudflare-worker": "bash tools/setup_cloudflare_worker.sh",
     "sync:setup-mac-mini": "bash tools/setup_mac_mini_sync.sh",

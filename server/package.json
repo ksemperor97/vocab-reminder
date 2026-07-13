@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22 <23"
   },
   "scripts": {
+    "db:restore-drill": "node tools/db_admin.mjs restore-drill",
+    "preflight": "node tools/preflight.mjs",
     "start": "node src/index.js",
     "test": "node --test"
   },
