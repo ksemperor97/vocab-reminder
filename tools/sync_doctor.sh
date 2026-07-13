@@ -187,7 +187,7 @@ fi
 
 server_plist="$HOME/Library/LaunchAgents/com.vocabreminder.sync.plist"
 tunnel_plist="$HOME/Library/LaunchAgents/com.vocabreminder.tunnel.plist"
-node_bin="$(plist_value "$server_plist" "ProgramArguments:0")"
+node_bin="${VOCAB_SYNC_DOCTOR_NODE_BIN:-$(plist_value "$server_plist" "ProgramArguments:0")}"
 if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
   node_bin="$(command -v node 2>/dev/null || true)"
 fi
@@ -288,12 +288,14 @@ if [[ -f "$SERVER_ENV" ]]; then
   sync_port="$(env_value "$SERVER_ENV" VOCAB_SYNC_PORT)"
   db_path="$(env_value "$SERVER_ENV" VOCAB_SYNC_DB_PATH)"
   backup_dir="$(env_value "$SERVER_ENV" VOCAB_SYNC_BACKUP_DIR)"
+  deployed_db_path="$(plist_value "$server_plist" "EnvironmentVariables:VOCAB_SYNC_DB_PATH")"
+  deployed_backup_dir="$(plist_value "$server_plist" "EnvironmentVariables:VOCAB_SYNC_BACKUP_DIR")"
   sync_host="${sync_host:-127.0.0.1}"
   sync_port="${sync_port:-8787}"
-  db_path="${db_path:-$RUNTIME_ROOT/data/vocab-sync.sqlite}"
-  backup_dir="${backup_dir:-$RUNTIME_ROOT/backups}"
-  db_path="$(absolute_path "$db_path" "${active_release:-$RUNTIME_ROOT}")"
-  backup_dir="$(absolute_path "$backup_dir" "${active_release:-$RUNTIME_ROOT}")"
+  db_path="${VOCAB_SYNC_DOCTOR_DB_PATH:-${deployed_db_path:-${db_path:-$RUNTIME_ROOT/data/vocab-sync.sqlite}}}"
+  backup_dir="${VOCAB_SYNC_DOCTOR_BACKUP_DIR:-${deployed_backup_dir:-${backup_dir:-$RUNTIME_ROOT/backups}}}"
+  db_path="$(absolute_path "$db_path" "$RUNTIME_ROOT")"
+  backup_dir="$(absolute_path "$backup_dir" "$RUNTIME_ROOT")"
 
   if is_placeholder_value "$sync_token"; then
     fail "VOCAB_SYNC_TOKEN is missing or still a placeholder"

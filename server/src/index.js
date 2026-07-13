@@ -14,7 +14,10 @@ const { server } = createSyncServer({
   backupRetention: config.backupRetention,
   token: config.token,
   maxBodyBytes: config.maxBodyBytes,
-  maxCollectionItems: config.maxCollectionItems
+  maxCollectionItems: config.maxCollectionItems,
+  requestLogger(entry) {
+    console.log(JSON.stringify({ event: "sync_request", ...entry }));
+  }
 });
 
 server.listen(config.port, config.host, () => {

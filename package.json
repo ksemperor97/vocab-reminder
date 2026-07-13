@@ -16,6 +16,8 @@
     "sync:check-endpoint": "bash tools/check_sync_endpoint.sh",
     "sync:check-artifacts": "bash tools/check_sync_release_artifacts.sh",
     "sync:doctor": "bash tools/sync_doctor.sh",
+    "sync:doctor:fault-test": "bash tools/test_sync_doctor_faults.sh",
+    "sync:diagnostics": "bash tools/export_sync_diagnostics.sh",
     "sync:repair": "bash tools/repair_sync_runtime.sh",
     "qc:all": "bash tools/qc_all.sh",
     "mac:install-capture-service": "bash tools/install_mac_capture_service.sh",
@@ -27,7 +29,8 @@
     "recommendations:queue": "node shared/recommendations/scripts/build_fill_queue.mjs",
     "recommendations:enrich": "node shared/recommendations/scripts/enrich_fill_queue.mjs",
     "recommendations:enrich:sample": "RECOMMENDATION_ENRICH_LIMIT=3 RECOMMENDATION_ENRICH_REQUIRE_COMPLETE=true RECOMMENDATION_ENRICH_OUTPUT=shared/recommendations/recommendation_enriched_candidates.sample.json RECOMMENDATION_DICTIONARY_FIXTURE_JSON=shared/recommendations/fixtures/fill_dictionary_fixture.json RECOMMENDATION_TRANSLATION_FIXTURE_JSON=shared/recommendations/fixtures/fill_translation_fixture.json node shared/recommendations/scripts/enrich_fill_queue.mjs",
-    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:build"
+    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:build",
+    "dictionary:benchmark": "node tools/run_dictionary_benchmark.mjs"
   },
   "devDependencies": {
     "subtlex-word-frequencies": "2.0.0"

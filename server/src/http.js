@@ -23,7 +23,9 @@ export function createSyncServer({
   maxBodyBytes = defaultMaxBodyBytes,
   maxCollectionItems,
   dictionaryResolver = createDictionaryResolver(),
-  maxDictionaryBatchItems = defaultMaxDictionaryBatchItems
+  maxDictionaryBatchItems = defaultMaxDictionaryBatchItems,
+  requestLogger = null,
+  requestIdFactory = () => crypto.randomUUID()
 }) {
   if (!token || token.trim() === "") {
     throw new Error("VOCAB_SYNC_TOKEN is required.");
@@ -36,6 +38,9 @@ export function createSyncServer({
   const store = new SyncStore(db, { maxCollectionItems });
 
   const server = http.createServer(async (request, response) => {
+    const startedAt = Date.now();
+    const requestId = resolveRequestId(request.headers["x-request-id"], requestIdFactory);
+    response.setHeader("X-Request-Id", requestId);
     try {
       await route({
         request,
@@ -48,10 +53,19 @@ export function createSyncServer({
         token,
         maxBodyBytes: bodyByteLimit,
         dictionaryResolver,
-        maxDictionaryBatchItems: dictionaryBatchLimit
+        maxDictionaryBatchItems: dictionaryBatchLimit,
+        requestId
       });
     } catch (error) {
-      sendError(response, error);
+      sendError(response, error, requestId);
+    } finally {
+      logRequest(requestLogger, {
+        requestId,
+        method: request.method ?? "UNKNOWN",
+        route: safeRouteLabel(request.url),
+        status: response.statusCode,
+        durationMs: Date.now() - startedAt
+      });
     }
   });
 
@@ -221,13 +235,56 @@ function positiveIntegerOrDefault(value, fallback) {
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
-function sendError(response, error) {
+function sendError(response, error, requestId) {
   const status = Number.isInteger(error.status) ? error.status : 500;
   sendJson(response, status, {
     error: {
-      message: status === 500 ? "Internal server error." : error.message
+      message: status === 500 ? "Internal server error." : error.message,
+      request_id: requestId
     }
   });
+}
+
+function resolveRequestId(headerValue, requestIdFactory) {
+  const candidate = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  if (typeof candidate === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(candidate)) {
+    return candidate;
+  }
+  const generated = String(requestIdFactory());
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(generated)) {
+    throw new Error("requestIdFactory returned an invalid request ID.");
+  }
+  return generated;
+}
+
+function safeRouteLabel(rawUrl) {
+  let pathname = "/";
+  try {
+    pathname = new URL(rawUrl ?? "/", "http://localhost").pathname;
+  } catch {
+    return "invalid-url";
+  }
+  if (pathname.startsWith("/dict/") && pathname !== "/dict/batch") return "/dict/:lemma";
+  if (["/health", "/dict/batch", "/sync/batch", "/sync/snapshot"].includes(pathname)) {
+    return pathname;
+  }
+  return "unmatched";
+}
+
+function logRequest(logger, entry) {
+  if (typeof logger !== "function") return;
+  try {
+    logger({
+      at: new Date().toISOString(),
+      request_id: entry.requestId,
+      method: String(entry.method).toUpperCase(),
+      route: entry.route,
+      status: entry.status,
+      duration_ms: entry.durationMs
+    });
+  } catch {
+    // Observability must never make a sync request fail.
+  }
 }
 
 function sendJson(response, status, payload) {
