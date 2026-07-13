@@ -1,16 +1,29 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
+  isDirectExecution,
   QuickTunnelSupervisor,
   resolveStateFile,
   writeJsonAtomically,
 } from "./run_cloudflare_quick_worker.mjs";
+
+test("direct execution detection follows a versioned current symlink", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "vocab-tunnel-symlink-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const targetUrl = new URL("./run_cloudflare_quick_worker.mjs", import.meta.url);
+  const targetPath = fileURLToPath(targetUrl);
+  const currentPath = path.join(root, "current-runner.mjs");
+  await symlink(targetPath, currentPath);
+
+  assert.equal(isDirectExecution(currentPath, targetUrl.href), true);
+});
 
 class FakeChild extends EventEmitter {
   constructor(pid) {

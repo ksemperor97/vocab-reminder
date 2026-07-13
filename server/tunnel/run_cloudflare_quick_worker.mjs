@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -671,11 +671,17 @@ export class QuickTunnelSupervisor {
   }
 }
 
-function isDirectExecution() {
-  if (!process.argv[1]) {
+export function isDirectExecution(executablePath = process.argv[1], moduleUrl = import.meta.url) {
+  if (!executablePath) {
     return false;
   }
-  return pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+  try {
+    const executableRealPath = realpathSync(path.resolve(executablePath));
+    const moduleRealPath = realpathSync(fileURLToPath(moduleUrl));
+    return executableRealPath === moduleRealPath;
+  } catch {
+    return pathToFileURL(path.resolve(executablePath)).href === moduleUrl;
+  }
 }
 
 if (isDirectExecution()) {
