@@ -1,7 +1,68 @@
+## 2026-07-14 현재 상태 — 구현 완료와 출시 인수를 분리해서 기록
+
+현재 결론은 **제품 의도의 핵심 흐름과 단독 사용자 운영 기반은 구현됐지만, 일부 schema·공용 회귀·장기 데이터 작업과 최신 출시본의 외부 인수는 아직 끝나지 않았다**이다. 아래의 이전 날짜별 기록은 당시 사실을 보존한 과거 경과이며, 현재 판단에는 이 섹션을 우선한다.
+
+### 정본 문서 관계
+
+| 문서 | 정본 역할 |
+|---|---|
+| `docs/product_completion_plan_20260713.md` | 현재 완료 조건, 단계, 미완료 gate의 정본 |
+| `docs/STATUS.md` | 날짜가 붙은 구현·검증·artifact 현황과 과거 경과 |
+| `docs/vocab_reminder_user_experience.md` | 사용자가 보게 될 동작과 현재 제품 경계 |
+| `docs/sync_tunnel_runbook.md` | Mac mini 운영, 장애 복구, 배포 인수 절차 |
+| `docs/single_user_security_model.md` | 단독 사용자 credential·서명·분실 대응과 제3자 배포 금지 경계 |
+
+서로 다르면 완료 여부는 product completion plan, 운영 명령은 runbook, 보안 판단은 security model을 따른다. 과거 worklist와 아래의 날짜별 기록은 증거·결정 이력이지 현재 완료 선언의 정본이 아니다.
+
+### 구현 및 자동 검증된 범위
+
+- 운영 서버를 checkout/Dropbox와 분리된 `~/Library/Application Support/VocabReminderServer`에 배치한다. versioned release, 원자적 `current`/`previous` 전환, 고정 Node 22 binary와 native ABI preflight, 실패 시 rollback이 구현됐다.
+- SQLite는 WAL checkpoint 뒤 count/ID/content checksum을 비교해 이전하고, SHA-256 manifest가 있는 일일 backup과 격리 restore drill을 사용한다. 2026-07-13 restore drill은 `integrity=ok`로 통과했다.
+- tunnel supervisor는 단순 PID가 아니라 local/direct/stable HTTP 상태를 본다. 2026-07-13 서버 SIGTERM은 2초, cloudflared child SIGTERM은 26초, process가 살아 있는 connection hang(SIGSTOP)은 40초 안에 교체·복구됐고 stable endpoint 200을 재확인했다.
+- `npm run sync:doctor`, `sync:doctor:fault-test`, `sync:repair`, `sync:diagnostics`가 각각 read-only 진단, 장애 주입 탐지, idempotent 복구, credential/본문을 제외한 redacted evidence export를 담당한다. 복구 뒤 doctor 결과는 failures 0, warnings 1이었고 warning은 ADB 기기 미연결이었다.
+- 서버와 Worker는 `X-Request-Id`를 전달하고 오류 응답에도 `request_id`를 싣는다. Android/Mac은 요청마다 UUID를 만들고 상태 화면에는 짧은 ID와 안전한 오류 범주만 남기며 token, 조회 lemma, 캡처 문장, raw response body는 진단에 기록하지 않는다.
+- Android/Mac의 빈 뜻은 인증된 `/dict/batch`로 보강한다. pending/resolved/not-found/provider-failure 상태, bounded batch/backoff, 수동 뜻 우선 잠금, 자동 결과의 append-only 후보 보존이 구현됐다. 200단어 실 endpoint benchmark는 200/200 resolved, 한국어 뜻 198, batch p95 1.64초였다.
+- Android와 Mac 카드 상세에는 문맥, 출처가 정리된 캡처 경로, 뜻 후보·충돌·복구, 복습/수정, 동기화 이력을 묶은 카드 전기(傳記)가 구현됐다. 동시 뜻 수정에서 primary로 선택되지 않은 후보도 남고 export/import 뒤에도 선택 이력이 유지되는 회귀 테스트가 추가됐다.
+- Android 첫 실행에는 선택/공유 캡처 안내와 알림 차단·배터리 제한·WorkManager 지연·마지막 sync 실패를 구분하는 readiness 진단/설정 바로가기가 구현됐다. Mac에는 첫 실행 설정·진단, 우클릭 Capture Service 상태 확인·앱 내 설치/재설치, 알림·로그인 자동 시작·영한사전·최근 요청 상태가 구현됐다.
+- Android release 서명은 debug signing과 분리된 외부 `externalRelease` config를 사용한다. repo/Dropbox 밖의 0700 디렉터리와 0600 keystore/properties, 기존 설치본 인증서를 보존해 비밀번호가 분리된 JKS로 옮기는 절차, 서명 확인 도구를 갖췄다. 최신 소스의 release artifact 서명·upgrade 실기기 인수는 아래 blocker로 별도 관리한다.
+- 현재 제품 버전은 Android/Mac 모두 0.2.0(build/versionCode 2)다. release build는 changelog와 SHA-256, source commit/config를 생성하며 현재 배포물의 정본은 `dist/sync-release/release-manifest.json`이다.
+- `npm run sync:rotate-tokens`는 기본 dry-run이며 active env·Cloudflare·서비스·artifact를 바꾸지 않는다. prepare/build/activate/rollback은 명시적 단계와 확인 문자열을 요구한다. 2026-07-13에는 dry-run과 자동 보안 테스트만 검증했고 운영 token rotation은 실행하지 않았다.
+- `npm run qc:all`이 서버/native ABI, server/Worker tests, doctor/fault injection, 사전·추천 gate, secret boundary, Android unit/lint/build/signed release, Mac XCTest/build/scheduler vector, artifact scan, 가능한 경우 기기 테스트를 하나의 provenance manifest로 묶는다. 이 명령의 **최종 clean-tree 전체 통과**가 최신 release 확정 조건이다.
+- 2026-07-14 release hardening으로 추적되는 공개 인증서 SHA-256 pin이 keystore·APK·backup record를 모두 검증한다. manifest는 raw token 대신 token SHA-256를 남기고 token이 없으면 artifact 검사를 실패한다. Mac Info.plist와 Mach-O `minos`는 macOS 14.0으로 일치한다.
+- release build, token rotation, Cloudflare/Mac mini setup은 같은 runtime mutation lock을 사용한다. 최초 rotation rollback에서 이전 artifact가 없더라도 폐기된 token이 든 artifact를 배포 경로에 남기지 않는다.
+
+### 2026-07-13 provenance 스냅샷
+
+- 운영 runtime `current`: release `20260713T144850Z-090435d39ed3-48914`, git `090435d39ed3`, Node `v22.22.2`, ABI `127`.
+- 운영 runtime `previous`: release `20260713T144231Z-8f2999df7add-16036`.
+- 복구 증거: `/tmp/vocab_product_completion_20260713/failure_recovery/`.
+- 사전 benchmark: `/tmp/vocab_product_completion_20260713/dictionary_benchmark_20260713144000.json`.
+- 최근 구성별 회귀 기록은 server 51건 통과, Android JVM 121건 중 failure/error 0·skip 1, Mac XCTest 31건 통과다. 그 뒤 review 수정이 추가됐으므로 이 숫자를 최종 clean-tree gate로 간주하지 않고 `qc:all`을 다시 실행한다.
+- 짧은 soak runner 자체 검증: `/tmp/vocab_product_completion_20260713/sync_soak_script_validation/summary.json`(12초/2 samples/0 failure). 이것은 24시간 soak의 대체 증거가 아니다.
+- 최종 handoff 때 `npm run sync:release`로 `dist/sync-release`를 원자적으로 다시 만들고 `npm run sync:check-artifacts`와 `npm run qc:all`을 통과시킨다. 이 문서에 특정 artifact SHA를 복사하지 않으며, 설치할 APK/Mac archive의 source commit·dirty 상태·version·endpoint·SHA-256은 `dist/sync-release/release-manifest.json`을 정본으로 확인한다.
+
+### Release blockers / 외부 인수
+
+- [ ] 실제 Mac mini 재부팅 뒤 server/tunnel launchd 자동 복구
+- [ ] 실제 네트워크를 5분 끊었다 복구한 뒤 누적 변경 자동 sync(프로세스 kill/hang 시험과 별개)
+- [ ] 24시간 soak 실행 및 무결성·중복·secret-free evidence 확인
+- [ ] Android 실기기에서 최신 release 신규 설치/기존 설치본 upgrade/알림·캡처·sync 회귀
+- [ ] 최신 clean commit에서 Android/Mac 0.2.0 artifact 재빌드, 외부 보호 서명 확인, `qc:all` 전체 통과
+- [ ] 운영 token rotation maintenance window 실행(현재는 dry-run/rollback 도구만 검증)
+- [ ] 다의어 10개 문맥 적합성 인간 검수
+- [ ] 추천 공급량 최소 1,095개/목표 2,000개, 라이선스·귀속·인간 검수 충족(현재 149개라 strict gate 실패)
+- [ ] Google Play 배포를 한다면 compile/target SDK 35 이상으로 올리고 정책·회귀 인수. 현재 compileSdk/targetSdk 33, 설치 SDK 33/34, AGP 7.4.2이므로 개인 소유 장비 sideload 경계에는 직접 차단이 아니지만 [Google Play target API 요구사항](https://developer.android.com/google/play/requirements/target-sdk)을 충족하지 않는다.
+
+코드·데이터 측 열린 항목은 `docs/product_completion_plan_20260713.md`의 체크되지 않은 행이 정본이다. 특히 실제 장기 사전 snapshot/복수 sense, `primary_definition_candidate_id`, same-lemma/context 공용 회귀, DST 전용 XCTest, 문맥 기반 추천 점수·이유가 남아 있다.
+
+## 과거 경과 기록(보존)
+
+주의: 아래의 `server/tunnel/.env`, 과거 release debug signing, 2시간 periodic/5분 debounce 같은 표현은 해당 날짜의 상태이며 현재 운영 지침이 아니다. 현재 값은 위 2026-07-14 섹션과 `sync_tunnel_runbook.md`를 따른다.
+
 ## 현재 마일스톤: M5-M7 로컬 MVP 구현 완료, Cloudflare Worker + Mac mini quick tunnel 운영 경로 연결 및 Android/MacBook Air 왕복 sync 검증 완료
 ## 완료: M0-M4 로컬 구현, M5 로컬 sync 서버(Node+SQLite) + Android/Mac server URL/token sync client + 로컬 import/export + duplicate lemma import merge + recommended→user duplicate progress preservation + Mac 로컬 추천 캡처 승격 self-check, M6 Android/Mac 로컬 검증, M7 generated ranked recommendation catalogue MVP + Mac generated catalogue/selection parity + 공용 recommendation vector + full SUBTLEX candidate pool/fill queue + fixture/live enrich pipeline + 추천 시작 안내 1회 상태 + 추천 액션(started/known/dismissed) instrumentation coverage + Android DailyReviewPlanner 추천 슬롯/threshold/due-goal Robolectric coverage + Android recommended→user capture promotion Robolectric coverage + recommendation_feedback field/timestamp/action validation + active recommendation slot cap + dismissed topic downranking + Mac recommendation intro notification/action split + Mac recommendation_feedback sync preservation + 추천 off 공용 scheduler vector + release 클라이언트 sync endpoint/token 빌드 주입 경로 + Mac auto sync controller + Cloudflare Tunnel launchd 스크립트 + Mac mini one-command setup/doctor + Android/Mac sync 상태 UI(마지막 성공/오류/skipped)
 ## 진행 중: WireGuard 실행 경로를 제거했고, `docs/automatic_sync_tunnel_plan.md` 및 `docs/sync_tunnel_runbook.md` 기준으로 Cloudflare 무료 `workers.dev` Worker front door와 Mac mini quick tunnel launchd agent를 운영 URL `https://vocab-sync.vocab-reminder-sjk.workers.dev`에 연결했다. 도메인 구매는 하지 않는다. Android release 앱과 MacBook Air release 앱의 실제 운영 URL 왕복 sync는 Galaxy SM-F766N과 이 MacBook Air에서 통과했다. 남은 sync QC는 Mac mini 재부팅 후 launchd 자동 복구 확인, 모바일 데이터망 sync 확인, Android release 서명 키를 기기간 빌드에서도 안정적으로 유지하는 방식 확정이다. M7 recommendation fill queue의 운영 translation provider/source licensing 확정 및 전체 자동 채움도 남아 있다.
-## 막힌 것 / 사용자 확인 필요: Firebase는 폐기됨. Android 사용자는 VPN/공유기/서버 주소/토큰 설정을 하지 않는 것이 새 요구사항이다. Cloudflare 계정의 Worker/KV/workers.dev URL과 Worker admin token 확보는 완료됐고 `server/tunnel/.env`에 저장되어 있다. Mac mini에서 sync server와 quick tunnel launchd agent가 등록/실행됐고 `sync:doctor`는 Failures 0, Warnings 1(Android device adb 미연결)까지 도달했다. Android release APK는 현재 debug signing config를 release에도 쓰므로 다른 Mac에서 만든 APK가 기존 설치본과 서명 불일치로 업데이트 실패할 수 있다. 이번 실기기는 MacBook Air에서 release를 재빌드해 기존 설치본과 서명을 맞춘 뒤 검증했다. 추천 MVP는 ISC 라이선스 `subtlex-word-frequencies` 기반 149-entry generated catalogue, 74,286-entry candidate pool, 1,000-entry fill queue, fixture-verified enrich pipeline으로 구현됨. live enrich output은 dictionary/translation source licensing과 provider 선택 전까지 gitignore됨.
+## 막힌 것 / 사용자 확인 필요: Firebase는 폐기됨. Android 사용자는 VPN/공유기/서버 주소/토큰 설정을 하지 않는 것이 새 요구사항이다. Cloudflare 계정의 Worker/KV/workers.dev URL과 Worker admin token 확보는 완료됐고 credential은 repo 밖 runtime env에 둔다. Mac mini에서 sync server와 quick tunnel launchd agent가 등록/실행됐고 `sync:doctor`는 Failures 0, Warnings 1(Android device adb 미연결)까지 도달했다. 현재 Android 0.2.0 release는 debug signing이 아니라 repo 밖 보호 keystore의 `externalRelease` config를 요구한다. 남은 서명 gate는 이 인증서로 최신 APK를 만들어 기존 설치본을 데이터 삭제 없이 upgrade하고 `release-manifest.json`과 실제 서명이 일치하는지 확인하는 것이다. 추천 MVP는 ISC 라이선스 `subtlex-word-frequencies` 기반 149-entry generated catalogue, 74,286-entry candidate pool, 1,000-entry fill queue, fixture-verified enrich pipeline으로 구현됨. 사람 검수를 통과하지 않은 licensed import는 release catalog에 들어가지 않는다.
 ## 최근 검증: 2026-07-03 Mac mini에서 `VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:setup-mac-mini`가 sync server와 quick tunnel launchd agent를 등록/실행했고, `sync:doctor`가 stable endpoint `/health` 200, wrong-token 401, release artifact stable endpoint를 PASS했다. MacBook Air에서도 Node fetch로 `https://vocab-sync.vocab-reminder-sjk.workers.dev/health`가 server token에서 200, wrong token에서 401을 반환함을 확인했다. 같은 날 `npm run sync:setup-cloudflare-worker`가 Cloudflare KV namespace `SYNC_UPSTREAM`, Worker secret `ADMIN_TOKEN`, Worker `vocab-sync`, URL `https://vocab-sync.vocab-reminder-sjk.workers.dev` 배포를 완료했고 `server/tunnel/.env`를 `cloudflare_quick_worker` 설정으로 썼다. 운영 URL release 검증은 Galaxy SM-F766N에서 `npm run sync:android-release-ui-smoke` 통과, release non-debuggable, 서버/토큰/VPN/WireGuard/endpoint UI 미노출, AdGuard VPN 활성, WorkManager evidence 확인까지 완료했다. 증거: `/tmp/vocab_sync_release_ui_real_20260703_201153`. Android release 앱에서 `synchronize`를 저장하고 `지금 동기화`를 눌러 Worker snapshot이 6개에서 7개로 증가함을 확인했다. 증거: `/tmp/vocab_sync_roundtrip_android_real_20260703_2028`. MacBook Air release 앱 실행 후 이 Mac 로컬 3개(`promoteword`, `maconly`, `mergeword`)와 Worker 7개가 merge되어 Mac 로컬/Worker 모두 10개가 됐다. 이어 Android에서 다시 `지금 동기화` 후 UI 스크롤로 `maconly`, `mergeword`, `promoteword`가 보임을 확인했다. 증거: `/tmp/vocab_sync_roundtrip_android_pull_mac_20260703_2032`. 이전 검증: `npm run sync:smoke`, `ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :app:testDebugUnitTest`, `swift build -c release`, `ALLOW_SYNC_RELEASE_DRY_RUN=1 SKIP_ENDPOINT_CHECK=1 VOCAB_SYNC_DEFAULT_URL=https://example.invalid VOCAB_SYNC_DEFAULT_TOKEN=temporary-token-for-build-check npm run sync:preflight` 통과. `server/tunnel/install_tunnel.sh`, `server/tunnel/run_cloudflare_quick_worker.mjs`, `server/tunnel/cloudflare_worker/worker.js`가 Cloudflare 무료 workers.dev front door 경로를 담당한다. Android/Mac release는 URL/token 미주입 시 실패하고, placeholder URL은 `ALLOW_SYNC_RELEASE_DRY_RUN=1` 없이는 실패하도록 guard를 추가했다. `sync:check-artifacts`는 Android release manifest/code 및 Mac release binary에 debug sync/legacy VPN/direct-server 문자열이 없음을 확인하고, Android release APK 안의 debug sync setup 문자열(`Debug sync fields`, `sync_server_url_field`, `sync_auth_token_field`, 서버 주소/토큰)도 차단한다. 기존 전체 검증 기록: `./gradlew testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`, `./gradlew :app:assembleDebug`, `swift run VocabReminderMac --check-scheduler-vectors`. `connectedDebugAndroidTest`는 Android 16 실기기에서 Gradle AndroidInstrumentationDriver의 protobuf `IllegalAccessError`로 테스트 시작 전 ABORTED(0 tests)되어 로컬 JVM/Robolectric coverage로 planner/promotion 경로를 검증함.
 ## 실기기 QC 진행: 2026-07-03 Codex가 `docs/codex_device_qc_protocol.md`에 따라 Galaxy SM-F766N에서 `docs/qc_user_facing_checklist.md` A 섹션 실행. 증거 폴더: `/tmp/vocab_qc_20260703_094928`. 결과: QC-A1/A2는 초기 실패 후 앱 설명 다이얼로그와 알림 꺼짐 배너를 추가해 재검증 통과, QC-A3/A4 통과.
 ## 실기기 QC 추가 진행: 2026-07-03 Galaxy SM-F766N에서 B 섹션 실행. QC-B3a URL 후보 문제, QC-B4 PROCESS_TEXT 저장 후 원앱 복귀, QC-B9 duplicate 안내/예문 보존을 수정 후 재검증 통과. 비행기 모드는 테스트 후 `airplane_mode_on=0`으로 복구함.

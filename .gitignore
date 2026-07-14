@@ -21,6 +21,12 @@ captures/
 *.apk
 *.aab
 
+# Android release signing material (must remain outside the repository)
+**/release-signing.properties
+**/*.jks
+**/*.keystore
+**/token-rotation/
+
 # Firebase client config and secrets
 google-services.json
 GoogleService-Info.plist

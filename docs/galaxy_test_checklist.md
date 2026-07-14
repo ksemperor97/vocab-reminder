@@ -65,7 +65,7 @@ Legend: `[ ]` not run, `[x]` passed, `[!]` failed/blocked, `[-]` manual only or 
 
 ## Notes
 
-- `connectedDebugAndroidTest` through Gradle currently fails before test execution on Android 16 because the Android Instrumentation Driver hits a protobuf `IllegalAccessError`. Use direct `adb shell am instrument` as a fallback for device-side checks.
+- Android 16의 Gradle Android Instrumentation Driver 수집 경로는 protobuf `IllegalAccessError`로 0건 중단될 수 있다. `tools/run_android_instrumentation.sh`는 운영 앱을 절대 대상으로 삼지 않고 `com.vocabreminder.android.qa`를 설치해 13개를 한 건씩 직접 실행한다.
 - 2026-07-12 wireless update verification: `dist/sync-release/VocabReminderAndroid-release.apk` installed on `SM-F766N` with `adb install -r` successfully. `firstInstallTime=2026-07-06 11:27:09` stayed unchanged and `lastUpdateTime=2026-07-12 11:30:56` confirms the in-place update. Before installation, the app data was backed up to `/tmp/vocabreminder_preupdate_20260712_112656.tar`.
 - 2026-07-12 regression evidence: `:app:testDebugUnitTest`, `:app:assembleDebug`, and `:app:assembleDebugAndroidTest` passed (88 unit tests discovered, 0 failures/errors, 1 skipped). `tools/check_sync_release_artifacts.sh` also passed. On-device checks confirmed the app process, granted `POST_NOTIFICATIONS`, the `vocabulary_review` channel, an active three-action review notification, and registered WorkManager jobs. Launch evidence is under `/tmp/vocab_update_20260712`.
 - 2026-07-12 direct-device run: after the user unlocked the phone, A3-B8, C1-C7, D1-D5, E1-E8, and F1-F6 were executed one item at a time. Temporary QA packages were cleared and uninstalled afterward; the main app finished in the foreground with 12 active cards and no QA notification.

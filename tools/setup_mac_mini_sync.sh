@@ -3,6 +3,12 @@ set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+if [[ "${VOCAB_RUNTIME_LOCK_WRAPPED:-0}" != "1" ]]; then
+  exec node "$ROOT_DIR/tools/with_runtime_lock.mjs" \
+    --runtime-root "$RUNTIME_ROOT" \
+    --label "Mac mini sync setup" \
+    -- bash "$0" "$@"
+fi
 SERVER_ENV="$RUNTIME_ROOT/.env"
 TUNNEL_ENV="$RUNTIME_ROOT/tunnel.env"
 
@@ -35,7 +41,7 @@ write_tunnel_env_from_process_env() {
       printf 'CLOUDFLARED_CONFIG=%s\n' "$CLOUDFLARED_CONFIG"
     fi
   } > "$TUNNEL_ENV"
-  echo "Created server/tunnel/.env from tunnel environment variables."
+  echo "Created $TUNNEL_ENV from tunnel environment variables."
 }
 
 if ! command -v launchctl >/dev/null 2>&1; then

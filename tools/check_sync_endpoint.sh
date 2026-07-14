@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_ENV="$ROOT_DIR/server/.env"
+RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+SERVER_ENV="${VOCAB_SYNC_SERVER_ENV_FILE:-$RUNTIME_ROOT/.env}"
+TUNNEL_ENV="${VOCAB_SYNC_TUNNEL_ENV_FILE:-$RUNTIME_ROOT/tunnel.env}"
 SYNC_URL="${VOCAB_SYNC_DEFAULT_URL:-${1:-}}"
 SYNC_TOKEN="${VOCAB_SYNC_DEFAULT_TOKEN:-}"
 LOCAL_SYNC_URL="${LOCAL_SYNC_URL:-http://127.0.0.1:8787}"
@@ -10,9 +12,12 @@ LOCAL_SYNC_URL="${LOCAL_SYNC_URL:-http://127.0.0.1:8787}"
 if [[ -z "$SYNC_TOKEN" && -f "$SERVER_ENV" ]]; then
   SYNC_TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$SERVER_ENV" | head -n 1)"
 fi
+if [[ -z "$SYNC_URL" && -f "$TUNNEL_ENV" ]]; then
+  SYNC_URL="$(sed -n 's/^CF_WORKER_PUBLIC_URL=//p' "$TUNNEL_ENV" | head -n 1)"
+fi
 
 if [[ -z "$SYNC_TOKEN" ]]; then
-  echo "Set VOCAB_SYNC_DEFAULT_TOKEN or create server/.env with VOCAB_SYNC_TOKEN." >&2
+  echo "Set VOCAB_SYNC_DEFAULT_TOKEN or configure $SERVER_ENV with VOCAB_SYNC_TOKEN." >&2
   exit 64
 fi
 

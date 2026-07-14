@@ -1,6 +1,6 @@
 {
   "name": "vocab-reminder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,7 +19,11 @@
     "sync:doctor:fault-test": "bash tools/test_sync_doctor_faults.sh",
     "sync:diagnostics": "bash tools/export_sync_diagnostics.sh",
     "sync:repair": "bash tools/repair_sync_runtime.sh",
+    "sync:rotate-tokens": "node tools/rotate_sync_tokens.mjs",
+    "security:check-secrets": "node tools/check_secret_boundaries.mjs && node tools/scan_secret_leaks.mjs",
+    "security:test": "node --test tools/security_controls.test.mjs && bash tools/test_android_release_signing.sh",
     "qc:all": "bash tools/qc_all.sh",
+    "qc:release": "QC_REQUIRE_LONG_TERM_RECOMMENDATIONS=1 QC_REQUIRE_RELEASE_ARTIFACTS=1 QC_REQUIRE_ANDROID_DEVICE=1 bash tools/qc_all.sh",
     "mac:install-capture-service": "bash tools/install_mac_capture_service.sh",
     "sync:setup-cloudflare-worker": "bash tools/setup_cloudflare_worker.sh",
     "sync:setup-mac-mini": "bash tools/setup_mac_mini_sync.sh",
@@ -29,10 +33,17 @@
     "recommendations:queue": "node shared/recommendations/scripts/build_fill_queue.mjs",
     "recommendations:enrich": "node shared/recommendations/scripts/enrich_fill_queue.mjs",
     "recommendations:enrich:sample": "RECOMMENDATION_ENRICH_LIMIT=3 RECOMMENDATION_ENRICH_REQUIRE_COMPLETE=true RECOMMENDATION_ENRICH_OUTPUT=shared/recommendations/recommendation_enriched_candidates.sample.json RECOMMENDATION_DICTIONARY_FIXTURE_JSON=shared/recommendations/fixtures/fill_dictionary_fixture.json RECOMMENDATION_TRANSLATION_FIXTURE_JSON=shared/recommendations/fixtures/fill_translation_fixture.json node shared/recommendations/scripts/enrich_fill_queue.mjs",
-    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:build",
-    "dictionary:benchmark": "node tools/run_dictionary_benchmark.mjs"
+    "recommendations:import-licensed": "node shared/recommendations/scripts/import_licensed_lexical_jsonl.mjs",
+    "recommendations:review-checksums": "node shared/recommendations/scripts/print_review_content_checksums.mjs",
+    "recommendations:promote-reviewed": "node shared/recommendations/scripts/promote_reviewed_candidates.mjs",
+    "recommendations:pipeline:test": "node --test shared/recommendations/scripts/recommendation_review_pipeline.test.mjs",
+    "recommendations:quality": "node tools/run_recommendation_quality_gate.mjs",
+    "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:pipeline:test && npm run recommendations:build && npm run recommendations:quality",
+    "dictionary:benchmark": "node tools/run_dictionary_benchmark.mjs",
+    "sync:soak": "bash tools/run_sync_soak.sh"
   },
   "devDependencies": {
-    "subtlex-word-frequencies": "2.0.0"
+    "subtlex-word-frequencies": "2.0.0",
+    "wrangler": "4.110.0"
   }
 }

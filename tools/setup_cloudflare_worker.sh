@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/server/tunnel/cloudflare_worker"
 WRANGLER_TOML="$WORKER_DIR/wrangler.toml"
 RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+if [[ "${VOCAB_RUNTIME_LOCK_WRAPPED:-0}" != "1" ]]; then
+  exec node "$ROOT_DIR/tools/with_runtime_lock.mjs" \
+    --runtime-root "$RUNTIME_ROOT" \
+    --label "Cloudflare Worker setup" \
+    -- bash "$0" "$@"
+fi
 TUNNEL_ENV="${VOCAB_SYNC_TUNNEL_ENV_FILE:-$RUNTIME_ROOT/tunnel.env}"
 WORKER_NAME="${CF_WORKER_NAME:-vocab-sync}"
 KV_BINDING="SYNC_UPSTREAM"
+WRANGLER_BIN="${WRANGLER_BIN:-$ROOT_DIR/node_modules/.bin/wrangler}"
+SETUP_STATE_DIR="$RUNTIME_ROOT/state/cloudflare-worker-setup"
+STAGED_ADMIN_TOKEN_FILE="$SETUP_STATE_DIR/admin-token.staged"
 
 section() {
   printf '\n== %s ==\n' "$1"
@@ -59,6 +70,15 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "$1 is required."
 }
 
+run_wrangler() {
+  [[ -x "$WRANGLER_BIN" ]] || die "Pinned Wrangler is missing: $WRANGLER_BIN. Run npm ci in $ROOT_DIR."
+  env \
+    -u CF_WORKER_ADMIN_TOKEN \
+    -u VOCAB_SYNC_TOKEN \
+    -u VOCAB_SYNC_DEFAULT_TOKEN \
+    "$WRANGLER_BIN" "$@"
+}
+
 env_value() {
   local file="$1"
   local key="$2"
@@ -104,11 +124,11 @@ ensure_login() {
   if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
     return 0
   fi
-  if npx --yes wrangler whoami >/dev/null 2>&1; then
+  if run_wrangler whoami >/dev/null 2>&1; then
     return 0
   fi
   echo "Cloudflare login is required. A browser window may open; approve Wrangler access there."
-  npx --yes wrangler login
+  run_wrangler login
 }
 
 create_kv_namespace() {
@@ -120,7 +140,7 @@ create_kv_namespace() {
   fi
 
   local output kv_id
-  if ! output="$(npx --yes wrangler kv namespace create "$KV_BINDING" 2>&1)"; then
+  if ! output="$(run_wrangler kv namespace create "$KV_BINDING" 2>&1)"; then
     printf '%s\n' "$output" >&2
     if printf '%s\n' "$output" | is_auth_error; then
       auth_die
@@ -139,7 +159,7 @@ create_kv_namespace() {
 put_admin_secret() {
   local token="$1"
   local output
-  if ! output="$(printf '%s' "$token" | npx --yes wrangler secret put ADMIN_TOKEN 2>&1)"; then
+  if ! output="$(printf '%s' "$token" | run_wrangler secret put ADMIN_TOKEN 2>&1)"; then
     printf '%s\n' "$output" >&2
     if printf '%s\n' "$output" | is_auth_error; then
       auth_die
@@ -151,7 +171,7 @@ put_admin_secret() {
 
 deploy_worker() {
   local output url
-  if ! output="$(npx --yes wrangler deploy 2>&1)"; then
+  if ! output="$(run_wrangler deploy 2>&1)"; then
     printf '%s\n' "$output" >&2
     if printf '%s\n' "$output" | grep -qi 'register a workers.dev subdomain'; then
       workers_dev_die
@@ -170,18 +190,36 @@ deploy_worker() {
 write_tunnel_env() {
   local worker_url="$1"
   local admin_token="$2"
-  umask 077
-  mkdir -p "$(dirname "$TUNNEL_ENV")"
-  cat > "$TUNNEL_ENV" <<EOF
-TUNNEL_PROVIDER=cloudflare_quick_worker
-CF_WORKER_PUBLIC_URL=$worker_url
-CF_WORKER_ADMIN_TOKEN=$admin_token
-EOF
-  chmod 600 "$TUNNEL_ENV"
+  VOCAB_TUNNEL_ENV="$TUNNEL_ENV" \
+  VOCAB_WORKER_URL="$worker_url" \
+  VOCAB_WORKER_ADMIN_TOKEN="$admin_token" \
+  VOCAB_SECURITY_HELPERS="$ROOT_DIR/tools/security_helpers.mjs" \
+    node --input-type=module <<'NODE'
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+const { replaceEnvValue, writeFileAtomic } = await import(pathToFileURL(process.env.VOCAB_SECURITY_HELPERS).href);
+const file = process.env.VOCAB_TUNNEL_ENV;
+let text = fs.existsSync(file)
+  ? fs.readFileSync(file, "utf8")
+  : "TUNNEL_PROVIDER=cloudflare_quick_worker\n";
+text = replaceEnvValue(text, "TUNNEL_PROVIDER", "cloudflare_quick_worker");
+text = replaceEnvValue(text, "CF_WORKER_PUBLIC_URL", process.env.VOCAB_WORKER_URL);
+text = replaceEnvValue(text, "CF_WORKER_ADMIN_TOKEN", process.env.VOCAB_WORKER_ADMIN_TOKEN);
+writeFileAtomic(file, text, 0o600);
+NODE
+}
+
+stage_initial_admin_token() {
+  local token="$1"
+  mkdir -p "$SETUP_STATE_DIR"
+  chmod 700 "$SETUP_STATE_DIR"
+  local temporary="$STAGED_ADMIN_TOKEN_FILE.tmp.$$"
+  printf '%s\n' "$token" > "$temporary"
+  chmod 600 "$temporary"
+  mv -f "$temporary" "$STAGED_ADMIN_TOKEN_FILE"
 }
 
 require_command node
-require_command npx
 require_command openssl
 
 cd "$WORKER_DIR"
@@ -196,7 +234,27 @@ echo "Using KV namespace id: $kv_id"
 
 section "Set Worker admin secret"
 existing_admin_token="$(env_value "$TUNNEL_ENV" CF_WORKER_ADMIN_TOKEN)"
-admin_token="${CF_WORKER_ADMIN_TOKEN:-${existing_admin_token:-$(openssl rand -hex 32)}}"
+if [[ -n "$existing_admin_token" && -n "${CF_WORKER_ADMIN_TOKEN:-}" && "$CF_WORKER_ADMIN_TOKEN" != "$existing_admin_token" ]]; then
+  die "Refusing to rotate an existing Worker admin token in setup. Use tools/rotate_sync_tokens.mjs."
+fi
+if [[ -n "$existing_admin_token" ]]; then
+  admin_token="$existing_admin_token"
+elif [[ -f "$STAGED_ADMIN_TOKEN_FILE" ]]; then
+  admin_token="$(tr -d '\r\n' < "$STAGED_ADMIN_TOKEN_FILE")"
+else
+  admin_token="${CF_WORKER_ADMIN_TOKEN:-$(openssl rand -hex 32)}"
+  stage_initial_admin_token "$admin_token"
+fi
+sync_token="$(env_value "$RUNTIME_ROOT/.env" VOCAB_SYNC_TOKEN)"
+if [[ ${#admin_token} -lt 32 || "$admin_token" == replace-with-* ]]; then
+  die "CF_WORKER_ADMIN_TOKEN must be a real secret of at least 32 characters."
+fi
+if [[ -n "$sync_token" && "$admin_token" == "$sync_token" ]]; then
+  die "CF_WORKER_ADMIN_TOKEN must be different from VOCAB_SYNC_TOKEN."
+fi
+if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && "$admin_token" == "$CLOUDFLARE_API_TOKEN" ]]; then
+  die "CF_WORKER_ADMIN_TOKEN must be different from CLOUDFLARE_API_TOKEN."
+fi
 put_admin_secret "$admin_token" >/dev/null
 echo "ADMIN_TOKEN secret set in Cloudflare Worker."
 
@@ -206,6 +264,7 @@ echo "Worker URL: $worker_url"
 
 section "Write Mac mini tunnel env"
 write_tunnel_env "$worker_url" "$admin_token"
+rm -f "$STAGED_ADMIN_TOKEN_FILE"
 echo "Wrote isolated runtime tunnel.env for cloudflare_quick_worker."
 
 cat <<EOF
