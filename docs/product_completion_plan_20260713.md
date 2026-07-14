@@ -15,7 +15,7 @@
 다만 이 문서에서 `[x]`는 구현 또는 자동 검증이 확인됐다는 뜻이지 전체 출시 승인이 아니다. 다음 실제 운영 인수는 여전히 열려 있다.
 
 1. 실제 Mac mini 재부팅과 실제 네트워크 5분 단절 뒤 자동 복구.
-2. 24시간 soak와 최신 Android release의 신규 설치·기존 설치본 upgrade·왕복 sync.
+2. 24시간 soak와 최신 Android production release의 완전 신규 설치·왕복 sync. 기존 설치본의 무손실 upgrade는 2026-07-14 통과했다.
 3. 운영 token rotation 및 분실 장비 재배포 훈련.
 4. 다의어 10개 문맥 적합성 인간 검수.
 5. 추천 카탈로그 최소 1,095개·목표 2,000개의 라이선스 및 인간 검수 완료.
@@ -55,14 +55,14 @@
 
 | 영역 | 현재 결과 | 판정 | 마감에 필요한 조치 |
 |---|---|---|---|
-| Android unit/build | JVM unit, lint, debug/androidTest/release 빌드와 외부 보호 서명 경로가 QC에 포함됨 | 구현 완료 | 최신 release 실기기 설치·upgrade·회귀는 미완료 |
+| Android unit/build | JVM unit, lint, debug/androidTest/release 빌드, 외부 보호 서명, 격리 실기기 13개 시나리오와 기존 설치본 무손실 upgrade가 통과함 | 자동·실기기 검증 통과 | production release 완전 신규 설치 인수는 미완료 |
 | Mac build/test | XCTest target, 고정 clock 경계 테스트, shared vector, debug/release build가 있음 | 구현 완료 | 최신 package 실행 인수는 최종 artifact에서 재확인 |
 | Server/runtime | Node 22 절대 경로, ABI preflight, versioned 배포, 원자적 rollback이 있음 | 구현 완료 | 실제 Mac mini 재부팅 인수는 미완료 |
 | Stable HTTPS endpoint | local/direct/stable health supervisor와 child/hang 자동 교체가 있음 | 자동 장애 시험 통과 | 실제 네트워크 5분 단절과 24시간 soak는 미완료 |
-| Release artifact | Android/Mac 0.2.0, changelog·checksum·commit/config manifest 생성과 검증이 있음 | 구현 완료 | 최신 clean commit의 `release-manifest.json` 및 설치 결과 확정 필요 |
+| Release artifact | Android/Mac 0.2.0, changelog·checksum·commit/config manifest 생성과 검증이 있고 최신 clean commit artifact checker가 통과함 | 자동 검증 통과 | 단일 `qc:all` 전체 exit 0과 production fresh-install 인수 필요 |
 | Runtime data | DB·WAL·backup·log가 Dropbox 밖 runtime에 있고 backup/restore drill이 있음 | 자동 검증 통과 | 실제 재부팅 후 지속성 재확인 필요 |
 | 일반 단어 해석 | 인증된 batch resolver, Android/Mac background enrichment, 수동 뜻 잠금이 있음 | 자동 검증 통과 | 다의어 10개 인간 검수는 미완료 |
-| 카드 전기 | 문맥·뜻 후보·복습/수정/sync 이력과 후보 복구 UI가 양쪽에 있음 | 자동 검증 통과 | 최신 Android 실기기 UI 회귀 필요 |
+| 카드 전기 | 문맥·뜻 후보·복습/수정/sync 이력과 후보 복구 UI가 양쪽에 있고 최신 Android 격리 실기기 회귀가 통과함 | 자동·실기기 검증 통과 | production fresh-install 인수만 남음 |
 | 추천 데이터 | 라이선스·체크섬·인간 승인 fail-closed 파이프라인과 30일 simulation이 있음 | 자동 품질 게이트 통과 | 현재 149개로 1,095/2,000 공급 gate 미달 |
 | 보안/운영 | token 경계 검사, 외부 서명, rotation dry-run/rollback, redacted diagnostics가 있음 | 자동 검증 통과 | 운영 rotation·분실 장비 훈련은 미완료 |
 
@@ -302,7 +302,7 @@ Mac:
 - [x] Android release에서 debug signing을 제거하고 외부 보호 signing config만 허용한다.
 - [x] 전용 keystore를 repo 밖 안전한 위치에 보관하고 backup/rotation 절차를 문서화한다.
 - [x] `versionCode`, `versionName`, changelog, artifact checksum을 build마다 생성한다. 현재 Android/Mac 제품 버전은 0.2.0, build/versionCode는 2다.
-- [ ] 동일 key로 기존 설치본을 data 삭제 없이 upgrade하는 테스트를 한다.
+- [x] 동일 key로 기존 설치본을 data 삭제 없이 upgrade하는 테스트를 한다. 2026-07-14 Galaxy SM-F766N의 `com.vocabreminder.android`에 `adb install -r`로 설치해 `firstInstallTime=2026-07-06 11:27:09`와 알림 권한이 유지되고, cold start 및 설치 APK의 보호 signer pin·release artifact 일치를 확인했다. 증거: `/tmp/vocab_product_completion_20260714/android_final_install_candidate`.
 - [x] 실행 시점의 현재 Android 요구 target SDK를 확인하고 지원 범위를 문서화한다. 현재 compile/target 33은 개인 소유 장비 sideload 범위이며 Google Play API 35 gate는 미완료다.
 - [x] Mac private 배포는 재현 가능한 ad-hoc package와 checksum을 필수로 하고, 외부 배포 시 Developer ID/notarization을 별도 필수 gate로 승격한다.
 - [x] release artifact가 어느 commit과 설정에서 생성됐는지 `dist/sync-release/release-manifest.json`에 남긴다.
@@ -460,10 +460,12 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 추가 필수:
 
-- 실제 지원 Android 버전에서 `tools/run_android_instrumentation.sh`가 운영 앱과 분리된 `.qa` 패키지로 13개 instrumentation test를 순차 통과.
-- release APK signature, version, non-debuggable, stable endpoint 주입 확인.
-- 기존 release 설치본 위에 upgrade 후 로컬 단어·설정 유지.
+- [x] 실제 지원 Android 버전에서 `tools/run_android_instrumentation.sh`가 운영 앱과 분리된 `.qa` 패키지로 13개 instrumentation 시나리오를 통과. 전체 실행 12/13 뒤 문장 저장의 idle/persistence 대기를 보강하고 수정 대상 재실행 1/1을 통과했으므로 집계 결과는 13/13이다. 증거: `/tmp/vocab_product_completion_20260714/qc_20260714_100144`, `/tmp/vocab_product_completion_20260714/android_device_retry_sentence`.
+- [x] release APK signature, version, non-debuggable, stable endpoint 주입 확인.
+- [x] 기존 release 설치본 위에 data 삭제 없이 upgrade하고 최초 설치 시각·알림 권한·cold start 및 설치 artifact 일치 확인. 증거: `/tmp/vocab_product_completion_20260714/android_final_install_candidate`.
 - 알림 허용/거부, 재부팅, battery restriction, offline capture, sync 복구 확인.
+
+주의: 위 집계는 모든 기기 시나리오가 통과했다는 증거지만, 최초 전체 실행의 종료코드 자체는 1이었다. 최신 clean tree에서 `npm run qc:all`을 처음부터 끝까지 단일 실행해 exit 0을 얻는 release gate는 아직 열려 있다.
 
 ### 11.3 Mac
 

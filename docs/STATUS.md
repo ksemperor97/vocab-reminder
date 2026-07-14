@@ -1,6 +1,6 @@
 ## 2026-07-14 현재 상태 — 구현 완료와 출시 인수를 분리해서 기록
 
-현재 결론은 **제품 의도의 핵심 흐름과 단독 사용자 운영 기반은 구현됐지만, 일부 schema·공용 회귀·장기 데이터 작업과 최신 출시본의 외부 인수는 아직 끝나지 않았다**이다. 아래의 이전 날짜별 기록은 당시 사실을 보존한 과거 경과이며, 현재 판단에는 이 섹션을 우선한다.
+현재 결론은 **제품 의도의 핵심 흐름과 단독 사용자 운영 기반은 구현됐고 Android 기존 설치본의 무손실 upgrade와 격리 실기기 회귀도 통과했지만, 일부 schema·공용 회귀·장기 데이터 작업과 신규 설치를 포함한 외부 인수는 아직 끝나지 않았다**이다. 아래의 이전 날짜별 기록은 당시 사실을 보존한 과거 경과이며, 현재 판단에는 이 섹션을 우선한다.
 
 ### 정본 문서 관계
 
@@ -19,15 +19,15 @@
 - 운영 서버를 checkout/Dropbox와 분리된 `~/Library/Application Support/VocabReminderServer`에 배치한다. versioned release, 원자적 `current`/`previous` 전환, 고정 Node 22 binary와 native ABI preflight, 실패 시 rollback이 구현됐다.
 - SQLite는 WAL checkpoint 뒤 count/ID/content checksum을 비교해 이전하고, SHA-256 manifest가 있는 일일 backup과 격리 restore drill을 사용한다. 2026-07-13 restore drill은 `integrity=ok`로 통과했다.
 - tunnel supervisor는 단순 PID가 아니라 local/direct/stable HTTP 상태를 본다. 2026-07-13 서버 SIGTERM은 2초, cloudflared child SIGTERM은 26초, process가 살아 있는 connection hang(SIGSTOP)은 40초 안에 교체·복구됐고 stable endpoint 200을 재확인했다.
-- `npm run sync:doctor`, `sync:doctor:fault-test`, `sync:repair`, `sync:diagnostics`가 각각 read-only 진단, 장애 주입 탐지, idempotent 복구, credential/본문을 제외한 redacted evidence export를 담당한다. 복구 뒤 doctor 결과는 failures 0, warnings 1이었고 warning은 ADB 기기 미연결이었다.
+- `npm run sync:doctor`, `sync:doctor:fault-test`, `sync:repair`, `sync:diagnostics`가 각각 read-only 진단, 장애 주입 탐지, idempotent 복구, credential/본문을 제외한 redacted evidence export를 담당한다. 2026-07-14 최신 source 배포와 tunnel 안정화 뒤 doctor 결과는 failures 0, warnings 0이었다.
 - 서버와 Worker는 `X-Request-Id`를 전달하고 오류 응답에도 `request_id`를 싣는다. Android/Mac은 요청마다 UUID를 만들고 상태 화면에는 짧은 ID와 안전한 오류 범주만 남기며 token, 조회 lemma, 캡처 문장, raw response body는 진단에 기록하지 않는다.
 - Android/Mac의 빈 뜻은 인증된 `/dict/batch`로 보강한다. pending/resolved/not-found/provider-failure 상태, bounded batch/backoff, 수동 뜻 우선 잠금, 자동 결과의 append-only 후보 보존이 구현됐다. 200단어 실 endpoint benchmark는 200/200 resolved, 한국어 뜻 198, batch p95 1.64초였다.
 - Android와 Mac 카드 상세에는 문맥, 출처가 정리된 캡처 경로, 뜻 후보·충돌·복구, 복습/수정, 동기화 이력을 묶은 카드 전기(傳記)가 구현됐다. 동시 뜻 수정에서 primary로 선택되지 않은 후보도 남고 export/import 뒤에도 선택 이력이 유지되는 회귀 테스트가 추가됐다.
 - Android 첫 실행에는 선택/공유 캡처 안내와 알림 차단·배터리 제한·WorkManager 지연·마지막 sync 실패를 구분하는 readiness 진단/설정 바로가기가 구현됐다. Mac에는 첫 실행 설정·진단, 우클릭 Capture Service 상태 확인·앱 내 설치/재설치, 알림·로그인 자동 시작·영한사전·최근 요청 상태가 구현됐다.
-- Android release 서명은 debug signing과 분리된 외부 `externalRelease` config를 사용한다. repo/Dropbox 밖의 0700 디렉터리와 0600 keystore/properties, 기존 설치본 인증서를 보존해 비밀번호가 분리된 JKS로 옮기는 절차, 서명 확인 도구를 갖췄다. 최신 소스의 release artifact 서명·upgrade 실기기 인수는 아래 blocker로 별도 관리한다.
+- Android release 서명은 debug signing과 분리된 외부 `externalRelease` config를 사용한다. repo/Dropbox 밖의 0700 디렉터리와 0600 keystore/properties, 기존 설치본 인증서를 보존해 비밀번호가 분리된 JKS로 옮기는 절차, 서명 확인 도구를 갖췄다. 2026-07-14 Galaxy SM-F766N의 기존 설치본에 같은 signer의 0.2.0을 `adb install -r`로 설치해 최초 설치 시각·알림 권한을 유지했고, 기기에서 다시 추출한 APK가 보호 signer pin 및 release artifact와 일치했다.
 - 현재 제품 버전은 Android/Mac 모두 0.2.0(build/versionCode 2)다. release build는 changelog와 SHA-256, source commit/config를 생성하며 현재 배포물의 정본은 `dist/sync-release/release-manifest.json`이다.
 - `npm run sync:rotate-tokens`는 기본 dry-run이며 active env·Cloudflare·서비스·artifact를 바꾸지 않는다. prepare/build/activate/rollback은 명시적 단계와 확인 문자열을 요구한다. 2026-07-13에는 dry-run과 자동 보안 테스트만 검증했고 운영 token rotation은 실행하지 않았다.
-- `npm run qc:all`이 서버/native ABI, server/Worker tests, doctor/fault injection, 사전·추천 gate, secret boundary, Android unit/lint/build/signed release, Mac XCTest/build/scheduler vector, artifact scan, 가능한 경우 기기 테스트를 하나의 provenance manifest로 묶는다. 이 명령의 **최종 clean-tree 전체 통과**가 최신 release 확정 조건이다.
+- `npm run qc:all`이 서버/native ABI, server/Worker tests, doctor/fault injection, 사전·추천 gate, secret boundary, Android unit/lint/build/signed release, Mac XCTest/build/scheduler vector, artifact scan, 가능한 경우 기기 테스트를 하나의 provenance manifest로 묶는다. 2026-07-14 실행에서는 기기 시나리오 12/13 뒤 문장 저장 1건의 저장 반영 대기 경쟁을 보강했고 그 시나리오 재실행이 1/1 통과했다. 따라서 시나리오 집계는 13/13이지만, **최종 clean-tree에서 단일 `qc:all` 실행 전체 exit 0**은 별도 release gate로 유지한다.
 - 2026-07-14 release hardening으로 추적되는 공개 인증서 SHA-256 pin이 keystore·APK·backup record를 모두 검증한다. manifest는 raw token 대신 token SHA-256를 남기고 token이 없으면 artifact 검사를 실패한다. Mac Info.plist와 Mach-O `minos`는 macOS 14.0으로 일치한다.
 - release build, token rotation, Cloudflare/Mac mini setup은 같은 runtime mutation lock을 사용한다. 최초 rotation rollback에서 이전 artifact가 없더라도 폐기된 token이 든 artifact를 배포 경로에 남기지 않는다.
 
@@ -40,14 +40,19 @@
 - 최근 구성별 회귀 기록은 server 51건 통과, Android JVM 121건 중 failure/error 0·skip 1, Mac XCTest 31건 통과다. 그 뒤 review 수정이 추가됐으므로 이 숫자를 최종 clean-tree gate로 간주하지 않고 `qc:all`을 다시 실행한다.
 - 짧은 soak runner 자체 검증: `/tmp/vocab_product_completion_20260713/sync_soak_script_validation/summary.json`(12초/2 samples/0 failure). 이것은 24시간 soak의 대체 증거가 아니다.
 - 최종 handoff 때 `npm run sync:release`로 `dist/sync-release`를 원자적으로 다시 만들고 `npm run sync:check-artifacts`와 `npm run qc:all`을 통과시킨다. 이 문서에 특정 artifact SHA를 복사하지 않으며, 설치할 APK/Mac archive의 source commit·dirty 상태·version·endpoint·SHA-256은 `dist/sync-release/release-manifest.json`을 정본으로 확인한다.
+- 2026-07-14 Android 격리 실기기 회귀는 전체 실행 12/13과 수정 대상 재실행 1/1을 합쳐 13/13 통과했다. 증거: `/tmp/vocab_product_completion_20260714/qc_20260714_100144`, `/tmp/vocab_product_completion_20260714/android_device_retry_sentence`.
+- 기존 production 설치본의 무손실 upgrade, 최초 설치 시각·알림 권한 보존, cold start, 설치 APK signer/artifact 일치 증거: `/tmp/vocab_product_completion_20260714/android_final_install_candidate`.
 
 ### Release blockers / 외부 인수
 
 - [ ] 실제 Mac mini 재부팅 뒤 server/tunnel launchd 자동 복구
 - [ ] 실제 네트워크를 5분 끊었다 복구한 뒤 누적 변경 자동 sync(프로세스 kill/hang 시험과 별개)
 - [ ] 24시간 soak 실행 및 무결성·중복·secret-free evidence 확인
-- [ ] Android 실기기에서 최신 release 신규 설치/기존 설치본 upgrade/알림·캡처·sync 회귀
-- [ ] 최신 clean commit에서 Android/Mac 0.2.0 artifact 재빌드, 외부 보호 서명 확인, `qc:all` 전체 통과
+- [x] Android 기존 release 설치본을 같은 signer의 최신 0.2.0으로 data 삭제 없이 upgrade하고 최초 설치 시각·알림 권한·cold start 유지 확인
+- [x] 운영 앱과 분리된 `.qa` 패키지에서 Android instrumentation 13개 시나리오 집계 통과
+- [ ] Android 최신 production release의 완전 신규 설치 인수
+- [x] 최신 clean commit에서 Android/Mac 0.2.0 artifact 재빌드, 외부 보호 서명 및 artifact checker 통과
+- [ ] 최신 clean tree에서 `npm run qc:all` 단일 실행 전체 exit 0
 - [ ] 운영 token rotation maintenance window 실행(현재는 dry-run/rollback 도구만 검증)
 - [ ] 다의어 10개 문맥 적합성 인간 검수
 - [ ] 추천 공급량 최소 1,095개/목표 2,000개, 라이선스·귀속·인간 검수 충족(현재 149개라 strict gate 실패)

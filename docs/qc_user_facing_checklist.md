@@ -262,6 +262,7 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 | 2026-07-03 | Codex | J. 파괴적 동작·엣지 | P: J1 / F: 없음 / B: J2-J5 |
 | 2026-07-05 | Codex | Android 알림 순차 흐름 | P: C3,D1,E4a,F2,F7,G5 / F: 없음 / B: 없음 |
 | 2026-07-05 | Codex | 완성도 마감 스팟체크 | P: B10a,J4,F3 reload,F9 invalid settings,F10 recommendation waiting / F: 없음 / B: 없음 |
+| 2026-07-14 | Codex | Android 격리 QA + production 무손실 upgrade | P: 12/13 + 수정 대상 1/1 = 시나리오 13/13, 같은 signer `adb install -r`, cold start / F: 없음 / B: production fresh-install |
 | | | | |
 
 ## 실패 항목 기록 양식
