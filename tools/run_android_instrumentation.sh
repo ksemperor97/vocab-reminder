@@ -84,7 +84,7 @@ if ! grep -Fq "instrumentation:$RUNNER (target=$QA_PACKAGE)" "$EVIDENCE_DIR/inst
 fi
 echo "PASS: instrumentation targets $QA_PACKAGE"
 
-tests=(
+all_tests=(
   manualAddCreatesCardDueInTenMinutes
   sentenceCaptureShowsCandidateSelectionAndSavesPreview
   capturedRecommendedWordPromotesToUserWordbookAndKeepsProgress
@@ -99,6 +99,25 @@ tests=(
   reviewNotificationHidesMeaningUntilForgotten
   alarmReceiverShowsDueReviewNotificationWithoutMeaning
 )
+tests=("${all_tests[@]}")
+if [[ -n "${ANDROID_QA_TESTS:-}" ]]; then
+  IFS=',' read -r -a requested_tests <<<"$ANDROID_QA_TESTS"
+  tests=()
+  for requested_test in "${requested_tests[@]}"; do
+    allowed=0
+    for known_test in "${all_tests[@]}"; do
+      if [[ "$requested_test" == "$known_test" ]]; then
+        allowed=1
+        break
+      fi
+    done
+    if [[ "$allowed" != "1" ]]; then
+      echo "Unknown Android QA scenario: $requested_test" >&2
+      exit 64
+    fi
+    tests+=("$requested_test")
+  done
+fi
 
 settle_seconds="${ANDROID_QA_SETTLE_SECONDS:-5}"
 passed=0

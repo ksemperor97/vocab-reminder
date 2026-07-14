@@ -99,7 +99,9 @@ class M3VerticalSliceTest {
         composeRule.onNodeWithTag("word_field").performTextInput("The results are tentative, but the pattern is robust.")
         composeRule.onNodeWithTag("preview_button").performClick()
         composeRule.onNodeWithTag("candidate_tentative").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("preview_save_button").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { store.cards().size == 1 }
 
         val card = store.cards().single()
         assertEquals("tentative", card.lemma)
