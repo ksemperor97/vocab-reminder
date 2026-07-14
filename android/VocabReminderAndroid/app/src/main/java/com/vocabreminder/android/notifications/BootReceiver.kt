@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.sync.SyncWorker
+import java.time.Instant
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,13 +22,13 @@ class BootReceiver : BroadcastReceiver() {
 }
 
 object BootRecoveryCoordinator {
-    fun recover(context: Context): PlanSummary {
+    fun recover(context: Context, now: Instant = NotificationClock.now()): PlanSummary {
         SyncWorker.ensureScheduled(context)
         val store = LocalVocabularyStore(context)
-        ReminderNotifications.clearStalePrompt(context, store)
-        ReminderNotifications.restoreActiveNotification(context, store)
-        val summary = DailyReviewPlanner.planAndSchedule(context)
-        QuietHoursBoundaryScheduler.schedule(context)
+        ReminderNotifications.clearStalePrompt(context, store, now)
+        ReminderNotifications.restoreActiveNotification(context, store, now)
+        val summary = DailyReviewPlanner.planAndSchedule(context, now)
+        QuietHoursBoundaryScheduler.schedule(context, now)
         return summary
     }
 }

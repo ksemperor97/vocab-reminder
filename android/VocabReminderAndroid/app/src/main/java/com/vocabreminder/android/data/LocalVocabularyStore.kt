@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import com.vocabreminder.android.BuildConfig
 import com.vocabreminder.android.capture.CaptureMethod
 import com.vocabreminder.android.capture.CaptureNormalizer
+import com.vocabreminder.android.capture.CaptureProvenanceExtractor
+import com.vocabreminder.android.dictionary.DictionaryLookupResult
+import com.vocabreminder.android.dictionary.DictionaryLookupStatus
 import com.vocabreminder.android.dictionary.DictionaryResult
 import com.vocabreminder.android.scheduler.CardStatus
 import com.vocabreminder.android.scheduler.DueTimeJitter
@@ -15,7 +18,9 @@ import com.vocabreminder.android.scheduler.SchedulerCard
 import com.vocabreminder.android.scheduler.SchedulerSettings
 import com.vocabreminder.android.scheduler.Wordbook
 import com.vocabreminder.android.sync.CloudSyncClient
+import com.vocabreminder.android.sync.DictionaryEnrichmentWorker
 import com.vocabreminder.android.sync.SyncPayloadFactory
+import com.vocabreminder.android.sync.normalizeRequestId
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -82,6 +87,7 @@ data class StoredContext(
     val sourceSentence: String,
     val sourceUrl: String,
     val sourceApp: String,
+    val pageTitle: String = "",
     val captureMethod: CaptureMethod,
     val createdAt: Instant
 )
@@ -98,7 +104,9 @@ data class StoredDefinitionCandidate(
     val exampleSentence: String,
     val confidence: Double,
     val selectedAsPrimary: Boolean,
-    val createdAt: Instant
+    val createdAt: Instant,
+    val originDeviceId: String? = null,
+    val baseCardVersion: Int? = null
 )
 
 data class StoredReviewEvent(
@@ -157,12 +165,15 @@ data class CloudSyncStatus(
     val lastSuccessAt: Instant? = null,
     val lastFailureAt: Instant? = null,
     val lastError: String = "",
-    val lastSkippedSummary: String = ""
+    val lastSkippedSummary: String = "",
+    val lastRequestId: String = "",
+    val lastWorkerRunAt: Instant? = null
 )
 
 data class CloudSyncResult(
     val snapshotJson: String,
-    val skippedSummary: String
+    val skippedSummary: String,
+    val requestId: String? = null
 )
 
 data class CardEditResult(
@@ -172,8 +183,20 @@ data class CardEditResult(
     val filledMissingMeaning: Boolean = before.meaningKo.isBlank() && after.meaningKo.isNotBlank()
 }
 
-class LocalVocabularyStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("vocab_reminder_store", Context.MODE_PRIVATE)
+class LocalVocabularyStore private constructor(
+    context: Context,
+    private val transactionCommitter: (SharedPreferences.Editor) -> Boolean,
+    @Suppress("UNUSED_PARAMETER") constructorMarker: Unit
+) {
+    constructor(context: Context) : this(context, { editor -> editor.commit() }, Unit)
+
+    internal constructor(
+        context: Context,
+        transactionCommitter: (SharedPreferences.Editor) -> Boolean
+    ) : this(context, transactionCommitter, Unit)
+
+    private val applicationContext = context.applicationContext
+    private val prefs = applicationContext.getSharedPreferences("vocab_reminder_store", Context.MODE_PRIVATE)
 
     fun cards(): List<VocabularyCard> {
         return allCards(includeDeleted = false).sortedBy { it.createdAt }
@@ -248,27 +271,322 @@ class LocalVocabularyStore(context: Context) {
             lastSuccessAt = json.optNullableInstant("last_success_at"),
             lastFailureAt = json.optNullableInstant("last_failure_at"),
             lastError = json.optString("last_error"),
-            lastSkippedSummary = json.optString("last_skipped_summary")
+            lastSkippedSummary = json.optString("last_skipped_summary"),
+            lastRequestId = normalizeRequestId(json.optString("last_request_id")).orEmpty(),
+            lastWorkerRunAt = json.optNullableInstant("last_worker_run_at")
         )
     }
 
-    fun recordCloudSyncSuccess(skippedSummary: String = "") {
+    fun onboardingState(now: Instant = Instant.now()): AndroidOnboardingState {
+        val raw = prefs.getString(KEY_ONBOARDING, null)
+        val parsed = raw?.let { value ->
+            runCatching {
+                val json = JSONObject(value)
+                AndroidOnboardingState(
+                    firstLaunchAt = json.optNullableInstant("first_launch_at") ?: now,
+                    captureGuideCompletedAt = json.optNullableInstant("capture_guide_completed_at")
+                )
+            }.getOrNull()
+        }
+        if (parsed != null) return parsed
+        return AndroidOnboardingState(firstLaunchAt = now).also(::saveOnboardingState)
+    }
+
+    fun completeCaptureGuide(now: Instant = Instant.now()): AndroidOnboardingState {
+        val completed = onboardingState(now).copy(captureGuideCompletedAt = now)
+        saveOnboardingState(completed)
+        return completed
+    }
+
+    fun dictionaryEnrichmentState(cardId: String): DictionaryEnrichmentState? {
+        val card = findCard(cardId) ?: return null
+        return derivedDictionaryEnrichmentState(card, persistedDictionaryEnrichmentStates()[cardId])
+    }
+
+    private fun derivedDictionaryEnrichmentState(
+        card: VocabularyCard,
+        persisted: DictionaryEnrichmentState?
+    ): DictionaryEnrichmentState {
+        return when {
+            persisted?.status == DictionaryEnrichmentStatus.USER_LOCKED -> persisted
+            card.definitionSourcePrimary == "user" -> DictionaryEnrichmentState(
+                cardId = card.id,
+                status = DictionaryEnrichmentStatus.USER_LOCKED,
+                attemptedAt = persisted?.attemptedAt,
+                requestId = persisted?.requestId
+            )
+            card.meaningKo.isNotBlank() -> DictionaryEnrichmentState(
+                cardId = card.id,
+                status = DictionaryEnrichmentStatus.RESOLVED,
+                attemptedAt = persisted?.attemptedAt,
+                requestId = persisted?.requestId
+            )
+            persisted != null -> persisted
+            else -> DictionaryEnrichmentState(card.id, DictionaryEnrichmentStatus.PENDING)
+        }
+    }
+
+    fun dictionaryEnrichmentStates(): List<DictionaryEnrichmentState> {
+        val persisted = persistedDictionaryEnrichmentStates()
+        return cards().map { card -> derivedDictionaryEnrichmentState(card, persisted[card.id]) }
+    }
+
+    internal fun cardsNeedingDictionaryEnrichment(limit: Int): List<VocabularyCard> {
+        if (limit <= 0) return emptyList()
+        val persisted = persistedDictionaryEnrichmentStates()
+        return cards().asSequence()
+            .filter { it.meaningKo.isBlank() }
+            .filter { card ->
+                val state = derivedDictionaryEnrichmentState(card, persisted[card.id])
+                state.status == DictionaryEnrichmentStatus.PENDING ||
+                    (state.status == DictionaryEnrichmentStatus.FAILED &&
+                        state.failure in setOf(
+                            DictionaryEnrichmentFailure.NETWORK,
+                            DictionaryEnrichmentFailure.PROVIDER_FAILURE
+                        ))
+            }
+            .take(limit)
+            .toList()
+    }
+
+    internal fun hasCardsNeedingDictionaryEnrichment(): Boolean {
+        return cardsNeedingDictionaryEnrichment(limit = 1).isNotEmpty()
+    }
+
+    internal fun recordDictionaryEnrichmentFailure(
+        cardIds: Collection<String>,
+        failure: DictionaryEnrichmentFailure,
+        attemptedAt: Instant,
+        requestId: String? = null
+    ) = synchronized(CARD_MUTATION_LOCK) {
+        if (cardIds.isEmpty()) return@synchronized
+        val existing = persistedDictionaryEnrichmentStates().toMutableMap()
+        cardIds.forEach { cardId ->
+            val card = findCard(cardId)
+            if (card != null && card.meaningKo.isBlank() && card.definitionSourcePrimary != "user") {
+                existing[cardId] = DictionaryEnrichmentState(
+                    cardId = cardId,
+                    status = DictionaryEnrichmentStatus.FAILED,
+                    failure = failure,
+                    attemptedAt = attemptedAt,
+                    requestId = normalizeRequestId(requestId)
+                )
+            }
+        }
+        commitStoreTransaction(StoreTransaction(dictionaryEnrichmentStates = existing.values))
+    }
+
+    internal fun markDictionaryEnrichmentPending(
+        cardIds: Collection<String>
+    ) = synchronized(CARD_MUTATION_LOCK) {
+        if (cardIds.isEmpty()) return@synchronized
+        val existing = persistedDictionaryEnrichmentStates().toMutableMap()
+        cardIds.forEach { cardId ->
+            val card = findCard(cardId)
+            if (card != null && card.meaningKo.isBlank() &&
+                derivedDictionaryEnrichmentState(card, existing[cardId]).status != DictionaryEnrichmentStatus.USER_LOCKED
+            ) {
+                existing[cardId] = DictionaryEnrichmentState(
+                    cardId = cardId,
+                    status = DictionaryEnrichmentStatus.PENDING,
+                    attemptedAt = existing[cardId]?.attemptedAt,
+                    requestId = existing[cardId]?.requestId
+                )
+            }
+        }
+        commitStoreTransaction(StoreTransaction(dictionaryEnrichmentStates = existing.values))
+    }
+
+    fun retryDictionaryEnrichment(cardId: String? = null) = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val cardsById = storedCards.filter { it.deletedAt == null }.associateBy { it.id }
+        val updatedCards = storedCards.associateBy { it.id }.toMutableMap()
+        val existing = persistedDictionaryEnrichmentStates().toMutableMap()
+        val targetIds = if (cardId == null) cardsById.keys else setOf(cardId)
+        val now = Instant.now()
+        targetIds.forEach { id ->
+            val card = cardsById[id]
+            if (card != null && card.meaningKo.isBlank()) {
+                if (card.definitionSourcePrimary == "user") {
+                    updatedCards[id] = card.copy(
+                        definitionSourcePrimary = "dictionary_retry",
+                        updatedAt = now,
+                        version = card.version + 1
+                    )
+                }
+                existing[id] = DictionaryEnrichmentState(
+                    cardId = id,
+                    status = DictionaryEnrichmentStatus.PENDING
+                )
+            }
+        }
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = updatedCards.values.toList(),
+                dictionaryEnrichmentStates = existing.values
+            )
+        )
+        enqueueDictionaryEnrichmentSafely()
+    }
+
+    internal fun applyDictionaryEnrichment(
+        cardId: String,
+        result: DictionaryLookupResult,
+        now: Instant
+    ): VocabularyCard? = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val current = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null }
+            ?: return@synchronized null
+        if (current.meaningKo.isNotBlank() || current.definitionSourcePrimary == "user") {
+            val state = dictionaryStateForCard(
+                card = current,
+                timestamp = result.attemptedAt ?: now,
+                requestId = result.requestId
+            )
+            commitStoreTransaction(
+                StoreTransaction(dictionaryEnrichmentStates = dictionaryStatesReplacing(state))
+            )
+            return@synchronized null
+        }
+        if (result.status != DictionaryLookupStatus.RESOLVED || result.meaningKo.isBlank()) {
+            return@synchronized null
+        }
+
+        val schedulerSettings = settings().toSchedulerSettings()
+        val firstDueAt = DueTimeJitter.apply(
+            Scheduler.initialDueAt(now, schedulerSettings),
+            now,
+            schedulerSettings
+        )
+        val updated = current.copy(
+            meaningKo = result.meaningKo.trim(),
+            definitionEn = result.definitionEn.ifBlank { current.definitionEn }.trim(),
+            partOfSpeech = result.partOfSpeech.ifBlank { current.partOfSpeech }.trim(),
+            exampleSentence = current.exampleSentence.ifBlank { result.exampleSentence }.trim(),
+            definitionSourcePrimary = result.sourceType,
+            dueAt = firstDueAt,
+            updatedAt = now,
+            version = current.version + 1
+        )
+        val candidate = buildDefinitionCandidate(
+            cardId = updated.id,
+            result = DictionaryResult(
+                lemma = updated.lemma,
+                displayWord = updated.displayWord,
+                meaningKo = result.meaningKo,
+                definitionEn = result.definitionEn,
+                partOfSpeech = result.partOfSpeech,
+                exampleSentence = result.exampleSentence,
+                rawSource = result.meaningKo.ifBlank { result.definitionEn },
+                sourceType = result.sourceType,
+                confidence = result.confidence,
+                sourceSentence = "",
+                sourceApp = updated.sourceAppPrimary,
+                sourceUrl = updated.sourceUrlPrimary
+            ),
+            selected = true,
+            now = result.attemptedAt ?: now,
+            originDeviceId = deviceId(),
+            baseCardVersion = current.version
+        )
+        val state = dictionaryStateForCard(
+            card = updated,
+            timestamp = result.attemptedAt ?: now,
+            requestId = result.requestId
+        )
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == updated.id) updated else it },
+                definitionCandidates = definitionCandidates() + candidate,
+                dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
+            )
+        )
+        updated
+    }
+
+    internal fun applyDictionaryDefinitionFallback(
+        cardId: String,
+        result: DictionaryLookupResult,
+        now: Instant
+    ): Boolean = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val current = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null }
+            ?: return@synchronized false
+        if (
+            current.meaningKo.isNotBlank() ||
+            current.definitionSourcePrimary == "user" ||
+            result.definitionEn.isBlank()
+        ) {
+            return@synchronized false
+        }
+        val updated = current.copy(
+            definitionEn = result.definitionEn.trim(),
+            partOfSpeech = result.partOfSpeech.ifBlank { current.partOfSpeech }.trim(),
+            exampleSentence = current.exampleSentence.ifBlank { result.exampleSentence }.trim(),
+            updatedAt = now,
+            version = current.version + 1
+        )
+        val candidate = buildDefinitionCandidate(
+            cardId = updated.id,
+            result = DictionaryResult(
+                lemma = updated.lemma,
+                displayWord = updated.displayWord,
+                meaningKo = "",
+                definitionEn = result.definitionEn,
+                partOfSpeech = result.partOfSpeech,
+                exampleSentence = result.exampleSentence,
+                rawSource = result.definitionEn,
+                sourceType = result.sourceType,
+                confidence = result.confidence,
+                sourceSentence = "",
+                sourceApp = updated.sourceAppPrimary,
+                sourceUrl = updated.sourceUrlPrimary
+            ),
+            selected = false,
+            now = result.attemptedAt ?: now
+        )
+        val state = DictionaryEnrichmentState(
+            cardId = updated.id,
+            status = DictionaryEnrichmentStatus.FAILED,
+            failure = DictionaryEnrichmentFailure.NOT_FOUND,
+            attemptedAt = result.attemptedAt ?: now,
+            requestId = normalizeRequestId(result.requestId)
+        )
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == updated.id) updated else it },
+                definitionCandidates = definitionCandidates() + candidate,
+                dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
+            )
+        )
+        true
+    }
+
+    fun recordCloudSyncSuccess(skippedSummary: String = "", requestId: String? = null) {
+        val previous = cloudSyncStatus()
         saveCloudSyncStatus(
-            cloudSyncStatus().copy(
+            previous.copy(
                 lastSuccessAt = Instant.now(),
                 lastError = "",
-                lastSkippedSummary = skippedSummary
+                lastSkippedSummary = skippedSummary,
+                lastRequestId = normalizeRequestId(requestId).orEmpty()
             )
         )
     }
 
-    fun recordCloudSyncFailure(error: String) {
+    fun recordCloudSyncFailure(error: String, requestId: String? = null) {
+        val previous = cloudSyncStatus()
         saveCloudSyncStatus(
-            cloudSyncStatus().copy(
+            previous.copy(
                 lastFailureAt = Instant.now(),
-                lastError = error.take(MAX_SYNC_ERROR_LENGTH)
+                lastError = error.take(MAX_SYNC_ERROR_LENGTH),
+                lastRequestId = normalizeRequestId(requestId).orEmpty()
             )
         )
+    }
+
+    fun recordSyncWorkerHeartbeat(now: Instant = Instant.now()) {
+        saveCloudSyncStatus(cloudSyncStatus().copy(lastWorkerRunAt = now))
     }
 
     fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
@@ -280,7 +598,15 @@ class LocalVocabularyStore(context: Context) {
     }
 
     fun isUiRefreshKey(key: String?): Boolean {
-        return key in setOf(KEY_CARDS, KEY_CONTEXTS, KEY_EVENTS, KEY_SETTINGS, KEY_CLOUD_SYNC_STATUS)
+        return key in setOf(
+            KEY_CARDS,
+            KEY_CONTEXTS,
+            KEY_DEFINITION_CANDIDATES,
+            KEY_EVENTS,
+            KEY_SETTINGS,
+            KEY_CLOUD_SYNC_STATUS,
+            KEY_DICTIONARY_ENRICHMENT_STATES
+        )
     }
 
     fun saveSettings(settings: UserSettingsData) {
@@ -292,7 +618,7 @@ class LocalVocabularyStore(context: Context) {
     }
 
     fun clearAll() {
-        prefs.edit().clear().commit()
+        prefs.edit().clear().apply()
     }
 
     fun findCard(id: String): VocabularyCard? {
@@ -342,9 +668,12 @@ class LocalVocabularyStore(context: Context) {
         dueAt: Instant,
         now: Instant,
         wordbook: Wordbook = Wordbook.USER
-    ): VocabularyCard {
+    ): VocabularyCard = synchronized(CARD_MUTATION_LOCK) {
         val normalizedLemma = result.lemma.ifBlank { CaptureNormalizer.lemma(result.displayWord) }
-        val existing = cards().firstOrNull { it.lemma.equals(normalizedLemma, ignoreCase = true) }
+        val storedCards = allCards(includeDeleted = true)
+        val existing = storedCards.firstOrNull {
+            it.deletedAt == null && it.lemma.equals(normalizedLemma, ignoreCase = true)
+        }
         if (existing != null) {
             val promotedWordbook = if (existing.wordbook == Wordbook.RECOMMENDED && wordbook == Wordbook.USER) Wordbook.USER else existing.wordbook
             val shouldUpdatePrimary = result.meaningKo.isNotBlank() &&
@@ -357,16 +686,34 @@ class LocalVocabularyStore(context: Context) {
                 phonetic = if (shouldUpdatePrimary) result.phonetic else existing.phonetic,
                 exampleSentence = result.sourceSentence.ifBlank { existing.exampleSentence },
                 sourceAppPrimary = result.sourceApp.ifBlank { existing.sourceAppPrimary },
-                sourceUrlPrimary = result.sourceUrl.ifBlank { existing.sourceUrlPrimary },
+                sourceUrlPrimary = CaptureProvenanceExtractor.sanitizeUrl(result.sourceUrl).ifBlank { existing.sourceUrlPrimary },
                 definitionSourcePrimary = if (shouldUpdatePrimary) result.sourceType else existing.definitionSourcePrimary,
                 wordbook = promotedWordbook,
                 updatedAt = now,
                 version = existing.version + 1
             )
-            updateCard(updated)
-            appendContext(updated.id, result, captureMethod, now)
-            appendDefinitionCandidate(updated.id, result, selected = shouldUpdatePrimary, now = now)
-            return updated
+            val context = buildContext(updated.id, result, captureMethod, now)
+            val candidate = buildDefinitionCandidate(
+                updated.id,
+                result,
+                selected = shouldUpdatePrimary,
+                now = now,
+                originDeviceId = deviceId().takeIf { shouldUpdatePrimary },
+                baseCardVersion = existing.version.takeIf { shouldUpdatePrimary }
+            )
+            val state = dictionaryStateForCard(updated, now)
+            commitStoreTransaction(
+                StoreTransaction(
+                    cards = storedCards.map { if (it.id == updated.id) updated else it },
+                    contexts = context?.let { contexts() + it },
+                    definitionCandidates = definitionCandidates() + candidate,
+                    dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
+                )
+            )
+            if (state.status == DictionaryEnrichmentStatus.PENDING) {
+                enqueueDictionaryEnrichmentSafely()
+            }
+            return@synchronized updated
         }
 
         val id = UUID.randomUUID().toString()
@@ -380,7 +727,7 @@ class LocalVocabularyStore(context: Context) {
             phonetic = result.phonetic.trim(),
             exampleSentence = result.sourceSentence.ifBlank { result.exampleSentence }.trim(),
             sourceAppPrimary = result.sourceApp,
-            sourceUrlPrimary = result.sourceUrl,
+            sourceUrlPrimary = CaptureProvenanceExtractor.sanitizeUrl(result.sourceUrl),
             definitionSourcePrimary = result.sourceType,
             status = CardStatus.NEW,
             wordbook = wordbook,
@@ -391,10 +738,21 @@ class LocalVocabularyStore(context: Context) {
             createdAt = now,
             updatedAt = now
         )
-        saveCards(allCards(includeDeleted = true) + card)
-        appendContext(card.id, result, captureMethod, now)
-        appendDefinitionCandidate(card.id, result, selected = true, now = now)
-        return card
+        val context = buildContext(card.id, result, captureMethod, now)
+        val candidate = buildDefinitionCandidate(card.id, result, selected = true, now = now)
+        val state = dictionaryStateForCard(card, now)
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards + card,
+                contexts = context?.let { contexts() + it },
+                definitionCandidates = definitionCandidates() + candidate,
+                dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
+            )
+        )
+        if (state.status == DictionaryEnrichmentStatus.PENDING) {
+            enqueueDictionaryEnrichmentSafely()
+        }
+        card
     }
 
     fun addRecommendedCard(
@@ -411,18 +769,41 @@ class LocalVocabularyStore(context: Context) {
         )
     }
 
-    fun markRecommendationStarted(cardId: String, now: Instant) {
-        val card = findCard(cardId) ?: return
+    fun markRecommendationStarted(cardId: String, now: Instant) = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val card = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null } ?: return@synchronized
         val schedulerSettings = settings().toSchedulerSettings()
         val dueAt = DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
-        updateCard(card.copy(recommendationStartedAt = now, dueAt = dueAt, updatedAt = now, version = card.version + 1))
-        appendRecommendationFeedback(card, "started", now)
+        val updated = card.copy(
+            recommendationStartedAt = now,
+            dueAt = dueAt,
+            updatedAt = now,
+            version = card.version + 1
+        )
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == cardId) updated else it },
+                recommendationFeedback = recommendationFeedback() +
+                    buildRecommendationFeedback(card, "started", now)
+            )
+        )
     }
 
-    fun softDeleteRecommendation(cardId: String, action: String, now: Instant) {
-        val card = findCard(cardId) ?: return
-        appendRecommendationFeedback(card, action, now)
-        updateCard(card.copy(deletedAt = now, updatedAt = now, version = card.version + 1))
+    fun softDeleteRecommendation(
+        cardId: String,
+        action: String,
+        now: Instant
+    ) = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val card = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null } ?: return@synchronized
+        val deleted = card.copy(deletedAt = now, updatedAt = now, version = card.version + 1)
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == cardId) deleted else it },
+                recommendationFeedback = recommendationFeedback() +
+                    buildRecommendationFeedback(card, action, now)
+            )
+        )
     }
 
     fun softDeleteCard(cardId: String, now: Instant): VocabularyCard? {
@@ -432,8 +813,34 @@ class LocalVocabularyStore(context: Context) {
         return deleted
     }
 
-    fun updateCard(card: VocabularyCard) {
-        saveCards(allCards(includeDeleted = true).map { if (it.id == card.id) card else it })
+    fun updateCard(card: VocabularyCard) = synchronized(CARD_MUTATION_LOCK) {
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = allCards(includeDeleted = true).map { if (it.id == card.id) card else it }
+            )
+        )
+    }
+
+    fun updateCardAndAppendEvent(card: VocabularyCard, event: ReviewEventDraft, now: Instant) {
+        updateCardsAndAppendEvents(listOf(card), listOf(event), now)
+    }
+
+    fun updateCardsAndAppendEvents(
+        updatedCards: Collection<VocabularyCard>,
+        eventDrafts: Collection<ReviewEventDraft>,
+        now: Instant
+    ) = synchronized(CARD_MUTATION_LOCK) {
+        if (updatedCards.isEmpty() && eventDrafts.isEmpty()) return@synchronized
+        val cardsById = updatedCards.associateBy { it.id }
+        val storedEvents = eventDrafts.map { event -> storedEvent(event, now) }
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = updatedCards.takeIf { it.isNotEmpty() }?.let {
+                    allCards(includeDeleted = true).map { current -> cardsById[current.id] ?: current }
+                },
+                events = storedEvents.takeIf { it.isNotEmpty() }?.let { events() + it }
+            )
+        )
     }
 
     fun updateCardDetails(
@@ -441,8 +848,10 @@ class LocalVocabularyStore(context: Context) {
         meaningKo: String,
         exampleSentence: String,
         now: Instant = Instant.now()
-    ): CardEditResult? {
-        val before = findCard(cardId) ?: return null
+    ): CardEditResult? = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val before = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null }
+            ?: return@synchronized null
         val trimmedMeaning = meaningKo.trim()
         val trimmedExample = exampleSentence.trim()
         val after = before.copy(
@@ -452,35 +861,136 @@ class LocalVocabularyStore(context: Context) {
             updatedAt = now,
             version = before.version + 1
         )
-        updateCard(after)
-        appendManualEditEvent(before, after, now)
-        if (before.meaningKo.isNotBlank() || before.definitionEn.isNotBlank()) {
-            appendDefinitionCandidate(
-                cardId = before.id,
+        val updatedCandidates = definitionCandidates().toMutableList()
+        buildMeaningCandidateIfNeeded(before, updatedCandidates, now)?.let(updatedCandidates::add)
+        if (after.meaningKo.isNotBlank() || after.definitionEn.isNotBlank()) {
+            updatedCandidates += buildDefinitionCandidate(
+                cardId = after.id,
                 result = DictionaryResult(
-                    lemma = before.lemma,
-                    displayWord = before.displayWord,
-                    meaningKo = before.meaningKo,
-                    definitionEn = before.definitionEn,
-                    partOfSpeech = before.partOfSpeech,
-                    phonetic = before.phonetic,
-                    exampleSentence = before.exampleSentence,
-                    rawSource = before.definitionEn.ifBlank { before.meaningKo },
-                    sourceType = before.definitionSourcePrimary,
-                    confidence = if (before.meaningKo.isBlank() && before.definitionEn.isBlank()) 0.0 else 1.0,
-                    sourceSentence = before.exampleSentence,
-                    sourceApp = before.sourceAppPrimary,
-                    sourceUrl = before.sourceUrlPrimary
+                    lemma = after.lemma,
+                    displayWord = after.displayWord,
+                    meaningKo = after.meaningKo,
+                    definitionEn = after.definitionEn,
+                    partOfSpeech = after.partOfSpeech,
+                    phonetic = after.phonetic,
+                    exampleSentence = after.exampleSentence,
+                    rawSource = after.meaningKo.ifBlank { after.definitionEn },
+                    sourceType = "user",
+                    confidence = 1.0,
+                    sourceSentence = after.exampleSentence,
+                    sourceApp = after.sourceAppPrimary,
+                    sourceUrl = after.sourceUrlPrimary
                 ),
-                selected = false,
-                now = now
+                selected = true,
+                now = now,
+                originDeviceId = deviceId(),
+                baseCardVersion = before.version
             )
         }
-        return CardEditResult(before = before, after = after)
+        val state = dictionaryStateForCard(after, now)
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == after.id) after else it },
+                definitionCandidates = updatedCandidates,
+                events = events() + buildManualEditEvent(before, after, now),
+                dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
+            )
+        )
+        if (state.status == DictionaryEnrichmentStatus.PENDING) {
+            enqueueDictionaryEnrichmentSafely()
+        }
+        CardEditResult(before = before, after = after)
     }
 
-    fun appendEvent(event: ReviewEventDraft, now: Instant) {
-        val stored = StoredReviewEvent(
+    fun selectDefinitionCandidate(
+        cardId: String,
+        candidateId: String,
+        now: Instant = Instant.now()
+    ): CardEditResult? = synchronized(CARD_MUTATION_LOCK) {
+        val storedCards = allCards(includeDeleted = true)
+        val before = storedCards.firstOrNull { it.id == cardId && it.deletedAt == null }
+            ?: return@synchronized null
+        val updatedCandidates = definitionCandidates().toMutableList()
+        val candidate = updatedCandidates.firstOrNull {
+            it.id == candidateId && it.cardId == cardId
+        } ?: return@synchronized null
+        val selectedMeaning = candidate.parsedMeaningKo.trim()
+        if (selectedMeaning.isBlank()) return@synchronized null
+
+        buildMeaningCandidateIfNeeded(before, updatedCandidates, now)?.let(updatedCandidates::add)
+        val schedulerSettings = settings().toSchedulerSettings()
+        val dueAt = if (before.meaningKo.isBlank()) {
+            DueTimeJitter.apply(Scheduler.initialDueAt(now, schedulerSettings), now, schedulerSettings)
+        } else {
+            before.dueAt
+        }
+        val after = before.copy(
+            meaningKo = selectedMeaning,
+            definitionEn = candidate.parsedDefinitionEn,
+            partOfSpeech = candidate.partOfSpeech,
+            phonetic = candidate.phonetic,
+            exampleSentence = candidate.exampleSentence.ifBlank { before.exampleSentence },
+            definitionSourcePrimary = candidate.source,
+            dueAt = dueAt,
+            updatedAt = now,
+            version = before.version + 1
+        )
+        updatedCandidates += StoredDefinitionCandidate(
+            id = UUID.randomUUID().toString(),
+            cardId = after.id,
+            source = after.definitionSourcePrimary,
+            rawText = candidate.rawText,
+            parsedMeaningKo = after.meaningKo,
+            parsedDefinitionEn = after.definitionEn,
+            partOfSpeech = after.partOfSpeech,
+            phonetic = after.phonetic,
+            exampleSentence = after.exampleSentence,
+            confidence = candidate.confidence,
+            selectedAsPrimary = true,
+            createdAt = now,
+            originDeviceId = deviceId(),
+            baseCardVersion = before.version
+        )
+        val event = StoredReviewEvent(
+            id = UUID.randomUUID().toString(),
+            cardId = cardId,
+            response = ReviewResponse.MANUAL_EDIT,
+            previousStatus = before.status,
+            nextStatus = after.status,
+            previousDueAt = before.dueAt,
+            nextDueAt = after.dueAt,
+            previousIntervalDays = before.intervalDays,
+            nextIntervalDays = after.intervalDays,
+            clientCreatedAt = now,
+            metadata = mapOf(
+                "action" to "select_definition_candidate",
+                "candidate_id" to candidate.id,
+                "source" to candidate.source
+            )
+        )
+        val states = persistedDictionaryEnrichmentStates().toMutableMap()
+        states[after.id] = DictionaryEnrichmentState(
+            cardId = after.id,
+            status = DictionaryEnrichmentStatus.USER_LOCKED,
+            attemptedAt = now
+        )
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = storedCards.map { if (it.id == after.id) after else it },
+                definitionCandidates = updatedCandidates,
+                events = events() + event,
+                dictionaryEnrichmentStates = states.values
+            )
+        )
+        CardEditResult(before = before, after = after)
+    }
+
+    fun appendEvent(event: ReviewEventDraft, now: Instant) = synchronized(CARD_MUTATION_LOCK) {
+        commitStoreTransaction(StoreTransaction(events = events() + storedEvent(event, now)))
+    }
+
+    private fun storedEvent(event: ReviewEventDraft, now: Instant): StoredReviewEvent {
+        return StoredReviewEvent(
             id = UUID.randomUUID().toString(),
             cardId = event.cardId,
             response = event.response,
@@ -493,11 +1003,14 @@ class LocalVocabularyStore(context: Context) {
             clientCreatedAt = now,
             metadata = event.metadata
         )
-        saveEvents(events() + stored)
     }
 
-    private fun appendManualEditEvent(before: VocabularyCard, after: VocabularyCard, now: Instant) {
-        val event = StoredReviewEvent(
+    private fun buildManualEditEvent(
+        before: VocabularyCard,
+        after: VocabularyCard,
+        now: Instant
+    ): StoredReviewEvent {
+        return StoredReviewEvent(
             id = UUID.randomUUID().toString(),
             cardId = after.id,
             response = ReviewResponse.MANUAL_EDIT,
@@ -510,12 +1023,19 @@ class LocalVocabularyStore(context: Context) {
             clientCreatedAt = now,
             metadata = mapOf("action" to "manual_edit", "fields" to "meaning_ko,example_sentence")
         )
-        saveEvents(events() + event)
     }
 
     fun recentResponses(cardId: String, limit: Int): List<ReviewResponse> {
         return events()
-            .filter { it.cardId == cardId }
+            .filter {
+                it.cardId == cardId &&
+                    it.response in setOf(
+                        ReviewResponse.REMEMBERED,
+                        ReviewResponse.FORGOTTEN,
+                        ReviewResponse.UNAVAILABLE,
+                        ReviewResponse.REVEAL
+                    )
+            }
             .takeLast(limit)
             .map { it.response }
     }
@@ -558,15 +1078,30 @@ class LocalVocabularyStore(context: Context) {
         ).toString()
     }
 
-    fun importSyncBatchJson(raw: String) {
+    fun importSyncBatchJson(raw: String) = synchronized(CARD_MUTATION_LOCK) {
         val payload = SyncPayloadFactory.parse(raw)
         val canonicalCards = DuplicateCardMerger.canonicalize(mergeCards(allCards(includeDeleted = true), payload.cards))
-        saveCards(canonicalCards.cards)
-        saveContexts(mergeById(contexts(), payload.contexts) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
-        saveDefinitionCandidates(mergeById(definitionCandidates(), payload.definitionCandidates) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
-        saveEvents(mergeById(events(), payload.reviewEvents) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
-        saveRecommendationFeedback(mergeById(recommendationFeedback(), payload.recommendationFeedback) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) })
-        payload.settings?.let { mergeSettings(it) }
+        commitStoreTransaction(
+            StoreTransaction(
+                cards = canonicalCards.cards,
+                contexts = mergeById(contexts(), payload.contexts) { it.id }
+                    .map { it.remapCardId(canonicalCards.cardIdMap) },
+                definitionCandidates = mergeById(
+                    definitionCandidates(),
+                    payload.definitionCandidates
+                ) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) },
+                events = mergeById(events(), payload.reviewEvents) { it.id }
+                    .map { it.remapCardId(canonicalCards.cardIdMap) },
+                recommendationFeedback = mergeById(
+                    recommendationFeedback(),
+                    payload.recommendationFeedback
+                ) { it.id }.map { it.remapCardId(canonicalCards.cardIdMap) },
+                dictionaryEnrichmentStates = remapDictionaryEnrichmentStates(
+                    canonicalCards.cardIdMap
+                ),
+                settings = payload.settings?.let(::mergedSettingsOrNull)
+            )
+        )
     }
 
     fun syncWithCloud(client: CloudSyncClient): CloudSyncResult {
@@ -585,27 +1120,44 @@ class LocalVocabularyStore(context: Context) {
         importSyncBatchJson(rawSnapshot)
         return CloudSyncResult(
             snapshotJson = rawSnapshot,
-            skippedSummary = skippedSummary(pushResult)
+            skippedSummary = skippedSummary(pushResult),
+            requestId = client.lastRequestId
         )
     }
 
-    private fun appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Instant) {
+    private fun buildContext(
+        cardId: String,
+        result: DictionaryResult,
+        captureMethod: CaptureMethod,
+        now: Instant
+    ): StoredContext? {
         val sourceSentence = result.sourceSentence.ifBlank { result.exampleSentence }
-        if (sourceSentence.isBlank() && result.sourceApp.isBlank()) return
-        val context = StoredContext(
+        if (sourceSentence.isBlank() &&
+            result.sourceApp.isBlank() &&
+            result.sourceUrl.isBlank() &&
+            result.sourceTitle.isBlank()
+        ) return null
+        return StoredContext(
             id = UUID.randomUUID().toString(),
             cardId = cardId,
             sourceSentence = sourceSentence,
-            sourceUrl = result.sourceUrl,
+            sourceUrl = CaptureProvenanceExtractor.sanitizeUrl(result.sourceUrl),
             sourceApp = result.sourceApp,
+            pageTitle = result.sourceTitle.trim().take(300),
             captureMethod = captureMethod,
             createdAt = now
         )
-        saveContexts(contexts() + context)
     }
 
-    private fun appendDefinitionCandidate(cardId: String, result: DictionaryResult, selected: Boolean, now: Instant) {
-        val candidate = StoredDefinitionCandidate(
+    private fun buildDefinitionCandidate(
+        cardId: String,
+        result: DictionaryResult,
+        selected: Boolean,
+        now: Instant,
+        originDeviceId: String? = null,
+        baseCardVersion: Int? = null
+    ): StoredDefinitionCandidate {
+        return StoredDefinitionCandidate(
             id = UUID.randomUUID().toString(),
             cardId = cardId,
             source = result.sourceType,
@@ -617,45 +1169,199 @@ class LocalVocabularyStore(context: Context) {
             exampleSentence = result.exampleSentence,
             confidence = result.confidence,
             selectedAsPrimary = selected,
-            createdAt = now
+            createdAt = now,
+            originDeviceId = originDeviceId,
+            baseCardVersion = baseCardVersion
         )
-        saveDefinitionCandidates(definitionCandidates() + candidate)
     }
 
-    private fun appendRecommendationFeedback(card: VocabularyCard, action: String, now: Instant) {
-        val feedback = RecommendationFeedback(
+    private fun buildMeaningCandidateIfNeeded(
+        card: VocabularyCard,
+        existingCandidates: List<StoredDefinitionCandidate>,
+        now: Instant
+    ): StoredDefinitionCandidate? {
+        if (card.meaningKo.isBlank() && card.definitionEn.isBlank()) return null
+        val alreadyPreserved = existingCandidates.any {
+            it.cardId == card.id &&
+                it.parsedMeaningKo == card.meaningKo &&
+                it.parsedDefinitionEn == card.definitionEn
+        }
+        if (alreadyPreserved) return null
+
+        return buildDefinitionCandidate(
+            cardId = card.id,
+            result = DictionaryResult(
+                lemma = card.lemma,
+                displayWord = card.displayWord,
+                meaningKo = card.meaningKo,
+                definitionEn = card.definitionEn,
+                partOfSpeech = card.partOfSpeech,
+                phonetic = card.phonetic,
+                exampleSentence = card.exampleSentence,
+                rawSource = card.meaningKo.ifBlank { card.definitionEn },
+                sourceType = card.definitionSourcePrimary,
+                confidence = 1.0,
+                sourceSentence = card.exampleSentence,
+                sourceApp = card.sourceAppPrimary,
+                sourceUrl = card.sourceUrlPrimary
+            ),
+            selected = false,
+            now = now
+        )
+    }
+
+    private fun buildRecommendationFeedback(
+        card: VocabularyCard,
+        action: String,
+        now: Instant
+    ): RecommendationFeedback {
+        return RecommendationFeedback(
             id = UUID.randomUUID().toString(),
             cardId = card.id,
             lemma = card.lemma,
             action = action,
             createdAt = now
         )
-        saveRecommendationFeedback(recommendationFeedback() + feedback)
     }
 
-    private fun saveCards(cards: List<VocabularyCard>) {
+    private data class StoreTransaction(
+        val cards: List<VocabularyCard>? = null,
+        val contexts: List<StoredContext>? = null,
+        val definitionCandidates: List<StoredDefinitionCandidate>? = null,
+        val events: List<StoredReviewEvent>? = null,
+        val recommendationFeedback: List<RecommendationFeedback>? = null,
+        val dictionaryEnrichmentStates: Collection<DictionaryEnrichmentState>? = null,
+        val settings: UserSettingsData? = null
+    )
+
+    private fun commitStoreTransaction(transaction: StoreTransaction) {
+        // Cards and their provenance are separate JSON collections in one preferences file.
+        // Stage every affected key on one editor and synchronously persist it so a process
+        // death can expose only the old snapshot or the complete new snapshot, never a mix.
+        val editor = prefs.edit()
+        transaction.cards?.let { editor.putString(KEY_CARDS, cardsJson(it)) }
+        transaction.contexts?.let { editor.putString(KEY_CONTEXTS, contextsJson(it)) }
+        transaction.definitionCandidates?.let {
+            editor.putString(KEY_DEFINITION_CANDIDATES, definitionCandidatesJson(it))
+        }
+        transaction.events?.let { putEvents(editor, it) }
+        transaction.recommendationFeedback?.let {
+            editor.putString(KEY_RECOMMENDATION_FEEDBACK, recommendationFeedbackJson(it))
+        }
+        transaction.dictionaryEnrichmentStates?.let {
+            editor.putString(KEY_DICTIONARY_ENRICHMENT_STATES, dictionaryEnrichmentStatesJson(it))
+        }
+        transaction.settings?.let { editor.putString(KEY_SETTINGS, it.toJson().toString()) }
+
+        check(transactionCommitter(editor)) {
+            "Could not durably commit vocabulary store transaction"
+        }
+    }
+
+    private fun cardsJson(cards: List<VocabularyCard>): String {
         val array = JSONArray()
         cards.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_CARDS, array.toString()).apply()
+        return array.toString()
     }
 
-    private fun saveContexts(contexts: List<StoredContext>) {
+    private fun contextsJson(contexts: List<StoredContext>): String {
         val array = JSONArray()
         contexts.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_CONTEXTS, array.toString()).apply()
+        return array.toString()
     }
 
-    private fun saveDefinitionCandidates(candidates: List<StoredDefinitionCandidate>) {
+    private fun definitionCandidatesJson(candidates: List<StoredDefinitionCandidate>): String {
         val array = JSONArray()
         candidates.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_DEFINITION_CANDIDATES, array.toString()).apply()
+        return array.toString()
     }
 
-    private fun saveEvents(events: List<StoredReviewEvent>) {
+    private fun persistedDictionaryEnrichmentStates(): Map<String, DictionaryEnrichmentState> {
+        val raw = prefs.getString(KEY_DICTIONARY_ENRICHMENT_STATES, "[]").orEmpty()
+        val array = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return (0 until array.length()).mapNotNull { index ->
+            val json = array.optJSONObject(index) ?: return@mapNotNull null
+            val cardId = json.optString("card_id").trim()
+            val status = runCatching {
+                DictionaryEnrichmentStatus.valueOf(json.optString("status").uppercase())
+            }.getOrNull()
+            if (cardId.isBlank() || status == null) return@mapNotNull null
+            val failure = runCatching {
+                json.optString("failure")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { DictionaryEnrichmentFailure.valueOf(it.uppercase()) }
+            }.getOrNull()
+            DictionaryEnrichmentState(
+                cardId = cardId,
+                status = status,
+                failure = failure,
+                attemptedAt = json.optNullableInstant("attempted_at"),
+                requestId = normalizeRequestId(json.optString("request_id"))
+            )
+        }.associateBy { it.cardId }
+    }
+
+    private fun dictionaryEnrichmentStatesJson(states: Collection<DictionaryEnrichmentState>): String {
+        val array = JSONArray()
+        states.sortedBy { it.cardId }.forEach { state ->
+            array.put(
+                JSONObject()
+                    .put("card_id", state.cardId)
+                    .put("status", state.status.name.lowercase())
+                    .put("failure", state.failure?.name?.lowercase() ?: JSONObject.NULL)
+                    .put("attempted_at", state.attemptedAt?.toString() ?: JSONObject.NULL)
+                    .put("request_id", state.requestId ?: JSONObject.NULL)
+            )
+        }
+        return array.toString()
+    }
+
+    private fun dictionaryStateForCard(
+        card: VocabularyCard,
+        timestamp: Instant,
+        requestId: String? = null
+    ): DictionaryEnrichmentState {
+        return when {
+            card.definitionSourcePrimary == "user" -> DictionaryEnrichmentState(
+                cardId = card.id,
+                status = DictionaryEnrichmentStatus.USER_LOCKED,
+                attemptedAt = timestamp,
+                requestId = normalizeRequestId(requestId)
+            )
+            card.meaningKo.isBlank() -> DictionaryEnrichmentState(
+                cardId = card.id,
+                status = DictionaryEnrichmentStatus.PENDING,
+                requestId = normalizeRequestId(requestId)
+            )
+            else -> DictionaryEnrichmentState(
+                cardId = card.id,
+                status = DictionaryEnrichmentStatus.RESOLVED,
+                attemptedAt = timestamp,
+                requestId = normalizeRequestId(requestId)
+            )
+        }
+    }
+
+    private fun dictionaryStatesReplacing(state: DictionaryEnrichmentState): Collection<DictionaryEnrichmentState> {
+        return persistedDictionaryEnrichmentStates().toMutableMap().apply {
+            this[state.cardId] = state
+        }.values
+    }
+
+    private fun enqueueDictionaryEnrichmentSafely() {
+        try {
+            DictionaryEnrichmentWorker.enqueue(applicationContext)
+        } catch (_: IllegalStateException) {
+            // WorkManager is unavailable only during very early startup or isolated unit tests.
+            // The persisted pending state is picked up by the next app/sync scheduling pass.
+        }
+    }
+
+    private fun putEvents(editor: SharedPreferences.Editor, events: List<StoredReviewEvent>) {
         val (active, archived) = pruneEventsForArchive(events)
         val array = JSONArray()
         active.forEach { array.put(it.toJson()) }
-        val editor = prefs.edit().putString(KEY_EVENTS, array.toString())
+        editor.putString(KEY_EVENTS, array.toString())
         if (archived.isNotEmpty()) {
             val mergedArchive = (archivedEvents() + archived)
                 .associateBy { it.id }
@@ -665,7 +1371,6 @@ class LocalVocabularyStore(context: Context) {
             mergedArchive.forEach { archiveArray.put(it.toJson()) }
             editor.putString(KEY_EVENTS_ARCHIVE, archiveArray.toString())
         }
-        editor.apply()
     }
 
     fun archivedEvents(): List<StoredReviewEvent> {
@@ -674,10 +1379,10 @@ class LocalVocabularyStore(context: Context) {
             .sortedBy { it.clientCreatedAt }
     }
 
-    private fun saveRecommendationFeedback(feedback: List<RecommendationFeedback>) {
+    private fun recommendationFeedbackJson(feedback: List<RecommendationFeedback>): String {
         val array = JSONArray()
         feedback.forEach { array.put(it.toJson()) }
-        prefs.edit().putString(KEY_RECOMMENDATION_FEEDBACK, array.toString()).apply()
+        return array.toString()
     }
 
     private fun saveSettings(settings: UserSettingsData, preserveUpdatedAt: Boolean) {
@@ -685,12 +1390,17 @@ class LocalVocabularyStore(context: Context) {
         prefs.edit().putString(KEY_SETTINGS, storedSettings.toJson().toString()).apply()
     }
 
-    private fun mergeSettings(incoming: UserSettingsData) {
+    private fun mergedSettingsOrNull(incoming: UserSettingsData): UserSettingsData? {
         val local = settings()
-        if (incoming.updatedAt > local.updatedAt || (incoming.updatedAt == Instant.EPOCH && local.updatedAt == Instant.EPOCH)) {
+        return if (
+            incoming.updatedAt > local.updatedAt ||
+            (incoming.updatedAt == Instant.EPOCH && local.updatedAt == Instant.EPOCH)
+        ) {
             // enableWatchReplyReview is device-local (the paired watch belongs to this
             // phone); sync payloads never carry it, so keep the local value on merge.
-            saveSettings(incoming.copy(enableWatchReplyReview = local.enableWatchReplyReview), preserveUpdatedAt = true)
+            incoming.copy(enableWatchReplyReview = local.enableWatchReplyReview)
+        } else {
+            null
         }
     }
 
@@ -759,6 +1469,25 @@ class LocalVocabularyStore(context: Context) {
         return idMap[cardId]?.let { copy(cardId = it) } ?: this
     }
 
+    private fun remapDictionaryEnrichmentStates(
+        idMap: Map<String, String>
+    ): Collection<DictionaryEnrichmentState> {
+        return persistedDictionaryEnrichmentStates().values
+            .map { state -> idMap[state.cardId]?.let { state.copy(cardId = it) } ?: state }
+            .groupBy { it.cardId }
+            .mapValues { (_, states) ->
+                states.maxWith(
+                    compareBy<DictionaryEnrichmentState>(
+                        { it.attemptedAt ?: Instant.EPOCH },
+                        { it.status.name },
+                        { it.failure?.name.orEmpty() },
+                        { it.requestId.orEmpty() }
+                    )
+                )
+            }
+            .values
+    }
+
     private fun <T> mergeById(local: List<T>, incoming: List<T>, idOf: (T) -> String): List<T> {
         val byId = local.associateBy(idOf).toMutableMap()
         incoming.forEach { byId.putIfAbsent(idOf(it), it) }
@@ -799,6 +1528,7 @@ class LocalVocabularyStore(context: Context) {
             .put("source_sentence", sourceSentence)
             .put("source_url", sourceUrl)
             .put("source_app", sourceApp)
+            .put("page_title", pageTitle)
             .put("capture_method", captureMethod.wireName)
             .put("created_at", createdAt.toString())
     }
@@ -816,6 +1546,8 @@ class LocalVocabularyStore(context: Context) {
             .put("example_sentence", exampleSentence)
             .put("confidence", confidence)
             .put("selected_as_primary", selectedAsPrimary)
+            .put("origin_device_id", originDeviceId ?: JSONObject.NULL)
+            .put("base_card_version", baseCardVersion ?: JSONObject.NULL)
             .put("created_at", createdAt.toString())
     }
 
@@ -868,7 +1600,7 @@ class LocalVocabularyStore(context: Context) {
             phonetic = json.optString("phonetic"),
             exampleSentence = json.optString("example_sentence"),
             sourceAppPrimary = json.optString("source_app_primary"),
-            sourceUrlPrimary = json.optString("source_url_primary"),
+            sourceUrlPrimary = CaptureProvenanceExtractor.sanitizeUrl(json.optString("source_url_primary")),
             definitionSourcePrimary = json.optString("definition_source_primary", "user"),
             status = CardStatus.valueOf(json.getString("status")),
             wordbook = Wordbook.valueOf(json.optString("wordbook", Wordbook.USER.name)),
@@ -890,8 +1622,9 @@ class LocalVocabularyStore(context: Context) {
             id = json.getString("id"),
             cardId = json.getString("card_id"),
             sourceSentence = json.optString("source_sentence"),
-            sourceUrl = json.optString("source_url"),
+            sourceUrl = CaptureProvenanceExtractor.sanitizeUrl(json.optString("source_url")),
             sourceApp = json.optString("source_app"),
+            pageTitle = json.optString("page_title").trim().take(300),
             captureMethod = CaptureMethod.values().firstOrNull { it.wireName == json.optString("capture_method") } ?: CaptureMethod.MANUAL,
             createdAt = Instant.parse(json.getString("created_at"))
         )
@@ -910,7 +1643,12 @@ class LocalVocabularyStore(context: Context) {
             exampleSentence = json.optString("example_sentence"),
             confidence = json.optDouble("confidence", 0.0),
             selectedAsPrimary = json.optBoolean("selected_as_primary", false),
-            createdAt = Instant.parse(json.getString("created_at"))
+            createdAt = Instant.parse(json.getString("created_at")),
+            originDeviceId = json.optString("origin_device_id")
+                .trim()
+                .takeIf { it.isNotEmpty() },
+            baseCardVersion = json.optInt("base_card_version")
+                .takeIf { json.has("base_card_version") && !json.isNull("base_card_version") && it > 0 }
         )
     }
 
@@ -986,6 +1724,21 @@ class LocalVocabularyStore(context: Context) {
                 .put("last_failure_at", status.lastFailureAt?.toString() ?: JSONObject.NULL)
                 .put("last_error", status.lastError)
                 .put("last_skipped_summary", status.lastSkippedSummary)
+                .put("last_request_id", status.lastRequestId)
+                .put("last_worker_run_at", status.lastWorkerRunAt?.toString() ?: JSONObject.NULL)
+                .toString()
+        ).apply()
+    }
+
+    private fun saveOnboardingState(state: AndroidOnboardingState) {
+        prefs.edit().putString(
+            KEY_ONBOARDING,
+            JSONObject()
+                .put("first_launch_at", state.firstLaunchAt.toString())
+                .put(
+                    "capture_guide_completed_at",
+                    state.captureGuideCompletedAt?.toString() ?: JSONObject.NULL
+                )
                 .toString()
         ).apply()
     }
@@ -1036,11 +1789,14 @@ class LocalVocabularyStore(context: Context) {
         const val KEY_SETTINGS = "settings"
         const val KEY_CLOUD_SYNC = "cloud_sync"
         const val KEY_CLOUD_SYNC_STATUS = "cloud_sync_status"
+        const val KEY_ONBOARDING = "onboarding"
+        const val KEY_DICTIONARY_ENRICHMENT_STATES = "dictionary_enrichment_states"
         const val KEY_DEVICE_ID = "device_id"
         const val MAX_ACTIVE_EVENTS = 5_000
         const val MAX_SYNC_ERROR_LENGTH = 200
         const val EVENT_ARCHIVE_SAFETY_WINDOW_SECONDS = 48L * 60L * 60L
         val DEVICE_ID_PATTERN = Regex("^android-[0-9a-fA-F]{8}$")
+        val CARD_MUTATION_LOCK = Any()
     }
 }
 

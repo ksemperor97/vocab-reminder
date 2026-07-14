@@ -7,7 +7,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.vocabreminder.android.data.LocalVocabularyStore
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class QuietHoursWorker(
@@ -17,7 +16,7 @@ class QuietHoursWorker(
     override suspend fun doWork(): Result {
         val store = LocalVocabularyStore(applicationContext)
         val settings = store.settings().toSchedulerSettings()
-        val now = Instant.now()
+        val now = NotificationClock.now()
         val localTime = now.atZone(settings.timezone).toLocalTime()
         val inQuiet = if (settings.quietHoursStart < settings.quietHoursEnd) {
             !localTime.isBefore(settings.quietHoursStart) && localTime < settings.quietHoursEnd

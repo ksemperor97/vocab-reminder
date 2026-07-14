@@ -9,7 +9,7 @@ import com.vocabreminder.android.scheduler.Wordbook
 import java.time.Instant
 
 object DailyReviewPlanner {
-    fun planAndSchedule(context: Context, now: Instant = Instant.now()): PlanSummary {
+    fun planAndSchedule(context: Context, now: Instant = NotificationClock.now()): PlanSummary {
         val store = LocalVocabularyStore(context)
         val settingsData = store.settings()
         ReminderScheduler.reconcileAll(context, store, now)
@@ -55,13 +55,12 @@ object DailyReviewPlanner {
             userWordCount = store.userWordCount()
         )
 
-        result.rebalancedCards.forEach { schedulerCard ->
+        val rebalancedCards = result.rebalancedCards.mapNotNull { schedulerCard ->
             cardsById[schedulerCard.id]?.let { original ->
-                val updated = original.withSchedulerCard(schedulerCard, now)
-                store.updateCard(updated)
+                original.withSchedulerCard(schedulerCard, now)
             }
         }
-        result.rebalanceEvents.forEach { store.appendEvent(it, now) }
+        store.updateCardsAndAppendEvents(rebalancedCards, result.rebalanceEvents, now)
 
         val queuedNotifications = result.notifications.mapNotNull { schedulerCard ->
             store.findCard(schedulerCard.id)
@@ -109,7 +108,7 @@ object DailyReviewPlanner {
         return (reviewed + recommendationDecisions).toSet()
     }
 
-    fun rebalanceDueCards(context: Context, now: Instant = Instant.now()): Int {
+    fun rebalanceDueCards(context: Context, now: Instant = NotificationClock.now()): Int {
         val store = LocalVocabularyStore(context)
         val settings = store.settings().toSchedulerSettings()
         val dueCards = store.cards()
@@ -117,10 +116,10 @@ object DailyReviewPlanner {
             .map { it.toSchedulerCard() }
         val rebalanced = Scheduler.autoRebalance(dueCards, settings, now, trigger = "manual")
         val byId = store.cards().associateBy { it.id }
-        rebalanced.forEach { result ->
-            byId[result.card.id]?.let { store.updateCard(it.withSchedulerCard(result.card, now)) }
-            store.appendEvent(result.event, now)
+        val updatedCards = rebalanced.mapNotNull { result ->
+            byId[result.card.id]?.withSchedulerCard(result.card, now)
         }
+        store.updateCardsAndAppendEvents(updatedCards, rebalanced.map { it.event }, now)
         return rebalanced.size
     }
 }

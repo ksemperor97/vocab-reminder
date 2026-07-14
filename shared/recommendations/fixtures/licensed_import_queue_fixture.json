@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-07-13",
+  "limit": 2,
+  "totalQueued": 2,
+  "queue": [
+    {
+      "queueRank": 1,
+      "lemma": "hitchhike",
+      "sourceWord": "hitchhike",
+      "frequencyRank": 18000,
+      "frequencyCount": 48,
+      "bucket": "boundary",
+      "fillStatus": "needs_definition_translation_topic"
+    },
+    {
+      "queueRank": 2,
+      "lemma": "clout",
+      "sourceWord": "clout",
+      "frequencyRank": 17998,
+      "frequencyCount": 48,
+      "bucket": "boundary",
+      "fillStatus": "needs_definition_translation_topic"
+    }
+  ]
+}

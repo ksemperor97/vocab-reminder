@@ -17,7 +17,7 @@ object QuietHoursBoundaryScheduler {
     private const val REQUEST_QUIET_START = 80_001
     private const val REQUEST_QUIET_END = 80_002
 
-    fun schedule(context: Context, now: Instant = Instant.now()) {
+    fun schedule(context: Context, now: Instant = NotificationClock.now()) {
         val settings = LocalVocabularyStore(context).settings()
         scheduleBoundary(context, ACTION_QUIET_START, REQUEST_QUIET_START, nextOccurrence(settings.quietHoursStart, settings, now))
         scheduleBoundary(context, ACTION_QUIET_END, REQUEST_QUIET_END, nextOccurrence(settings.quietHoursEnd, settings, now))
@@ -27,7 +27,7 @@ object QuietHoursBoundaryScheduler {
         }
     }
 
-    fun handleBoundary(context: Context, action: String, now: Instant = Instant.now()) {
+    fun handleBoundary(context: Context, action: String, now: Instant = NotificationClock.now()) {
         when (action) {
             ACTION_QUIET_START -> withdrawActiveNotifications(context)
             ACTION_QUIET_END -> {

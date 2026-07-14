@@ -288,6 +288,17 @@ function validateDefinitionCandidate(value) {
   if (missing) return bad(`${missing} is required.`);
   if (typeof entity.entity.selected_as_primary !== "boolean") return bad("selected_as_primary must be boolean.");
   if (entity.entity.confidence != null && typeof entity.entity.confidence !== "number") return bad("confidence must be a number or null.");
+  const originDeviceId = entity.entity.origin_device_id;
+  const baseCardVersion = entity.entity.base_card_version;
+  if (originDeviceId != null && nonEmptyTrimmedString(originDeviceId) == null) {
+    return bad("origin_device_id must be a non-empty string or null.");
+  }
+  if (baseCardVersion != null && (!Number.isInteger(baseCardVersion) || baseCardVersion < 1)) {
+    return bad("base_card_version must be a positive integer or null.");
+  }
+  if ((originDeviceId == null) !== (baseCardVersion == null)) {
+    return bad("origin_device_id and base_card_version must be provided together.");
+  }
   if (!validDate(entity.entity.created_at)) return bad("created_at must be an ISO timestamp.");
   return entity;
 }
@@ -302,6 +313,13 @@ function synthesizedMeaningCandidate(card) {
     parsed_meaning_ko: meaning
   });
   const digest = createHash("sha256").update(fingerprint).digest("hex");
+  const originDeviceId = nonEmptyTrimmedString(card.created_device_id);
+  const baseCardVersion = Number.isInteger(card.version) && card.version > 1
+    ? card.version - 1
+    : null;
+  const lineage = originDeviceId != null && baseCardVersion != null
+    ? { origin_device_id: originDeviceId, base_card_version: baseCardVersion }
+    : {};
   return {
     id: `card-meaning-${digest}`,
     card_id: cardId,
@@ -314,6 +332,7 @@ function synthesizedMeaningCandidate(card) {
     example_sentence: textValue(card.source_sentence_primary),
     confidence: 1,
     selected_as_primary: true,
+    ...lineage,
     created_at: card.updated_at
   };
 }

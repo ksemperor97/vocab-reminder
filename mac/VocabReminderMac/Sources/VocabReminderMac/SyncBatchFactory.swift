@@ -63,9 +63,14 @@ enum SyncBatchFactory {
         normalize(StoreSnapshot(
             cards: mergeCards(local.cards, incoming.cards),
             contexts: mergeByIdRepairingTimestamp(local.contexts, incoming.contexts, timestamp: \.createdAt),
-            definitionCandidates: mergeByIdRepairingTimestamp(local.definitionCandidates, incoming.definitionCandidates, timestamp: \.createdAt),
+            definitionCandidates: mergeDefinitionCandidates(local.definitionCandidates, incoming.definitionCandidates),
             reviewEvents: mergeByIdRepairingTimestamp(local.reviewEvents, incoming.reviewEvents, timestamp: \.clientCreatedAt)
                 .sorted(by: reviewEventChronologicalOrder),
+            syncEvents: mergeByIdRepairingTimestamp(
+                local.syncEvents,
+                incoming.syncEvents,
+                timestamp: \.createdAt
+            ),
             recommendationFeedback: mergeByIdRepairingTimestamp(local.recommendationFeedback, incoming.recommendationFeedback, timestamp: \.createdAt),
             settings: mergeSettings(local.settings, incoming.settings)
         ))
@@ -120,8 +125,8 @@ enum SyncBatchFactory {
             "card_id": context.cardId,
             "source_sentence": context.sourceSentence,
             "surrounding_text": NSNull(),
-            "source_url": NSNull(),
-            "page_title": NSNull(),
+            "source_url": nullable(context.sourceURL),
+            "page_title": nullable(context.pageTitle),
             "source_app": nullable(context.sourceApp),
             "capture_method": context.captureMethod.rawValue,
             "created_device_id": deviceId,
@@ -142,6 +147,8 @@ enum SyncBatchFactory {
             "example_sentence": nullable(candidate.exampleSentence),
             "confidence": candidate.confidence,
             "selected_as_primary": candidate.selectedAsPrimary,
+            "origin_device_id": candidate.originDeviceId.map { $0 as Any } ?? NSNull(),
+            "base_card_version": candidate.baseCardVersion.map { $0 as Any } ?? NSNull(),
             "created_at": iso(candidate.createdAt)
         ]
     }
@@ -209,6 +216,11 @@ enum SyncBatchFactory {
         value.isEmpty ? NSNull() : value
     }
 
+    private static func nullable(_ value: String?) -> Any {
+        guard let value else { return NSNull() }
+        return nullable(value)
+    }
+
     private static func mergeCards(_ local: [VocabularyCard], _ incoming: [VocabularyCard]) -> [VocabularyCard] {
         var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
         for card in incoming {
@@ -235,6 +247,7 @@ enum SyncBatchFactory {
         timestamp: (T) -> Date
     ) -> [T] where T.ID == String {
         var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
         for item in incoming {
             guard let existing = byId[item.id] else {
                 byId[item.id] = item
@@ -243,8 +256,31 @@ enum SyncBatchFactory {
             // Earlier Mac imports converted Android fractional timestamps to
             // epoch. A same-ID server record with its real timestamp repairs
             // that damage on the next sync instead of being ignored forever.
-            if timestamp(item) > timestamp(existing) {
+            if timestamp(existing) <= epochDamageUpperBound,
+               timestamp(item) > epochDamageUpperBound {
                 byId[item.id] = item
+            }
+        }
+        return byId.values.sorted { $0.id < $1.id }
+    }
+
+    private static func mergeDefinitionCandidates(
+        _ local: [StoredDefinitionCandidate],
+        _ incoming: [StoredDefinitionCandidate]
+    ) -> [StoredDefinitionCandidate] {
+        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
+        for candidate in incoming {
+            guard let existing = byId[candidate.id] else {
+                byId[candidate.id] = candidate
+                continue
+            }
+            // Candidate IDs are append-only event identities. Never mutate a
+            // normal record on collision; retain only the one-time legacy epoch
+            // repair that predates append-only enforcement.
+            if existing.createdAt <= epochDamageUpperBound,
+               candidate.createdAt > epochDamageUpperBound {
+                byId[candidate.id] = candidate
             }
         }
         return byId.values.sorted { $0.id < $1.id }
@@ -352,6 +388,8 @@ enum SyncBatchFactory {
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
             sourceSentence: string(payload, "source_sentence"),
+            sourceURL: SourceURLSanitizer.sanitize(string(payload, "source_url")),
+            pageTitle: string(payload, "page_title"),
             sourceApp: string(payload, "source_app"),
             captureMethod: CaptureMethod(rawValue: string(payload, "capture_method", fallback: "manual")) ?? .manual,
             createdAt: try requiredDate(payload, "created_at")
@@ -370,7 +408,9 @@ enum SyncBatchFactory {
             exampleSentence: string(payload, "example_sentence"),
             confidence: double(payload, "confidence"),
             selectedAsPrimary: bool(payload, "selected_as_primary"),
-            createdAt: try requiredDate(payload, "created_at")
+            createdAt: try requiredDate(payload, "created_at"),
+            originDeviceId: optionalString(payload, "origin_device_id"),
+            baseCardVersion: optionalInt(payload, "base_card_version").flatMap { $0 > 0 ? $0 : nil }
         )
     }
 
@@ -420,6 +460,11 @@ enum SyncBatchFactory {
     private static func string(_ payload: [String: Any], _ key: String, fallback: String = "") -> String {
         guard let value = payload[key], !(value is NSNull) else { return fallback }
         return value as? String ?? fallback
+    }
+
+    private static func optionalString(_ payload: [String: Any], _ key: String) -> String? {
+        let value = string(payload, key).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private static func int(_ payload: [String: Any], _ key: String, fallback: Int = 0) -> Int {

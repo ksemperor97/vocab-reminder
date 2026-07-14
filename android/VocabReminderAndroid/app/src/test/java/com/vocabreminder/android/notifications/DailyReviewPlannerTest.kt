@@ -26,22 +26,27 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class DailyReviewPlannerTest {
+    private val defaultNow = Instant.parse("2026-07-11T01:00:00Z") // 10:00 Asia/Seoul
     private lateinit var context: Context
     private lateinit var store: LocalVocabularyStore
 
     @Before
     fun setUp() {
+        NotificationClock.replaceForTest(Clock.fixed(defaultNow, ZoneOffset.UTC))
         context = ApplicationProvider.getApplicationContext()
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         store = LocalVocabularyStore(context)
@@ -49,6 +54,11 @@ class DailyReviewPlannerTest {
         ReminderNotifications.clearActivePrompt(context)
         shadowOf(notificationManager()).setNotificationsEnabled(true)
         notificationManager().cancelAll()
+    }
+
+    @After
+    fun tearDown() {
+        NotificationClock.resetForTest()
     }
 
     @Test
@@ -289,7 +299,7 @@ class DailyReviewPlannerTest {
     fun recommendationStartMeaningAdvancesOnlyAfterFeedbackDismiss() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val now = Instant.parse("2026-07-03T00:00:00Z")
-        val farFuture = Instant.now().plusSeconds(7 * 24 * 60 * 60)
+        val farFuture = NotificationClock.now().plusSeconds(7 * 24 * 60 * 60)
         repeat(50) { index ->
             store.addCard(
                 displayWord = "futureuser$index",
@@ -341,7 +351,7 @@ class DailyReviewPlannerTest {
     @Test
     fun startedRecommendationDoesNotReturnBeforeDueAfterMeaningDismiss() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val now = Instant.now()
+        val now = NotificationClock.now()
         addFutureUserCards(count = 50, now = now)
         store.markRecommendationsIntroduced(now)
         val recommendation = store.addCard(
@@ -418,7 +428,7 @@ class DailyReviewPlannerTest {
     @Test
     fun recommendationSwipeSuppressesCardForTwentyFourHoursAndAdvancesWithoutFeedback() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val now = Instant.now()
+        val now = NotificationClock.now()
         addFutureUserCards(count = 50, now = now)
         store.markRecommendationsIntroduced(now)
         DailyReviewPlanner.planAndSchedule(context, now)
@@ -525,7 +535,7 @@ class DailyReviewPlannerTest {
     @Test
     fun futureCardWatchReplyDoesNotWriteEvent() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val now = Instant.now()
+        val now = NotificationClock.now()
         val card = store.addCard(
             displayWord = "futurereply",
             meaningKo = "meaning",
@@ -635,12 +645,13 @@ class DailyReviewPlannerTest {
 
         sendReviewAction(firstPromptId, ReviewResponse.FORGOTTEN)
         val updated = store.findCard(firstPromptId)!!
-        val cleared = ReminderNotifications.clearStalePrompt(context, store, Instant.now())
-        DailyReviewPlanner.planAndSchedule(context, Instant.now())
+        val now = NotificationClock.now()
+        val cleared = ReminderNotifications.clearStalePrompt(context, store, now)
+        DailyReviewPlanner.planAndSchedule(context, now)
 
         val state = ReminderNotifications.activeNotificationState(context)
         assertFalse(cleared)
-        assertTrue(updated.dueAt.isAfter(Instant.now()))
+        assertTrue(updated.dueAt.isAfter(now))
         assertEquals(firstPromptId, state?.cardId)
         assertEquals(NotificationPhase.FEEDBACK, state?.phase)
         assertEquals(NotificationFeedbackKind.FORGOTTEN, state?.feedbackKind)
@@ -695,6 +706,22 @@ class DailyReviewPlannerTest {
         assertEquals(NotificationPhase.FEEDBACK, state?.phase)
         assertEquals(NotificationFeedbackKind.REMEMBERED, state?.feedbackKind)
         assertNotNull(shadowOf(notificationManager()).getNotification(card.notificationId))
+    }
+
+    @Test
+    fun quietHoursUseExactAsiaSeoulBoundaries() {
+        val settings = store.settings()
+        val beforeStart = Instant.parse("2026-07-11T13:59:00Z") // 22:59 Asia/Seoul
+        val atStart = Instant.parse("2026-07-11T14:00:00Z") // 23:00 Asia/Seoul
+        val atMidnight = Instant.parse("2026-07-11T15:00:00Z") // 00:00 Asia/Seoul
+        val beforeEnd = Instant.parse("2026-07-11T23:59:00Z") // 08:59 Asia/Seoul
+        val atEnd = Instant.parse("2026-07-12T00:00:00Z") // 09:00 Asia/Seoul
+
+        assertFalse(QuietHoursBoundaryScheduler.isQuietHour(beforeStart, settings))
+        assertTrue(QuietHoursBoundaryScheduler.isQuietHour(atStart, settings))
+        assertTrue(QuietHoursBoundaryScheduler.isQuietHour(atMidnight, settings))
+        assertTrue(QuietHoursBoundaryScheduler.isQuietHour(beforeEnd, settings))
+        assertFalse(QuietHoursBoundaryScheduler.isQuietHour(atEnd, settings))
     }
 
     @Test
@@ -955,7 +982,7 @@ class DailyReviewPlannerTest {
     @Test
     fun staleReviewActionOnlyClearsNotificationWithoutWritingEvent() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val now = Instant.now()
+        val now = NotificationClock.now()
         val card = store.addCard(
             displayWord = "lateaction",
             meaningKo = "meaning",
@@ -1009,7 +1036,7 @@ class DailyReviewPlannerTest {
     @Test
     fun bootRecoverySchedulesSyncPlannerAndQuietHourBoundaries() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        val now = Instant.now()
+        val now = NotificationClock.now()
         store.addCard(
             displayWord = "bootword",
             meaningKo = "부팅 뜻",
@@ -1058,7 +1085,7 @@ class DailyReviewPlannerTest {
     }
 
     private fun seedRecommendationPrompt(): String {
-        val now = Instant.now()
+        val now = NotificationClock.now()
         addFutureUserCards(count = 50, now = now)
         store.markRecommendationsIntroduced(now)
         val recommendation = store.addCard(

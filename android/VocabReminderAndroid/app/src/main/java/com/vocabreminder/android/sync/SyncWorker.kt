@@ -24,6 +24,7 @@ class SyncWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val store = LocalVocabularyStore(applicationContext)
+        store.recordSyncWorkerHeartbeat()
         val credentials = store.cloudSyncCredentials()
         val serverUrl = credentials.serverBaseUrl.trim()
         val token = credentials.bearerToken.trim()
@@ -31,16 +32,20 @@ class SyncWorker(
 
         return runCatching {
             val result = store.syncWithCloud(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
-            store.recordCloudSyncSuccess(result.skippedSummary)
+            store.recordCloudSyncSuccess(result.skippedSummary, result.requestId)
             val now = Instant.now()
             ReminderScheduler.reconcileAll(applicationContext, store, now)
             ReminderNotifications.clearStalePrompt(applicationContext, store, now)
             ReminderNotifications.restoreActiveNotification(applicationContext, store, now)
             DailyReviewPlanner.planAndSchedule(applicationContext, now)
+            DictionaryEnrichmentWorker.enqueue(applicationContext)
         }.fold(
             onSuccess = { Result.success() },
             onFailure = { error ->
-                store.recordCloudSyncFailure(error.message ?: error::class.java.simpleName)
+                store.recordCloudSyncFailure(
+                    error.message ?: error::class.java.simpleName,
+                    (error as? CloudSyncException)?.requestId
+                )
                 Result.retry()
             }
         )
@@ -69,6 +74,7 @@ class SyncWorker(
                 request
             )
             workManager.cancelUniqueWork(LEGACY_DEBOUNCED_WORK)
+            DictionaryEnrichmentWorker.enqueue(context)
         }
 
         fun enqueueImmediate(context: Context) {

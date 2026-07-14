@@ -1,6 +1,7 @@
 package com.vocabreminder.android.sync
 
 import com.vocabreminder.android.capture.CaptureMethod
+import com.vocabreminder.android.capture.CaptureProvenanceExtractor
 import com.vocabreminder.android.data.RecommendationFeedback
 import com.vocabreminder.android.data.StoredContext
 import com.vocabreminder.android.data.StoredDefinitionCandidate
@@ -98,7 +99,7 @@ object SyncPayloadFactory {
             .put("source_sentence", sourceSentence)
             .put("surrounding_text", JSONObject.NULL)
             .put("source_url", sourceUrl.ifBlank { JSONObject.NULL })
-            .put("page_title", JSONObject.NULL)
+            .put("page_title", pageTitle.ifBlank { JSONObject.NULL })
             .put("source_app", sourceApp.ifBlank { JSONObject.NULL })
             .put("capture_method", captureMethod.wireName)
             .put("created_device_id", deviceId)
@@ -118,6 +119,8 @@ object SyncPayloadFactory {
             .put("example_sentence", exampleSentence.ifBlank { JSONObject.NULL })
             .put("confidence", confidence)
             .put("selected_as_primary", selectedAsPrimary)
+            .put("origin_device_id", originDeviceId ?: JSONObject.NULL)
+            .put("base_card_version", baseCardVersion ?: JSONObject.NULL)
             .put("created_at", createdAt.toString())
     }
 
@@ -202,8 +205,9 @@ object SyncPayloadFactory {
             id = string("id"),
             cardId = string("card_id"),
             sourceSentence = string("source_sentence"),
-            sourceUrl = string("source_url"),
+            sourceUrl = CaptureProvenanceExtractor.sanitizeUrl(string("source_url")),
             sourceApp = string("source_app"),
+            pageTitle = string("page_title"),
             captureMethod = CaptureMethod.values().firstOrNull { it.wireName == string("capture_method") } ?: CaptureMethod.MANUAL,
             createdAt = instant("created_at")
         )
@@ -222,7 +226,9 @@ object SyncPayloadFactory {
             exampleSentence = string("example_sentence"),
             confidence = optDouble("confidence", 0.0),
             selectedAsPrimary = optBoolean("selected_as_primary", false),
-            createdAt = instant("created_at")
+            createdAt = instant("created_at"),
+            originDeviceId = string("origin_device_id").trim().takeIf { it.isNotEmpty() },
+            baseCardVersion = nullableInt("base_card_version")?.takeIf { it > 0 }
         )
     }
 

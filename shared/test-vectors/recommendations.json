@@ -61,7 +61,25 @@
     "then": {
       "selected_count": 4,
       "frequency_rank_between": [11000, 35000],
-      "first_topic_in": ["academic", "methods"]
+      "first_topic_in": ["academic", "methods"],
+      "excluded_lemmas": ["subtle", "plausible", "hypothesis", "tentative"]
+    }
+  },
+  {
+    "name": "known_feedback_excludes_exact_lemma",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "unknown", "count": 50 }
+    ],
+    "feedback_signals": [
+      { "lemma": "subtle", "action": "known" }
+    ],
+    "due_user_count": 0,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "limit": 4,
+    "then": {
+      "selected_count": 4,
+      "excluded_lemmas": ["subtle"]
     }
   },
   {

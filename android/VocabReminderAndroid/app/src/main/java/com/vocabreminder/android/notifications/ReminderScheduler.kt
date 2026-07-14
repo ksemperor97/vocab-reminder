@@ -19,12 +19,12 @@ object ReminderScheduler {
     fun reconcileAll(
         context: Context,
         store: LocalVocabularyStore = LocalVocabularyStore(context),
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ) {
         store.allCards(includeDeleted = true).forEach { schedule(context, it, now) }
     }
 
-    fun schedule(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
+    fun schedule(context: Context, card: VocabularyCard, now: Instant = NotificationClock.now()) {
         scheduleAt(context, card, card.dueAt, now)
     }
 
@@ -32,7 +32,7 @@ object ReminderScheduler {
         context: Context,
         card: VocabularyCard,
         triggerAt: Instant,
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ) {
         if (card.meaningKo.isBlank() || card.deletedAt != null || card.status == CardStatus.MASTERED || card.status == CardStatus.SUSPENDED) {
             cancel(context, card)

@@ -12,3 +12,8 @@ feedback downranking rules cannot drift between platforms.
 `capture_normalization.json` covers cross-platform capture parsing cases that
 affect user-facing save flows, including URL/domain spans being ignored as word
 candidates while nearby real words remain selectable.
+
+`meaning_conflicts.json` defines the shared sync contract for simultaneous
+Android and Mac offline meaning edits: both append-only candidates survive,
+the exact-revision card tie selects the same primary in every implementation,
+and the other candidate remains restorable after export and re-import.

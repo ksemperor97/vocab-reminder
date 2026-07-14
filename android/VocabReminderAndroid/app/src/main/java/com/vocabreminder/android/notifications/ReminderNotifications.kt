@@ -92,7 +92,6 @@ object ReminderNotifications {
     private val notificationTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
     fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Vocabulary review",
@@ -107,10 +106,8 @@ object ReminderNotifications {
         val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!permissionGranted || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL_ID)
-            if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
-        }
+        val channel = context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL_ID)
+        if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return false
         return true
     }
 
@@ -118,7 +115,7 @@ object ReminderNotifications {
         context: Context,
         card: VocabularyCard,
         commandHint: String? = null,
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ): Boolean {
         return showReviewPrompt(
             context = context,
@@ -171,9 +168,9 @@ object ReminderNotifications {
         }
     }
 
-    fun showRememberedConfirmation(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
+    fun showRememberedConfirmation(context: Context, card: VocabularyCard, now: Instant = NotificationClock.now()) {
         if (!claimFeedback(context, card, NotificationFeedbackKind.REMEMBERED, now)) return
-        val nextReview = nextReviewLabel(card.dueAt)
+        val nextReview = nextReviewLabel(card.dueAt, now)
         val shown = show(
             context = context,
             card = card,
@@ -190,7 +187,7 @@ object ReminderNotifications {
         if (!shown) cancel(context, card)
     }
 
-    fun showForgottenMeaning(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
+    fun showForgottenMeaning(context: Context, card: VocabularyCard, now: Instant = NotificationClock.now()) {
         if (!claimFeedback(context, card, NotificationFeedbackKind.FORGOTTEN, now)) return
         val body = meaningExampleBody(card)
         val shown = show(
@@ -214,7 +211,7 @@ object ReminderNotifications {
         context: Context,
         card: VocabularyCard,
         commandHint: String? = null,
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ): Boolean {
         return showRecommendationPrompt(
             context = context,
@@ -267,7 +264,7 @@ object ReminderNotifications {
         }
     }
 
-    fun showRecommendationMeaning(context: Context, card: VocabularyCard, now: Instant = Instant.now()) {
+    fun showRecommendationMeaning(context: Context, card: VocabularyCard, now: Instant = NotificationClock.now()) {
         if (!claimFeedback(context, card, NotificationFeedbackKind.RECOMMENDATION, now)) return
         val body = meaningExampleBody(card)
         val shown = show(
@@ -287,7 +284,7 @@ object ReminderNotifications {
         if (!shown) cancel(context, card)
     }
 
-    fun showRecommendationIntro(context: Context, now: Instant = Instant.now()): Boolean {
+    fun showRecommendationIntro(context: Context, now: Instant = NotificationClock.now()): Boolean {
         ensureChannel(context)
         if (!canNotify(context) || isQuietHour(context, now)) return false
         val openIntent = PendingIntent.getActivity(
@@ -337,7 +334,7 @@ object ReminderNotifications {
             runCatching { NotificationFeedbackKind.valueOf(raw) }.getOrNull()
         }
         val postedAtMillis = prefs.getLong(KEY_ACTIVE_POSTED_AT, -1L)
-        val postedAt = if (postedAtMillis >= 0L) Instant.ofEpochMilli(postedAtMillis) else Instant.now()
+        val postedAt = if (postedAtMillis >= 0L) Instant.ofEpochMilli(postedAtMillis) else NotificationClock.now()
         val fallbackDate = postedAt.atZone(LocalVocabularyStore(context).settings().timezone).toLocalDate()
         val reminderDate = prefs.getString(KEY_ACTIVE_REMINDER_DATE, null)?.let { raw ->
             runCatching { LocalDate.parse(raw) }.getOrNull()
@@ -374,7 +371,7 @@ object ReminderNotifications {
         }
     }
 
-    fun clearStalePrompt(context: Context, store: LocalVocabularyStore, now: Instant = Instant.now()): Boolean {
+    fun clearStalePrompt(context: Context, store: LocalVocabularyStore, now: Instant = NotificationClock.now()): Boolean {
         val state = activeNotificationState(context) ?: return false
         val card = store.allCards(includeDeleted = true).firstOrNull { it.id == state.cardId }
         val stale = card == null ||
@@ -391,7 +388,7 @@ object ReminderNotifications {
         return true
     }
 
-    fun suppressRecommendationAfterSwipe(context: Context, cardId: String, now: Instant = Instant.now()) {
+    fun suppressRecommendationAfterSwipe(context: Context, cardId: String, now: Instant = NotificationClock.now()) {
         context.getSharedPreferences(SUPPRESSION_PREFS_NAME, MODE_PRIVATE)
             .edit()
             .putLong(
@@ -401,14 +398,14 @@ object ReminderNotifications {
             .apply()
     }
 
-    fun isRecommendationSuppressed(context: Context, cardId: String, now: Instant = Instant.now()): Boolean {
+    fun isRecommendationSuppressed(context: Context, cardId: String, now: Instant = NotificationClock.now()): Boolean {
         return recommendationSuppressedUntil(context, cardId, now) != null
     }
 
     fun recommendationSuppressedUntil(
         context: Context,
         cardId: String,
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ): Instant? {
         val prefs = context.getSharedPreferences(SUPPRESSION_PREFS_NAME, MODE_PRIVATE)
         val key = RECOMMENDATION_SUPPRESSION_PREFIX + cardId
@@ -418,7 +415,7 @@ object ReminderNotifications {
         return null
     }
 
-    fun pruneExpiredRecommendationSuppressions(context: Context, now: Instant = Instant.now()) {
+    fun pruneExpiredRecommendationSuppressions(context: Context, now: Instant = NotificationClock.now()) {
         val prefs = context.getSharedPreferences(SUPPRESSION_PREFS_NAME, MODE_PRIVATE)
         val expired = prefs.all
             .filterKeys { it.startsWith(RECOMMENDATION_SUPPRESSION_PREFIX) }
@@ -434,7 +431,7 @@ object ReminderNotifications {
     fun restoreActiveNotification(
         context: Context,
         store: LocalVocabularyStore = LocalVocabularyStore(context),
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ): Boolean {
         if (clearStalePrompt(context, store, now)) return false
         val state = activeNotificationState(context) ?: return false
@@ -496,9 +493,13 @@ object ReminderNotifications {
         }
     }
 
-    fun scheduleQueueAdvance(context: Context, delayMillis: Long = 0L) {
+    fun scheduleQueueAdvance(
+        context: Context,
+        delayMillis: Long = 0L,
+        now: Instant = NotificationClock.now()
+    ) {
         if (delayMillis <= 0L) {
-            DailyReviewPlanner.planAndSchedule(context)
+            DailyReviewPlanner.planAndSchedule(context, now)
             return
         }
         val intent = Intent(context, NotificationQueueAdvanceReceiver::class.java)
@@ -608,10 +609,10 @@ object ReminderNotifications {
         return builder
     }
 
-    private fun nextReviewLabel(dueAt: Instant): String {
+    private fun nextReviewLabel(dueAt: Instant, now: Instant): String {
         val zone = ZoneId.systemDefault()
         val due = dueAt.atZone(zone)
-        val days = ChronoUnit.DAYS.between(Instant.now().atZone(zone).toLocalDate(), due.toLocalDate())
+        val days = ChronoUnit.DAYS.between(now.atZone(zone).toLocalDate(), due.toLocalDate())
         return when {
             days < 0L -> "지금"
             days == 0L -> "오늘 ${due.format(notificationTimeFormatter)}"
@@ -751,7 +752,7 @@ object ReminderNotifications {
     }
 
     private fun isNotificationActive(context: Context, notificationId: Int): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || notificationId < 0) return false
+        if (notificationId < 0) return false
         return context.getSystemService(NotificationManager::class.java)
             .activeNotifications
             .any { it.id == notificationId }

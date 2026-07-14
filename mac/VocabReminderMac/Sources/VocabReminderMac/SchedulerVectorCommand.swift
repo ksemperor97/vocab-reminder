@@ -13,7 +13,7 @@ enum SchedulerVectorCommand {
         }
         guard CommandLine.arguments.contains("--check-scheduler-vectors") else { return }
         do {
-            try run()
+            try run(now: Date())
             print("Scheduler vectors passed")
             exit(0)
         } catch {
@@ -222,19 +222,8 @@ enum SchedulerVectorCommand {
     }
 
     @MainActor
-    private static func run() throws {
-        let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: vectorURL())) as! [[String: Any]]
-        try require(vectors.count >= 15, "Expected at least 15 vectors")
-        for vector in vectors {
-            let kind = vector["kind"] as! String
-            if kind == "applyReview" {
-                try assertApplyReview(vector)
-            } else if kind == "planDay" {
-                try assertPlanDay(vector)
-            } else {
-                throw CheckError("Unknown vector kind \(kind)")
-            }
-        }
+    private static func run(now: Date) throws {
+        try verifySharedSchedulerVectors()
 
         let sentence = CaptureNormalizer.analyze("The results are tentative, but the pattern is robust.")
         try require(sentence.needsWordSelection, "Sentence should require word selection")
@@ -429,7 +418,7 @@ enum SchedulerVectorCommand {
         try assertMacStoreBackupRecovery()
         try assertMacSettingsFallback()
 
-        let notificationNow = Date()
+        let notificationNow = now
         let notificationCards = [
             notificationCard(id: "rec-unstarted", wordbook: .recommended, dueAt: notificationNow),
             notificationCard(id: "user-due", wordbook: .user, dueAt: notificationNow),
@@ -446,8 +435,8 @@ enum SchedulerVectorCommand {
             settings: UserSettingsData(dailyWordGoal: 10, maxQueueSize: 3, enableWordRecommendations: false)
         )
         try require(disabledMacNotifications.map(\.id) == ["user-due"], "Mac notifications should keep one active prompt when recommendations are disabled")
-        try assertMacNotificationReviewAction()
-        try assertMacNotificationStateMachine()
+        try assertMacNotificationReviewAction(now: now)
+        try assertMacNotificationStateMachine(now: now)
         try require(
             MacAutoSyncController.timerIntervalNanoseconds == 15 * 60 * 1_000_000_000,
             "Mac periodic sync should run every 15 minutes"
@@ -455,6 +444,21 @@ enum SchedulerVectorCommand {
         try assertDueTimeJitter()
 
         try assertRecommendationEngine()
+    }
+
+    static func verifySharedSchedulerVectors() throws {
+        let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: vectorURL())) as! [[String: Any]]
+        try require(vectors.count >= 15, "Expected at least 15 vectors")
+        for vector in vectors {
+            let kind = vector["kind"] as! String
+            if kind == "applyReview" {
+                try assertApplyReview(vector)
+            } else if kind == "planDay" {
+                try assertPlanDay(vector)
+            } else {
+                throw CheckError("Unknown vector kind \(kind)")
+            }
+        }
     }
 
     @MainActor
@@ -633,6 +637,19 @@ enum SchedulerVectorCommand {
         ).reviewEvents
         try require(repairedEvents.map(\.id) == ["earlier-event", "same-event"], "Merged review events must be chronological")
         try require(repairedEvents.last?.response == .remembered, "Same-ID normal review timestamp must replace epoch damage")
+        let collidingEvent = mergeTestEvent(
+            id: "same-event",
+            clientCreatedAt: Date(timeIntervalSince1970: 900),
+            response: .forgotten
+        )
+        let collisionProtectedEvent = SyncBatchFactory.merge(
+            local: snapshot(reviewEvents: [normalEvent]),
+            incoming: snapshot(reviewEvents: [collidingEvent])
+        ).reviewEvents[0]
+        try require(
+            collisionProtectedEvent.response == .remembered,
+            "A normal same-ID append-only event must keep the first payload even when a collision has a later timestamp"
+        )
 
         let epochContext = StoredContext(
             id: "same-context",
@@ -686,6 +703,24 @@ enum SchedulerVectorCommand {
         try require(repairedRelated.contexts[0].sourceSentence == "repaired", "Same-ID normal context should replace epoch damage")
         try require(repairedRelated.definitionCandidates[0].rawText == "repaired", "Same-ID normal candidate should replace epoch damage")
         try require(repairedRelated.recommendationFeedback[0].action == "known", "Same-ID normal feedback should replace epoch damage")
+        var collidingContext = normalContext
+        collidingContext.sourceSentence = "mutated"
+        collidingContext.createdAt = Date(timeIntervalSince1970: 900)
+        var collidingFeedback = normalFeedback
+        collidingFeedback.action = "dismissed"
+        collidingFeedback.createdAt = Date(timeIntervalSince1970: 900)
+        let collisionProtectedRelated = SyncBatchFactory.merge(
+            local: snapshot(contexts: [normalContext], recommendationFeedback: [normalFeedback]),
+            incoming: snapshot(contexts: [collidingContext], recommendationFeedback: [collidingFeedback])
+        )
+        try require(
+            collisionProtectedRelated.contexts[0].sourceSentence == "repaired",
+            "A normal same-ID context collision must keep the first payload"
+        )
+        try require(
+            collisionProtectedRelated.recommendationFeedback[0].action == "known",
+            "A normal same-ID feedback collision must keep the first payload"
+        )
 
         let epochCreationPayload: [String: Any] = [
             "cards": [[
@@ -927,7 +962,7 @@ enum SchedulerVectorCommand {
     }
 
     @MainActor
-    private static func assertMacNotificationReviewAction() throws {
+    private static func assertMacNotificationReviewAction(now: Date) throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "VocabReminderSelfCheck-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -987,12 +1022,20 @@ enum SchedulerVectorCommand {
         try require(editedCard.meaningKo == "edited meaning", "Mac card edit should update meaning")
         try require(editedCard.definitionSourcePrimary == "user", "Mac card edit should mark edited meaning as user source")
         try require(editedCard.exampleSentence == "Edited example.", "Mac card edit should update example sentence")
+        let eventCountBeforeReview = store.reviewEvents.count
+        try require(
+            store.reviewEvents.last?.response == .manualEdit,
+            "Mac card edit should append a manual-edit biography event"
+        )
 
         guard let updatedCard = MacNotificationScheduler.handleAction(MacNotificationAction.forgotten, cardId: "review-card", store: store) else {
             throw CheckError("Mac notification forgotten action should return the updated card")
         }
-        try require(store.reviewEvents.count == 1, "Mac notification forgotten action should record one review event")
-        try require(store.reviewEvents[0].response == .forgotten, "Mac notification forgotten action should map to forgotten response")
+        try require(
+            store.reviewEvents.count == eventCountBeforeReview + 1,
+            "Mac notification forgotten action should append one review event"
+        )
+        try require(store.reviewEvents.last?.response == .forgotten, "Mac notification forgotten action should map to forgotten response")
         try require(store.message.hasPrefix("복습 기록됨"), "Mac notification review action should use normal review feedback")
         let feedback = MacNotificationScheduler.feedbackContent(for: MacNotificationAction.forgotten, card: updatedCard)
         try require(feedback?.body.contains("뜻: edited meaning") == true, "Mac notification forgotten action should show the meaning")
@@ -1023,16 +1066,61 @@ enum SchedulerVectorCommand {
         )
 
         _ = store.review(cardId: "review-card", response: .unavailable)
-        let firstUnavailableDue = store.cards.first(where: { $0.id == "review-card" })!.dueAt
         _ = store.review(cardId: "review-card", response: .unavailable)
-        let secondUnavailableDue = store.cards.first(where: { $0.id == "review-card" })!.dueAt
-        try require(firstUnavailableDue < Date().addingTimeInterval(6 * 60 * 60), "First Mac unavailable should use the short snooze")
-        try require(secondUnavailableDue > Date().addingTimeInterval(20 * 60 * 60), "Second Mac unavailable today should move to tomorrow")
-        try require(store.processedNotificationCardIdsToday().count == 1, "Mac daily budget should count repeated responses for one card only once")
+        guard let lastReviewAt = store.reviewEvents.last?.clientCreatedAt else {
+            throw CheckError("Mac unavailable action should record a review event")
+        }
+        try require(
+            store.processedNotificationCardIdsToday(now: lastReviewAt).count == 1,
+            "Mac daily budget should count repeated responses for one card only once"
+        )
+
+        let settings = SchedulerSettings()
+        let schedulerCard = SchedulerCard(
+            id: updatedCard.id,
+            status: updatedCard.status,
+            intervalDays: updatedCard.intervalDays,
+            dueAt: updatedCard.dueAt,
+            lapseCount: updatedCard.lapseCount,
+            intervalBeforeLapse: updatedCard.intervalBeforeLapse,
+            meaningKo: updatedCard.meaningKo,
+            wordbook: updatedCard.wordbook,
+            deletedAt: updatedCard.deletedAt
+        )
+        let firstUnavailable = Scheduler.applyReview(
+            card: schedulerCard,
+            response: .unavailable,
+            settings: settings,
+            now: now,
+            unavailableCountToday: 0
+        )
+        let secondUnavailable = Scheduler.applyReview(
+            card: firstUnavailable.card,
+            response: .unavailable,
+            settings: settings,
+            now: now,
+            unavailableCountToday: 1
+        )
+        let expectedFirstDue = Scheduler.avoidQuietHours(
+            now.addingTimeInterval(TimeInterval(settings.snoozeDurationMinutes * 60)),
+            settings: settings
+        )
+        let expectedSecondDue = Scheduler.avoidQuietHours(
+            now.addingTimeInterval(24 * 60 * 60),
+            settings: settings
+        )
+        try require(
+            firstUnavailable.card.dueAt == expectedFirstDue,
+            "First Mac unavailable should use the short snooze before quiet-hours adjustment"
+        )
+        try require(
+            secondUnavailable.card.dueAt == expectedSecondDue,
+            "Second Mac unavailable today should move to tomorrow before quiet-hours adjustment"
+        )
     }
 
     @MainActor
-    private static func assertMacNotificationStateMachine() throws {
+    private static func assertMacNotificationStateMachine(now: Date) throws {
         let suiteName = "VocabReminderMacNotificationState-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             throw CheckError("Could not create notification state defaults suite")
@@ -1110,7 +1198,6 @@ enum SchedulerVectorCommand {
             "Mac unanswered failsafe should belong to the same card family"
         )
 
-        let now = Date()
         var staleReview = notificationCard(id: "stale-review", wordbook: .user, dueAt: now.addingTimeInterval(600))
         staleReview.status = .review
         let currentPrompt = PromptReminderState(cardId: staleReview.id, firstPromptAt: now)

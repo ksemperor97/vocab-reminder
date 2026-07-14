@@ -59,7 +59,9 @@ class SyncPayloadFactoryTest {
                     exampleSentence = "",
                     confidence = 1.0,
                     selectedAsPrimary = true,
-                    createdAt = now
+                    createdAt = now,
+                    originDeviceId = "android-1234abcd",
+                    baseCardVersion = 4
                 )
             ),
             reviewEvents = emptyList(),
@@ -73,6 +75,8 @@ class SyncPayloadFactoryTest {
         assertEquals("android-1234abcd", payload.getJSONArray("cards").getJSONObject(0).getString("created_device_id"))
         assertEquals("android_process_text", payload.getJSONArray("contexts").getJSONObject(0).getString("capture_method"))
         assertEquals("android-1234abcd", payload.getJSONArray("contexts").getJSONObject(0).getString("created_device_id"))
+        assertEquals("android-1234abcd", payload.getJSONArray("definition_candidates").getJSONObject(0).getString("origin_device_id"))
+        assertEquals(4, payload.getJSONArray("definition_candidates").getJSONObject(0).getInt("base_card_version"))
         assertEquals(10, payload.getJSONObject("settings").getInt("daily_word_goal"))
         assertEquals("2026-07-02T00:00:00Z", payload.getJSONObject("settings").getString("recommendations_introduced_at"))
         assertEquals("2026-07-02T00:00:00Z", payload.getJSONObject("settings").getString("settings_updated_at"))

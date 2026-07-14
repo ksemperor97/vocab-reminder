@@ -62,7 +62,7 @@ object UnansweredPromptReminderScheduler {
         context: Context,
         cardId: String,
         expectedPostedAtMillis: Long,
-        now: Instant = Instant.now()
+        now: Instant = NotificationClock.now()
     ): Boolean {
         val state = ReminderNotifications.activeNotificationState(context) ?: return false
         if (state.cardId != cardId || state.phase != NotificationPhase.PROMPT) return false

@@ -1,10 +1,18 @@
 package com.vocabreminder.android.sync
 
+import com.vocabreminder.android.dictionary.DictionaryLookupErrorCode
+import com.vocabreminder.android.dictionary.DictionaryLookupResult
+import com.vocabreminder.android.dictionary.DictionaryLookupStatus
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.Normalizer
+import java.time.Instant
+import java.util.Locale
+import java.util.UUID
 
 data class CloudSyncConfig(
     val serverBaseUrl: String,
@@ -20,15 +28,40 @@ data class CloudSyncConfig(
     }
 }
 
-class CloudSyncException(message: String) : RuntimeException(message)
+class CloudSyncException(
+    message: String,
+    val requestId: String? = null,
+    cause: Throwable? = null
+) : RuntimeException(message, cause)
+
+data class CloudHttpResponse(
+    val body: JSONObject,
+    val requestId: String
+)
 
 interface CloudSyncTransport {
-    fun postJson(url: String, body: JSONObject, bearerToken: String): JSONObject
-    fun getJson(url: String, bearerToken: String): JSONObject
+    fun postJson(
+        url: String,
+        body: JSONObject,
+        bearerToken: String,
+        requestId: String
+    ): CloudHttpResponse
+
+    fun getJson(
+        url: String,
+        bearerToken: String,
+        requestId: String
+    ): CloudHttpResponse
 }
 
 class HttpUrlConnectionSyncTransport : CloudSyncTransport {
-    override fun postJson(url: String, body: JSONObject, bearerToken: String): JSONObject {
+    override fun postJson(
+        url: String,
+        body: JSONObject,
+        bearerToken: String,
+        requestId: String
+    ): CloudHttpResponse {
+        val safeRequestId = normalizeUuidRequestId(requestId) ?: UUID.randomUUID().toString()
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
@@ -36,71 +69,131 @@ class HttpUrlConnectionSyncTransport : CloudSyncTransport {
             readTimeout = 5_000
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Authorization", "Bearer $bearerToken")
+            setRequestProperty("User-Agent", HTTP_USER_AGENT)
+            setRequestProperty(REQUEST_ID_HEADER, safeRequestId)
         }
 
         connection.outputStream.use { output ->
             output.write(body.toString().toByteArray(Charsets.UTF_8))
         }
 
-        return readResponse(connection)
+        return readResponse(connection, safeRequestId)
     }
 
-    override fun getJson(url: String, bearerToken: String): JSONObject {
+    override fun getJson(
+        url: String,
+        bearerToken: String,
+        requestId: String
+    ): CloudHttpResponse {
+        val safeRequestId = normalizeUuidRequestId(requestId) ?: UUID.randomUUID().toString()
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 3_000
             readTimeout = 5_000
             setRequestProperty("Authorization", "Bearer $bearerToken")
+            setRequestProperty("User-Agent", HTTP_USER_AGENT)
+            setRequestProperty(REQUEST_ID_HEADER, safeRequestId)
         }
-        return readResponse(connection)
+        return readResponse(connection, safeRequestId)
     }
 
-    private fun readResponse(connection: HttpURLConnection): JSONObject {
+    private fun readResponse(
+        connection: HttpURLConnection,
+        clientRequestId: String
+    ): CloudHttpResponse {
         val statusCode = connection.responseCode
         val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
         val responseText = stream?.use { input ->
             BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { it.readText() }
         }.orEmpty()
+        val responseJson = responseText.takeIf { it.isNotBlank() }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val responseRequestId = normalizeRequestId(connection.getHeaderField(REQUEST_ID_HEADER))
+            ?: responseJson?.requestIdFromBody()
+            ?: clientRequestId
 
         if (statusCode !in 200..299) {
-            throw CloudSyncException("Sync HTTP $statusCode: $responseText")
+            // Never include the response body here: upstream failures can echo request data.
+            throw CloudSyncException("Sync HTTP $statusCode.", responseRequestId)
         }
         if (responseText.isBlank()) {
-            throw CloudSyncException("Sync response was empty.")
+            throw CloudSyncException("Sync response was empty.", responseRequestId)
         }
-        return JSONObject(responseText)
+        if (responseJson == null) {
+            throw CloudSyncException("Sync response was invalid.", responseRequestId)
+        }
+        return CloudHttpResponse(responseJson, responseRequestId)
     }
+
+    private companion object {
+        const val HTTP_USER_AGENT = "VocabReminderAndroid/0.1"
+        const val REQUEST_ID_HEADER = "X-Request-Id"
+    }
+}
+
+fun interface DictionaryLookupClient {
+    fun lookupDictionaryBatch(lemmas: List<String>): List<DictionaryLookupResult>
 }
 
 class CloudSyncClient(
     private val config: CloudSyncConfig,
-    private val transport: CloudSyncTransport = HttpUrlConnectionSyncTransport()
-) {
+    private val transport: CloudSyncTransport = HttpUrlConnectionSyncTransport(),
+    private val requestIdFactory: () -> String = { UUID.randomUUID().toString() }
+) : DictionaryLookupClient {
+    @Volatile
+    var lastRequestId: String? = null
+        private set
+
     fun push(localBatch: JSONObject): JSONObject {
         val aggregate = emptyPushResult()
         splitIntoBatches(localBatch).forEach { batch ->
-            val result = transport.postJson(
-                url = config.endpoint("sync/batch"),
-                body = batch,
-                bearerToken = config.bearerToken
-            ).throwIfError()
+            val response = postJson(config.endpoint("sync/batch"), batch)
+            val result = response.body.throwIfError(response.requestId)
             mergePushResult(aggregate, result)
         }
         return aggregate
     }
 
     fun pullSnapshot(): JSONObject {
-        return transport.getJson(
-            url = config.endpoint("sync/snapshot"),
-            bearerToken = config.bearerToken
-        ).throwIfError()
+        val response = getJson(config.endpoint("sync/snapshot"))
+        return response.body.throwIfError(response.requestId)
     }
 
     fun health(): JSONObject {
-        return transport.getJson(
-            url = config.endpoint("health"),
-            bearerToken = config.bearerToken
-        ).throwIfError()
+        val response = getJson(config.endpoint("health"))
+        return response.body.throwIfError(response.requestId)
+    }
+
+    override fun lookupDictionaryBatch(lemmas: List<String>): List<DictionaryLookupResult> {
+        if (lemmas.isEmpty() || lemmas.size > MAX_DICTIONARY_ITEMS_PER_BATCH) {
+            throw IllegalArgumentException(
+                "Dictionary batch must contain between 1 and $MAX_DICTIONARY_ITEMS_PER_BATCH lemmas."
+            )
+        }
+        val normalized = lemmas.map(::normalizeDictionaryLemma)
+        val httpResponse = postJson(
+            config.endpoint("dict/batch"),
+            JSONObject().put("lemmas", JSONArray(normalized))
+        )
+        val response = httpResponse.body.throwIfError(httpResponse.requestId)
+        val results = response.optJSONArray("results")
+            ?: throw CloudSyncException(
+                "Dictionary response did not contain results.",
+                httpResponse.requestId
+            )
+        if (results.length() != normalized.size) {
+            throw CloudSyncException(
+                "Dictionary response count did not match the request.",
+                httpResponse.requestId
+            )
+        }
+        return normalized.indices.map { index ->
+            parseDictionaryLookupResult(
+                results.optJSONObject(index),
+                normalized[index],
+                httpResponse.requestId
+            )
+        }
     }
 
     fun pushAndPull(localBatch: JSONObject): JSONObject {
@@ -108,11 +201,59 @@ class CloudSyncClient(
         return pullSnapshot()
     }
 
-    private fun JSONObject.throwIfError(): JSONObject {
+    private fun JSONObject.throwIfError(requestId: String): JSONObject {
         optJSONObject("error")?.let { error ->
-            throw CloudSyncException(error.optString("message", "Sync failed."))
+            val message = error.optString("message", "Sync failed.")
+                .trim()
+                .replace(Regex("\\s+"), " ")
+                .take(MAX_REMOTE_ERROR_LENGTH)
+                .ifBlank { "Sync failed." }
+            throw CloudSyncException(message, requestIdFromBody() ?: requestId)
         }
         return this
+    }
+
+    private fun postJson(url: String, body: JSONObject): CloudHttpResponse {
+        return executeRequest { requestId ->
+            transport.postJson(
+                url = url,
+                body = body,
+                bearerToken = config.bearerToken,
+                requestId = requestId
+            )
+        }
+    }
+
+    private fun getJson(url: String): CloudHttpResponse {
+        return executeRequest { requestId ->
+            transport.getJson(
+                url = url,
+                bearerToken = config.bearerToken,
+                requestId = requestId
+            )
+        }
+    }
+
+    private fun executeRequest(
+        operation: (requestId: String) -> CloudHttpResponse
+    ): CloudHttpResponse {
+        val clientRequestId = runCatching { normalizeUuidRequestId(requestIdFactory()) }
+            .getOrNull()
+            ?: UUID.randomUUID().toString()
+        return try {
+            val response = operation(clientRequestId)
+            val responseRequestId = normalizeRequestId(response.requestId) ?: clientRequestId
+            lastRequestId = responseRequestId
+            if (response.requestId == responseRequestId) response else response.copy(requestId = responseRequestId)
+        } catch (error: CloudSyncException) {
+            val responseRequestId = normalizeRequestId(error.requestId) ?: clientRequestId
+            lastRequestId = responseRequestId
+            if (error.requestId == responseRequestId) throw error
+            throw CloudSyncException(error.message ?: "Sync request failed.", responseRequestId, error)
+        } catch (error: Exception) {
+            lastRequestId = clientRequestId
+            throw CloudSyncException("Sync request failed.", clientRequestId, error)
+        }
     }
 
     internal fun splitIntoBatches(localBatch: JSONObject): List<JSONObject> {
@@ -176,6 +317,8 @@ class CloudSyncClient(
 
     companion object {
         internal const val MAX_ITEMS_PER_BATCH = 400
+        const val MAX_DICTIONARY_ITEMS_PER_BATCH = 50
+        private const val MAX_REMOTE_ERROR_LENGTH = 160
         private val COLLECTION_KEYS = listOf(
             "cards",
             "contexts",
@@ -185,3 +328,97 @@ class CloudSyncClient(
         )
     }
 }
+
+internal fun normalizeDictionaryLemma(value: String): String {
+    val normalized = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .replace('\u2018', '\'')
+        .replace('\u2019', '\'')
+        .replace(Regex("[\\u2010-\\u2015]"), "-")
+        .trim()
+        .replace(Regex("\\s+"), " ")
+        .lowercase(Locale.US)
+    if (normalized.codePointCount(0, normalized.length) !in 1..80 ||
+        !DICTIONARY_LEMMA_PATTERN.matches(normalized)
+    ) {
+        throw IllegalArgumentException("Dictionary lemma contains unsupported characters.")
+    }
+    return normalized
+}
+
+private fun parseDictionaryLookupResult(
+    json: JSONObject?,
+    requestedLemma: String,
+    requestId: String
+): DictionaryLookupResult {
+    if (json == null) {
+        throw CloudSyncException("Dictionary response contained an invalid result.", requestId)
+    }
+    val status = when (json.optString("status").lowercase()) {
+        "resolved" -> DictionaryLookupStatus.RESOLVED
+        "pending" -> DictionaryLookupStatus.PENDING
+        else -> throw CloudSyncException("Dictionary response contained an invalid status.", requestId)
+    }
+    val responseLemma = runCatching {
+        json.stringValue("lemma")
+            .ifBlank { requestedLemma }
+            .let(::normalizeDictionaryLemma)
+    }.getOrElse {
+        throw CloudSyncException("Dictionary response contained an invalid lemma.", requestId)
+    }
+    if (responseLemma != requestedLemma) {
+        throw CloudSyncException("Dictionary response lemma did not match the request.", requestId)
+    }
+    val meaningKo = json.stringValue("meaningKo", "meaning_ko")
+    val definitionEn = json.stringValue("definitionEn", "definition_en")
+    val errorCode = when (json.stringValue("errorCode", "error_code")) {
+        "" -> null
+        "not_found" -> DictionaryLookupErrorCode.NOT_FOUND
+        "provider_failure" -> DictionaryLookupErrorCode.PROVIDER_FAILURE
+        else -> throw CloudSyncException("Dictionary response contained an invalid error code.", requestId)
+    }
+    if (status == DictionaryLookupStatus.RESOLVED && meaningKo.isBlank() && definitionEn.isBlank()) {
+        throw CloudSyncException("Resolved dictionary response did not contain a definition.", requestId)
+    }
+    if (status == DictionaryLookupStatus.PENDING && errorCode == null) {
+        throw CloudSyncException("Pending dictionary response did not contain an error code.", requestId)
+    }
+    return DictionaryLookupResult(
+        status = status,
+        lemma = responseLemma,
+        meaningKo = meaningKo,
+        definitionEn = definitionEn,
+        partOfSpeech = json.stringValue("partOfSpeech", "part_of_speech"),
+        exampleSentence = json.stringValue("exampleSentence", "example_sentence"),
+        sourceType = json.stringValue("sourceType", "source_type").ifBlank { "dictionary" },
+        confidence = json.optDouble("confidence", 0.0).takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0,
+        attemptedAt = json.stringValue("attemptedAt", "attempted_at")
+            .takeIf { it.isNotBlank() }
+            ?.let { runCatching { Instant.parse(it) }.getOrNull() },
+        errorCode = errorCode,
+        requestId = requestId
+    )
+}
+
+private fun JSONObject.requestIdFromBody(): String? {
+    return normalizeRequestId(optString("request_id"))
+        ?: optJSONObject("error")?.let { normalizeRequestId(it.optString("request_id")) }
+}
+
+internal fun normalizeRequestId(value: String?): String? {
+    val candidate = value.orEmpty().trim()
+    return candidate.takeIf(SAFE_RESPONSE_REQUEST_ID::matches)
+}
+
+private fun normalizeUuidRequestId(value: String?): String? {
+    return runCatching { UUID.fromString(value.orEmpty().trim()).toString() }.getOrNull()
+}
+
+private fun JSONObject.stringValue(vararg names: String): String {
+    for (name in names) {
+        if (has(name) && !isNull(name)) return optString(name).trim()
+    }
+    return ""
+}
+
+private val DICTIONARY_LEMMA_PATTERN = Regex("^[\\p{L}\\p{M}]+(?:[ '\\-][\\p{L}\\p{M}]+)*$")
+private val SAFE_RESPONSE_REQUEST_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")

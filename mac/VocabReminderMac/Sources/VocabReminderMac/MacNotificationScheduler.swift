@@ -55,6 +55,25 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
+    func authorizationDiagnosticLabel() async -> String {
+        guard let center else { return "번들 앱 실행에서 확인 가능" }
+        let status = await center.notificationSettings().authorizationStatus
+        switch status {
+        case .authorized:
+            return "허용됨"
+        case .provisional:
+            return "임시 허용"
+        case .ephemeral:
+            return "일시 허용"
+        case .denied:
+            return "차단됨"
+        case .notDetermined:
+            return "아직 선택하지 않음"
+        @unknown default:
+            return "알 수 없음"
+        }
+    }
+
     func reschedule(
         cards: [VocabularyCard],
         settings: UserSettingsData,

@@ -1,6 +1,11 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  difficultyBand,
+  sha256,
+  validatePromotionArtifact
+} from "./review_pipeline_common.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "../../..");
@@ -160,8 +165,9 @@ const entries = [
   ["medial", "중앙의, 안쪽의", "toward the middle", "adjective", "The medial region was active during retrieval.", "neuroscience"]
 ];
 
+const projectSourceId = "vocabreminder-project-authored-seed-v1";
 const seen = new Set();
-const catalog = entries.map(([lemma, meaningKo, definitionEn, partOfSpeech, exampleSentence, topic]) => {
+const projectCatalog = entries.map(([lemma, meaningKo, definitionEn, partOfSpeech, exampleSentence, topic]) => {
   if (seen.has(lemma)) throw new Error(`Duplicate lemma: ${lemma}`);
   seen.add(lemma);
   const frequency = ranks.get(lemma.toLowerCase());
@@ -174,12 +180,76 @@ const catalog = entries.map(([lemma, meaningKo, definitionEn, partOfSpeech, exam
     exampleSentence,
     frequencyRank: frequency.rank,
     frequencyCount: frequency.count,
-    topic
+    topic,
+    difficultyBand: difficultyBand(frequency.rank),
+    entryId: `recommendation:${lemma}`,
+    contentSourceId: projectSourceId,
+    reviewStatus: "curated_at_authoring"
   };
-}).sort((a, b) => a.frequencyRank - b.frequencyRank);
+});
 
-const jsonPath = resolve(repoRoot, "shared/recommendations/recommendation_catalog.json");
+const promotionPath = resolve(process.env.RECOMMENDATION_REVIEWED_PROMOTIONS ??
+  resolve(repoRoot, "shared/recommendations/recommendation_reviewed_promotions.json"));
+const promotionText = existsSync(promotionPath) ? readFileSync(promotionPath, "utf8") : null;
+const promotionArtifact = promotionText ? JSON.parse(promotionText) : null;
+const validatedPromotions = promotionArtifact ? validatePromotionArtifact(promotionArtifact) : { sources: new Map(), entries: [] };
+const promotedCatalog = validatedPromotions.entries.map((entry) => {
+  if (seen.has(entry.lemma)) throw new Error(`Promoted lemma collides with existing catalogue: ${entry.lemma}`);
+  seen.add(entry.lemma);
+  return {
+    lemma: entry.lemma,
+    meaningKo: entry.meaningKo,
+    definitionEn: entry.definitionEn,
+    partOfSpeech: entry.partOfSpeech,
+    exampleSentence: entry.exampleSentence,
+    frequencyRank: entry.frequencyRank,
+    frequencyCount: entry.frequencyCount,
+    topic: entry.topic,
+    difficultyBand: difficultyBand(entry.frequencyRank),
+    entryId: `recommendation:${entry.lemma}`,
+    contentSourceId: entry.provenance.sourceId,
+    reviewStatus: "approved",
+    reviewedContentChecksumSha256: entry.review.contentChecksumSha256,
+    review: entry.review,
+    provenance: entry.provenance
+  };
+});
+const catalog = [...projectCatalog, ...promotedCatalog]
+  .sort((a, b) => a.frequencyRank - b.frequencyRank || a.lemma.localeCompare(b.lemma, "en"));
+
+const contentSources = [{
+  sourceId: projectSourceId,
+  kind: "project_authored",
+  datasetName: "VocabReminder curated seed content",
+  datasetVersion: "2026-07-02",
+  rightsBasis: "project_authored",
+  attribution: "VocabReminder project-authored curated seed content",
+  redistributionAllowed: true,
+  shareAlikeRequired: false,
+  humanReviewPolicy: "curated_at_authoring"
+}, ...[...validatedPromotions.sources.values()]
+  .sort((left, right) => left.sourceId.localeCompare(right.sourceId, "en"))
+  .map((source) => ({
+  sourceId: source.sourceId,
+  kind: "licensed_import",
+  datasetName: source.datasetName,
+  datasetVersion: source.datasetVersion,
+  sourceUrl: source.sourceUrl,
+  dataChecksumSha256: source.dataChecksumSha256,
+  metadataChecksumSha256: source.metadataChecksumSha256,
+  licenses: source.licenses,
+  attribution: source.attribution,
+  redistributionAllowed: source.redistributionAllowed,
+  shareAlikeRequired: source.shareAlikeRequired,
+  redistributionNotice: source.redistributionNotice,
+  humanReviewPolicy: "approved_review_with_content_checksum"
+}))];
+
+const jsonPath = resolve(process.env.RECOMMENDATION_CATALOG_OUTPUT ??
+  resolve(repoRoot, "shared/recommendations/recommendation_catalog.json"));
 writeFileSync(jsonPath, JSON.stringify({
+  schemaVersion: 2,
+  catalogVersion: "2026-07-13.1",
   source: {
     package: "subtlex-word-frequencies",
     version: "2.0.0",
@@ -187,7 +257,18 @@ writeFileSync(jsonPath, JSON.stringify({
     repository: "https://github.com/words/subtlex-word-frequencies",
     rankDefinition: "1-based index in index.json sorted by descending SUBTLEXus count"
   },
-  generatedAt: "2026-07-02",
+  contentSources,
+  build: {
+    policyVersion: 1,
+    reviewedPromotionsIncluded: promotedCatalog.length,
+    reviewedPromotionsChecksumSha256: promotionText ? sha256(promotionText) : null,
+    deterministicInputs: [
+      "subtlex-word-frequencies@2.0.0",
+      "project-authored-seed-v1",
+      ...(promotionText ? ["reviewed-promotions-sha256"] : [])
+    ]
+  },
+  generatedAt: "2026-07-13",
   entries: catalog
 }, null, 2) + "\n");
 
@@ -205,7 +286,8 @@ const kotlinEntries = catalog.map((entry) => {
   ].join("\n");
 }).join(",\n");
 
-const kotlinPath = resolve(repoRoot, "android/VocabReminderAndroid/app/src/main/java/com/vocabreminder/android/recommendation/RecommendationCatalog.kt");
+const kotlinPath = resolve(process.env.RECOMMENDATION_KOTLIN_OUTPUT ??
+  resolve(repoRoot, "android/VocabReminderAndroid/app/src/main/java/com/vocabreminder/android/recommendation/RecommendationCatalog.kt"));
 writeFileSync(kotlinPath, `package com.vocabreminder.android.recommendation
 
 // Generated from shared/recommendations/recommendation_catalog.json.
@@ -231,7 +313,8 @@ const swiftEntries = catalog.map((entry) => {
   ].join("\n");
 }).join(",\n");
 
-const swiftPath = resolve(repoRoot, "mac/VocabReminderMac/Sources/VocabReminderMac/RecommendationCatalog.swift");
+const swiftPath = resolve(process.env.RECOMMENDATION_SWIFT_OUTPUT ??
+  resolve(repoRoot, "mac/VocabReminderMac/Sources/VocabReminderMac/RecommendationCatalog.swift"));
 writeFileSync(swiftPath, `import Foundation
 
 // Generated from shared/recommendations/recommendation_catalog.json.

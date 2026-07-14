@@ -20,9 +20,10 @@ class WatchReplyReceiver : BroadcastReceiver() {
             ?.toString()
             ?.trim()
             .orEmpty()
+        val now = NotificationClock.now()
 
         if (replyKind == ReminderNotifications.REPLY_KIND_FEEDBACK) {
-            NotificationQueueAdvanceReceiver.advanceAfterFeedbackDismiss(context, cardId)
+            NotificationQueueAdvanceReceiver.advanceAfterFeedbackDismiss(context, cardId, now)
             return
         }
 
@@ -33,7 +34,6 @@ class WatchReplyReceiver : BroadcastReceiver() {
             return
         }
 
-        val now = Instant.now()
         val activeState = ReminderNotifications.activeNotificationState(context)
         if (activeState == null || activeState.cardId != card.id || activeState.phase != NotificationPhase.PROMPT) {
             if (activeState?.cardId == card.id && activeState.phase == NotificationPhase.FEEDBACK) {
@@ -44,7 +44,7 @@ class WatchReplyReceiver : BroadcastReceiver() {
         if (card.status == CardStatus.SUSPENDED || card.dueAt.isAfter(now)) {
             ReminderNotifications.clearActivePrompt(context, card.id)
             ReminderNotifications.cancel(context, card)
-            ReminderNotifications.scheduleQueueAdvance(context)
+            ReminderNotifications.scheduleQueueAdvance(context, now = now)
             return
         }
 
@@ -68,7 +68,7 @@ class WatchReplyReceiver : BroadcastReceiver() {
             else -> null
         }
         if (response == null) {
-            ReminderNotifications.showReview(context, card, COMMAND_HINT_REVIEW)
+            ReminderNotifications.showReview(context, card, COMMAND_HINT_REVIEW, now)
             return
         }
         ReviewActionReceiver.applyReviewResponse(context, store, card, response, now)
@@ -88,7 +88,7 @@ class WatchReplyReceiver : BroadcastReceiver() {
             else -> null
         }
         if (action == null) {
-            ReminderNotifications.showRecommendation(context, card, COMMAND_HINT_RECOMMENDATION)
+            ReminderNotifications.showRecommendation(context, card, COMMAND_HINT_RECOMMENDATION, now)
             return
         }
         RecommendationActionReceiver.applyRecommendationAction(context, store, card, action, now)

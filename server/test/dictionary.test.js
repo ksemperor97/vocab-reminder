@@ -132,6 +132,25 @@ test("provider failures return a retryable pending result instead of HTTP 500", 
   assert.equal(response.body.errorCode, "provider_failure");
 });
 
+test("authenticated dictionary requests have a bounded per-process rate limit", async (t) => {
+  let currentTime = Date.parse("2026-07-14T00:00:00Z");
+  const app = await startTestServer(t, {
+    dictionaryRequestsPerMinute: 2,
+    now: () => currentTime,
+    dictionaryResolver: async (lemma) => ({ meaningKo: `뜻:${lemma}` })
+  });
+
+  assert.equal((await authorizedGet(app.url("/dict/alpha"))).status, 200);
+  assert.equal((await authorizedGet(app.url("/dict/beta"))).status, 200);
+  const limited = await authorizedGet(app.url("/dict/gamma"));
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error.message, "Dictionary request rate limit exceeded.");
+  assert.equal(limited.headers.get("retry-after"), "60");
+
+  currentTime += 60_000;
+  assert.equal((await authorizedGet(app.url("/dict/gamma"))).status, 200);
+});
+
 test("configured offline JSON catalog is local-only and skips malformed rows", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-dictionary-catalog-test-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -227,5 +246,5 @@ async function authorizedPost(url, body) {
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, headers: response.headers, body: await response.json() };
 }

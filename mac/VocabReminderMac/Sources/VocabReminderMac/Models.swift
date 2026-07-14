@@ -59,9 +59,36 @@ struct StoredContext: Identifiable, Codable, Equatable {
     var id: String
     var cardId: String
     var sourceSentence: String
+    var sourceURL: String? = nil
+    var pageTitle: String = ""
     var sourceApp: String
     var captureMethod: CaptureMethod
     var createdAt: Date
+}
+
+extension StoredContext {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case cardId
+        case sourceSentence
+        case sourceURL
+        case pageTitle
+        case sourceApp
+        case captureMethod
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        cardId = try container.decode(String.self, forKey: .cardId)
+        sourceSentence = try container.decode(String.self, forKey: .sourceSentence)
+        sourceURL = try container.decodeIfPresent(String.self, forKey: .sourceURL)
+        pageTitle = try container.decodeIfPresent(String.self, forKey: .pageTitle) ?? ""
+        sourceApp = try container.decode(String.self, forKey: .sourceApp)
+        captureMethod = try container.decode(CaptureMethod.self, forKey: .captureMethod)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 struct StoredDefinitionCandidate: Identifiable, Codable, Equatable {
@@ -76,6 +103,8 @@ struct StoredDefinitionCandidate: Identifiable, Codable, Equatable {
     var confidence: Double
     var selectedAsPrimary: Bool
     var createdAt: Date
+    var originDeviceId: String? = nil
+    var baseCardVersion: Int? = nil
 }
 
 struct StoredReviewEvent: Identifiable, Codable, Equatable {
@@ -90,6 +119,13 @@ struct StoredReviewEvent: Identifiable, Codable, Equatable {
     var nextIntervalDays: Int
     var clientCreatedAt: Date
     var metadata: [String: String]
+}
+
+struct StoredSyncEvent: Identifiable, Codable, Equatable {
+    var id: String
+    var succeeded: Bool
+    var summary: String
+    var createdAt: Date
 }
 
 struct RecommendationFeedback: Identifiable, Codable, Equatable {

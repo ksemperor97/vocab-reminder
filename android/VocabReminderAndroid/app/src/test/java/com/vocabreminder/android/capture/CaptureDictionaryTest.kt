@@ -105,7 +105,7 @@ class CaptureDictionaryTest {
 
         assertEquals("perovskite", result.lemma)
         assertEquals("", result.meaningKo)
-        assertEquals("user", result.sourceType)
+        assertEquals("pending_capture", result.sourceType)
     }
 
     private fun assertCandidateIncludes(vector: JSONObject, then: JSONObject, analysis: CaptureAnalysis) {

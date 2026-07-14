@@ -17,7 +17,8 @@ data class DictionaryResult(
     val confidence: Double = 0.0,
     val sourceSentence: String = "",
     val sourceApp: String = "",
-    val sourceUrl: String = ""
+    val sourceUrl: String = "",
+    val sourceTitle: String = ""
 )
 
 private data class LocalEntry(
@@ -95,11 +96,21 @@ object DictionaryResolver {
         }
     }
 
-    fun resolve(rawText: String, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
-        return resolve(CaptureNormalizer.analyze(rawText), sourceApp, sourceUrl)
+    fun resolve(
+        rawText: String,
+        sourceApp: String = "",
+        sourceUrl: String = "",
+        sourceTitle: String = ""
+    ): DictionaryResult {
+        return resolve(CaptureNormalizer.analyze(rawText), sourceApp, sourceUrl, sourceTitle)
     }
 
-    fun resolve(analysis: CaptureAnalysis, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
+    fun resolve(
+        analysis: CaptureAnalysis,
+        sourceApp: String = "",
+        sourceUrl: String = "",
+        sourceTitle: String = ""
+    ): DictionaryResult {
         val entry = localEntries[analysis.lemma]
             ?: localEntries[analysis.displayWord.lowercase()]
             ?: catalogEntries[analysis.lemma]
@@ -119,7 +130,8 @@ object DictionaryResolver {
                 confidence = 0.82,
                 sourceSentence = analysis.sourceSentence,
                 sourceApp = sourceApp,
-                sourceUrl = sourceUrl
+                sourceUrl = sourceUrl,
+                sourceTitle = sourceTitle
             )
         } else {
             // guide 2.8/10.8: saving is allowed even when automatic meaning lookup fails.
@@ -130,11 +142,12 @@ object DictionaryResolver {
                 definitionEn = "",
                 exampleSentence = analysis.sourceSentence,
                 rawSource = "",
-                sourceType = "user",
+                sourceType = "pending_capture",
                 confidence = 0.0,
                 sourceSentence = analysis.sourceSentence,
                 sourceApp = sourceApp,
-                sourceUrl = sourceUrl
+                sourceUrl = sourceUrl,
+                sourceTitle = sourceTitle
             )
         }
     }

@@ -9,7 +9,7 @@ import com.vocabreminder.android.scheduler.Wordbook
 import java.time.Instant
 
 object ReviewDueDispatcher {
-    fun showDueOrReschedule(context: Context, cardId: String, now: Instant = Instant.now()): Boolean {
+    fun showDueOrReschedule(context: Context, cardId: String, now: Instant = NotificationClock.now()): Boolean {
         val store = LocalVocabularyStore(context)
         val card = store.findCard(cardId) ?: return false
         val settings = store.settings().toSchedulerSettings()

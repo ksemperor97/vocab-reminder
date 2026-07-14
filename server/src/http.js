@@ -13,6 +13,8 @@ const defaultMaxBodyBytes = 16 * 1024 * 1024;
 const defaultMaxDictionaryBatchItems = 50;
 const hardMaxDictionaryBatchItems = 100;
 const dictionaryBatchConcurrency = 4;
+const defaultDictionaryRequestsPerMinute = 120;
+const hardMaxDictionaryRequestsPerMinute = 600;
 
 export function createSyncServer({
   db,
@@ -24,8 +26,10 @@ export function createSyncServer({
   maxCollectionItems,
   dictionaryResolver = createDictionaryResolver(),
   maxDictionaryBatchItems = defaultMaxDictionaryBatchItems,
+  dictionaryRequestsPerMinute = defaultDictionaryRequestsPerMinute,
   requestLogger = null,
-  requestIdFactory = () => crypto.randomUUID()
+  requestIdFactory = () => crypto.randomUUID(),
+  now = () => Date.now()
 }) {
   if (!token || token.trim() === "") {
     throw new Error("VOCAB_SYNC_TOKEN is required.");
@@ -34,6 +38,13 @@ export function createSyncServer({
   const dictionaryBatchLimit = Math.min(
     positiveIntegerOrDefault(maxDictionaryBatchItems, defaultMaxDictionaryBatchItems),
     hardMaxDictionaryBatchItems
+  );
+  const dictionaryRateLimiter = createFixedWindowRateLimiter(
+    Math.min(
+      positiveIntegerOrDefault(dictionaryRequestsPerMinute, defaultDictionaryRequestsPerMinute),
+      hardMaxDictionaryRequestsPerMinute
+    ),
+    now
   );
   const store = new SyncStore(db, { maxCollectionItems });
 
@@ -54,6 +65,7 @@ export function createSyncServer({
         maxBodyBytes: bodyByteLimit,
         dictionaryResolver,
         maxDictionaryBatchItems: dictionaryBatchLimit,
+        dictionaryRateLimiter,
         requestId
       });
     } catch (error) {
@@ -84,6 +96,7 @@ async function route(context) {
 
   if (url.pathname.startsWith("/dict/") && request.method === "GET") {
     requireBearer(request, context.token);
+    context.dictionaryRateLimiter.consume();
     const lemma = dictionaryLemmaFromPath(url.pathname);
     sendJson(response, 200, await lookupDictionary(context.dictionaryResolver, lemma));
     return;
@@ -91,6 +104,7 @@ async function route(context) {
 
   if (url.pathname === "/dict/batch" && request.method === "POST") {
     requireBearer(request, context.token);
+    context.dictionaryRateLimiter.consume();
     const payload = await readJsonBody(request, context.maxBodyBytes);
     const lemmas = dictionaryBatchLemmas(payload, context.maxDictionaryBatchItems);
     const uniqueLemmas = [...new Set(lemmas)];
@@ -235,8 +249,34 @@ function positiveIntegerOrDefault(value, fallback) {
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
+function createFixedWindowRateLimiter(limit, now) {
+  const windowMilliseconds = 60_000;
+  let windowStartedAt = Number(now());
+  let count = 0;
+  return {
+    consume() {
+      const current = Number(now());
+      if (!Number.isFinite(current)) throw new Error("Rate-limit clock returned an invalid timestamp.");
+      if (current - windowStartedAt >= windowMilliseconds || current < windowStartedAt) {
+        windowStartedAt = current;
+        count = 0;
+      }
+      if (count >= limit) {
+        const error = new Error("Dictionary request rate limit exceeded.");
+        error.status = 429;
+        error.retryAfterSeconds = Math.max(1, Math.ceil((windowStartedAt + windowMilliseconds - current) / 1_000));
+        throw error;
+      }
+      count += 1;
+    }
+  };
+}
+
 function sendError(response, error, requestId) {
   const status = Number.isInteger(error.status) ? error.status : 500;
+  if (status === 429 && Number.isInteger(error.retryAfterSeconds)) {
+    response.setHeader("Retry-After", String(error.retryAfterSeconds));
+  }
   sendJson(response, status, {
     error: {
       message: status === 500 ? "Internal server error." : error.message,

@@ -59,40 +59,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? ""
         guard !text.isEmpty else {
             error.pointee = "No text found on pasteboard" as NSString
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "service_input_empty",
+                mechanismOverride: "mac_service"
+            )
             return
         }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Services")
+        LocalVocabularyStore.shared.capture(
+            text: text,
+            method: .macService,
+            sourceApp: MacCaptureSource.service
+        )
         showMainWindow()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let text = urls.compactMap(captureText(from:)).first else { return }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Quick Action")
+        guard let payload = urls.compactMap(MacCaptureURLParser.parse).first else {
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "url_scheme_invalid",
+                mechanismOverride: "url_scheme"
+            )
+            return
+        }
+        LocalVocabularyStore.shared.capture(
+            text: payload.text,
+            method: .macService,
+            sourceApp: payload.sourceApp,
+            sourceURL: payload.sourceURL
+        )
         showMainWindow()
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URL(string: urlString),
-              let text = captureText(from: url)
+              let payload = MacCaptureURLParser.parse(url)
         else {
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "url_scheme_invalid",
+                mechanismOverride: "url_scheme"
+            )
             return
         }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Quick Action")
+        LocalVocabularyStore.shared.capture(
+            text: payload.text,
+            method: .macService,
+            sourceApp: payload.sourceApp,
+            sourceURL: payload.sourceURL
+        )
         showMainWindow()
-    }
-
-    private func captureText(from url: URL) -> String? {
-        guard url.scheme == "vocabreminder",
-              url.host == "capture",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let text = components.queryItems?.first(where: { $0.name == "text" })?.value?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty
-        else {
-            return nil
-        }
-        return text
     }
 
     private func showMainWindow() {
@@ -248,7 +266,11 @@ struct ContentView: View {
                             TextField("단어 또는 문장", text: $manualText)
                                 .textFieldStyle(.roundedBorder)
                             Button("미리보기") {
-                                store.capture(text: manualText, method: .manual, sourceApp: "Mac manual")
+                                store.capture(
+                                    text: manualText,
+                                    method: .manual,
+                                    sourceApp: MacCaptureSource.manual
+                                )
                             }
                             Button("클립보드") {
                                 store.captureClipboard()
@@ -274,8 +296,7 @@ struct ContentView: View {
                                     manualText = ""
                                 },
                                 onCancel: {
-                                    store.preview = nil
-                                    store.pendingAnalysis = nil
+                                    store.cancelCapture()
                                 }
                             )
                         }
@@ -449,6 +470,7 @@ struct SettingsView: View {
             Text("한글 뜻은 macOS 사전 앱 > 설정에서 영한사전을 활성화하면 자동으로 채워집니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            MacSetupDiagnosticsView(store: store)
             VStack(alignment: .leading, spacing: 6) {
                 Text("잠자는 시간")
                     .font(.caption)
@@ -477,6 +499,11 @@ struct SettingsView: View {
                 Text(syncStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !store.dictionaryEnrichmentStatus.userFacingSummary.isEmpty {
+                    Text(store.dictionaryEnrichmentStatus.userFacingSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text("마지막 동기화: \(lastLocalSyncSummary.isEmpty ? "없음" : lastLocalSyncSummary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -600,13 +627,24 @@ struct SettingsView: View {
         Task { @MainActor in
             defer { cloudSyncRunning = false }
             do {
-                let summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                var summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                let enrichment = await MacAutoSyncController.shared.performDictionaryEnrichment(
+                    store: store,
+                    config: CloudSyncConfig(serverBaseURL: serverURL, bearerToken: token)
+                )
+                if enrichment.appliedCount > 0 {
+                    // A dictionary result changes both the card and its
+                    // append-only selected candidate. Push both before the
+                    // manual sync operation reports completion.
+                    summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                }
                 MacSyncStatusStore.recordSuccess(skippedSummary: summary.skippedSummary)
                 store.message = summary.skippedSummary.isEmpty
                     ? "동기화 완료 · 카드 \(summary.cards), 이벤트 \(summary.reviewEvents)"
                     : "동기화 완료 · 스킵 \(summary.skippedSummary)"
             } catch {
                 MacSyncStatusStore.recordFailure(error.localizedDescription)
+                store.recordSyncFailure(error)
                 store.message = "동기화 실패: \(error.localizedDescription)"
             }
         }
@@ -751,6 +789,10 @@ struct CardEditorView: View {
                     }
                 }
 
+                Divider()
+
+                CardBiographyView(card: card, store: store)
+
                 Text(store.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -759,6 +801,7 @@ struct CardEditorView: View {
         }
         .onAppear { load(card) }
         .onChange(of: card.id) { _, _ in load(card) }
+        .onChange(of: card.version) { _, _ in load(card) }
     }
 
     private func load(_ card: VocabularyCard) {

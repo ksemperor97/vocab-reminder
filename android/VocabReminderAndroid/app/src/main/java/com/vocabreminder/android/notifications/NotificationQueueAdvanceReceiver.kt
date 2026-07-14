@@ -13,9 +13,10 @@ import java.time.Instant
 class NotificationQueueAdvanceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_ADVANCE_QUEUE) return
+        val now = NotificationClock.now()
         when (intent.getStringExtra(ReminderNotifications.EXTRA_DISMISSED_KIND)) {
             ReminderNotifications.DISMISSED_KIND_FEEDBACK -> {
-                advanceAfterFeedbackDismiss(context, intent.getStringExtra(ReminderNotifications.EXTRA_CARD_ID))
+                advanceAfterFeedbackDismiss(context, intent.getStringExtra(ReminderNotifications.EXTRA_CARD_ID), now)
             }
             ReminderNotifications.DISMISSED_KIND_PROMPT -> {
                 handlePromptDismiss(
@@ -28,7 +29,7 @@ class NotificationQueueAdvanceReceiver : BroadcastReceiver() {
                 intent.getStringExtra(ReminderNotifications.EXTRA_CARD_ID)?.let { cardId ->
                     ReminderNotifications.clearActivePrompt(context, cardId)
                 }
-                DailyReviewPlanner.planAndSchedule(context)
+                DailyReviewPlanner.planAndSchedule(context, now)
             }
         }
     }
@@ -39,7 +40,7 @@ class NotificationQueueAdvanceReceiver : BroadcastReceiver() {
         pendingResult: BroadcastReceiver.PendingResult?
     ) {
         if (cardId == null) {
-            DailyReviewPlanner.planAndSchedule(context)
+            DailyReviewPlanner.planAndSchedule(context, NotificationClock.now())
             pendingResult?.finish()
             return
         }
@@ -73,7 +74,7 @@ class NotificationQueueAdvanceReceiver : BroadcastReceiver() {
             context: Context,
             cardId: String,
             expectedPostedAtMillis: Long,
-            now: Instant = Instant.now()
+            now: Instant = NotificationClock.now()
         ) {
             val state = ReminderNotifications.activeNotificationState(context) ?: return
             if (state.cardId != cardId ||
@@ -112,14 +113,18 @@ class NotificationQueueAdvanceReceiver : BroadcastReceiver() {
             ReviewActionReceiver.applyUnavailableResponse(context, store, card, now)
         }
 
-        internal fun advanceAfterFeedbackDismiss(context: Context, cardId: String?) {
+        internal fun advanceAfterFeedbackDismiss(
+            context: Context,
+            cardId: String?,
+            now: Instant = NotificationClock.now()
+        ) {
             if (cardId != null) {
                 LocalVocabularyStore(context).findCard(cardId)?.let { card ->
                     ReminderNotifications.cancel(context, card)
                 }
             }
             ReminderNotifications.clearActivePrompt(context, cardId)
-            DailyReviewPlanner.planAndSchedule(context)
+            DailyReviewPlanner.planAndSchedule(context, now)
         }
     }
 }

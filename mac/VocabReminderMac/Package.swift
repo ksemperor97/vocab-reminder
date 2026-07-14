@@ -16,6 +16,10 @@ let package = Package(
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug))
             ]
+        ),
+        .testTarget(
+            name: "VocabReminderMacTests",
+            dependencies: ["VocabReminderMac"]
         )
     ]
 )

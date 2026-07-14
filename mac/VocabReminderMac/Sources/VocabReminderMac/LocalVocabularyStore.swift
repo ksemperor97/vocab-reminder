@@ -9,17 +9,23 @@ final class LocalVocabularyStore: ObservableObject {
     @Published private(set) var contexts: [StoredContext] = []
     @Published private(set) var definitionCandidates: [StoredDefinitionCandidate] = []
     @Published private(set) var reviewEvents: [StoredReviewEvent] = []
+    @Published private(set) var syncEvents: [StoredSyncEvent] = []
     @Published private(set) var recommendationFeedback: [RecommendationFeedback] = []
     @Published var settings = UserSettingsData()
     @Published var preview: DictionaryResult?
     @Published var pendingAnalysis: CaptureAnalysis?
     @Published var message = ""
     @Published var notificationWarning = ""
+    @Published private(set) var dictionaryEnrichmentStatus = DictionaryEnrichmentStatus.idle
+    @Published private(set) var lastCaptureDiagnostic = CaptureDiagnosticStore.load()
 
     private let storeURL: URL
     private let syncURL: URL
     private var backupURL: URL { storeURL.appendingPathExtension("bak") }
     private let scheduleNotifications: Bool
+    private var pendingCaptureMethod: CaptureMethod?
+    private var pendingCaptureSourceURL: String?
+    private var pendingCaptureSourceApp = ""
 
     init(appSupportURL: URL? = nil, scheduleNotifications: Bool = true) {
         let appSupport = appSupportURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -54,25 +60,45 @@ final class LocalVocabularyStore: ObservableObject {
             preview = nil
             pendingAnalysis = nil
             message = "클립보드에 텍스트가 없습니다"
+            recordCaptureFailure(method: .macClipboardHotkey, detailCode: "clipboard_empty")
             return
         }
-        capture(text: text, method: .macClipboardHotkey, sourceApp: "Clipboard")
+        capture(
+            text: text,
+            method: .macClipboardHotkey,
+            sourceApp: MacCaptureSource.clipboard
+        )
     }
 
-    func capture(text: String, method: CaptureMethod = .manual, sourceApp: String = "Mac") {
+    func capture(
+        text: String,
+        method: CaptureMethod = .manual,
+        sourceApp: String = "",
+        sourceURL: String? = nil
+    ) {
+        let canonicalSourceApp = MacCaptureSource.canonicalSourceApp(
+            method: method,
+            declaredSourceApp: sourceApp
+        )
+        pendingCaptureMethod = method
+        pendingCaptureSourceURL = SourceURLSanitizer.sanitize(sourceURL)
+        pendingCaptureSourceApp = canonicalSourceApp
         let analysis = CaptureNormalizer.analyze(text)
         preview = nil
         pendingAnalysis = nil
         guard !analysis.normalizedText.isEmpty else {
             message = "저장할 텍스트가 없습니다."
+            recordCaptureFailure(method: method, detailCode: "normalized_text_empty")
             return
         }
         if analysis.needsWordSelection {
             pendingAnalysis = analysis
             message = "문장이 들어왔습니다. 저장할 단어를 선택하세요."
+            recordCaptureSuccess(method: method, detailCode: "selection_required")
             return
         }
-        preview = DictionaryResolver.resolve(analysis, sourceApp: sourceApp)
+        preview = DictionaryResolver.resolve(analysis, sourceApp: canonicalSourceApp)
+        recordCaptureSuccess(method: method, detailCode: "preview_ready")
         if preview?.meaningKo.isEmpty == false || preview?.definitionEn.isEmpty == false {
             message = "저장 전 preview를 확인하세요."
         } else {
@@ -83,9 +109,10 @@ final class LocalVocabularyStore: ObservableObject {
     func selectCandidate(_ candidate: String) {
         guard let pendingAnalysis else { return }
         let selected = CaptureNormalizer.analyzeSelection(rawText: pendingAnalysis.rawText, selectedWord: candidate)
-        preview = DictionaryResolver.resolve(selected, sourceApp: "Mac")
+        preview = DictionaryResolver.resolve(selected, sourceApp: pendingCaptureSourceApp)
         preview?.sourceSentence = selected.sourceSentence
         self.pendingAnalysis = nil
+        recordCaptureSuccess(method: pendingCaptureMethod ?? .manual, detailCode: "candidate_selected")
         message = "저장 전 preview를 확인하세요."
     }
 
@@ -171,7 +198,11 @@ final class LocalVocabularyStore: ObservableObject {
         return selected.count
     }
 
-    func savePreview(meaningOverride: String, exampleOverride: String, method: CaptureMethod = .macClipboardHotkey) {
+    func savePreview(
+        meaningOverride: String,
+        exampleOverride: String,
+        method: CaptureMethod? = nil
+    ) {
         guard var result = preview else { return }
         guard result.displayWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               result.lemma.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -193,18 +224,52 @@ final class LocalVocabularyStore: ObservableObject {
             now: now,
             settings: schedulerSettings
         )
-        let card = addResolvedCard(result, captureMethod: method, dueAt: dueAt, now: now)
+        let resolvedMethod = method ?? pendingCaptureMethod ?? .manual
+        let card = addResolvedCard(
+            result,
+            captureMethod: resolvedMethod,
+            sourceURL: pendingCaptureSourceURL,
+            dueAt: dueAt,
+            now: now
+        )
         preview = nil
         pendingAnalysis = nil
+        recordCaptureSuccess(method: resolvedMethod, detailCode: "saved")
+        pendingCaptureMethod = nil
+        pendingCaptureSourceURL = nil
+        pendingCaptureSourceApp = ""
         let wasIntroduced = settings.recommendationsIntroducedAt != nil
         let generated = ensureRecommendations(now: now)
         message = (card.meaningKo.isEmpty ? "\(card.displayWord) 뜻 없이 저장됨" : "\(card.displayWord) 저장됨") + recommendationMessageSuffix(generated: generated, wasIntroduced: wasIntroduced)
         enqueueAutoSync()
     }
 
+    func cancelCapture() {
+        preview = nil
+        pendingAnalysis = nil
+        pendingCaptureMethod = nil
+        pendingCaptureSourceURL = nil
+        pendingCaptureSourceApp = ""
+    }
+
+    func recordCaptureFailure(
+        method: CaptureMethod,
+        detailCode: String,
+        mechanismOverride: String? = nil
+    ) {
+        recordCaptureDiagnostic(
+            CaptureDiagnosticRecord(
+                outcome: .failed,
+                mechanism: mechanismOverride ?? diagnosticMechanism(method),
+                detailCode: detailCode,
+                occurredAt: Date()
+            )
+        )
+    }
+
     func review(card: VocabularyCard, response: ReviewResponse) {
         let now = Date()
-        let recent = reviewEvents.filter { $0.cardId == card.id }.suffix(2).map(\.response)
+        let recent = schedulerRecentResponses(cardId: card.id, limit: 2)
         let schedulerSettings = schedulerSettings()
         let result = Scheduler.applyReview(
             card: card.schedulerCard,
@@ -228,6 +293,16 @@ final class LocalVocabularyStore: ObservableObject {
         refreshNotifications()
     }
 
+    func schedulerRecentResponses(cardId: String, limit: Int) -> [ReviewResponse] {
+        let countedResponses: Set<ReviewResponse> = [.remembered, .forgotten, .unavailable, .reveal]
+        return Array(
+            reviewEvents
+                .filter { $0.cardId == cardId && countedResponses.contains($0.response) }
+                .suffix(max(0, limit))
+                .map(\.response)
+        )
+    }
+
     @discardableResult
     func review(cardId: String, response: ReviewResponse) -> VocabularyCard? {
         guard let card = cards.first(where: { $0.id == cardId }) else { return nil }
@@ -246,23 +321,102 @@ final class LocalVocabularyStore: ObservableObject {
     ) {
         guard let index = cards.firstIndex(where: { $0.id == cardId && $0.deletedAt == nil }) else { return }
         let now = Date()
+        let previous = cards[index]
         let trimmedDisplayWord = displayWord.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLemma = lemma.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMeaning = meaningKo.trimmingCharacters(in: .whitespacesAndNewlines)
-        var updated = cards[index]
+        var updated = previous
         updated.displayWord = trimmedDisplayWord.isEmpty ? updated.displayWord : trimmedDisplayWord
         updated.lemma = (trimmedLemma.isEmpty ? updated.displayWord : trimmedLemma).lowercased()
         updated.meaningKo = trimmedMeaning
         updated.definitionEn = definitionEn.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.partOfSpeech = partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.exampleSentence = exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines)
-        if updated.meaningKo != cards[index].meaningKo {
+        if updated.meaningKo != previous.meaningKo {
             updated.definitionSourcePrimary = "user"
         }
         updated.updatedAt = now
         updated.version += 1
+        ensureCardMeaningCandidate(previous, now: now)
+        appendManualMeaningCandidate(updated, baseCardVersion: previous.version, now: now)
         update(card: updated)
+        appendManualEditEvent(
+            previous: previous,
+            updated: updated,
+            action: "card_edit",
+            metadata: [:],
+            now: now
+        )
         message = "\(updated.displayWord) 수정됨"
+        enqueueAutoSync()
+    }
+
+    func restoreDefinitionCandidate(cardId: String, candidateId: String) {
+        guard let cardIndex = cards.firstIndex(where: { $0.id == cardId && $0.deletedAt == nil }),
+              let candidate = definitionCandidates.first(where: { $0.id == candidateId && $0.cardId == cardId })
+        else {
+            message = "복구할 뜻 후보를 찾지 못했습니다."
+            return
+        }
+        let previous = cards[cardIndex]
+        var updated = previous
+        updated.meaningKo = candidate.parsedMeaningKo.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.definitionEn = candidate.parsedDefinitionEn.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.partOfSpeech = candidate.partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            updated.exampleSentence = candidate.exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        updated.definitionSourcePrimary = candidate.source.isEmpty ? "unknown" : candidate.source
+
+        guard definitionContent(of: updated) != definitionContent(of: previous) ||
+                updated.definitionSourcePrimary != previous.definitionSourcePrimary
+        else {
+            message = "이미 현재 primary 뜻입니다."
+            return
+        }
+
+        let now = Date()
+        if previous.meaningKo.isEmpty, updated.meaningKo.isEmpty == false {
+            let schedulerSettings = schedulerSettings()
+            updated.dueAt = DueTimeJitter.apply(
+                to: Scheduler.initialDueAt(now: now, settings: schedulerSettings),
+                now: now,
+                settings: schedulerSettings
+            )
+        }
+        updated.updatedAt = now
+        updated.version += 1
+        ensureCardMeaningCandidate(previous, now: now)
+        definitionCandidates.append(
+            StoredDefinitionCandidate(
+                id: UUID().uuidString,
+                cardId: cardId,
+                source: updated.definitionSourcePrimary,
+                rawText: candidate.rawText,
+                parsedMeaningKo: updated.meaningKo,
+                parsedDefinitionEn: updated.definitionEn,
+                partOfSpeech: updated.partOfSpeech,
+                exampleSentence: updated.exampleSentence,
+                confidence: candidate.confidence,
+                selectedAsPrimary: true,
+                createdAt: now,
+                originDeviceId: SyncBatchFactory.deviceId(),
+                baseCardVersion: previous.version
+            )
+        )
+        cards[cardIndex] = updated
+        save()
+        appendManualEditEvent(
+            previous: previous,
+            updated: updated,
+            action: "definition_candidate_restored",
+            metadata: [
+                "candidate_id": candidate.id,
+                "candidate_source": candidate.source
+            ],
+            now: now
+        )
+        message = "\(updated.displayWord) 뜻 후보를 primary로 복구했습니다."
         enqueueAutoSync()
     }
 
@@ -332,7 +486,9 @@ final class LocalVocabularyStore: ObservableObject {
         updated.updatedAt = now
         updated.version += 1
         update(card: updated)
-        MacNotificationScheduler.shared.cancel(card: updated)
+        if scheduleNotifications {
+            MacNotificationScheduler.shared.cancel(card: updated)
+        }
         message = "\(card.displayWord) 삭제됨"
         enqueueAutoSync()
     }
@@ -368,6 +524,7 @@ final class LocalVocabularyStore: ObservableObject {
                     contexts: contexts,
                     definitionCandidates: definitionCandidates,
                     reviewEvents: reviewEvents,
+                    syncEvents: syncEvents,
                     recommendationFeedback: recommendationFeedback,
                     settings: settings
                 ),
@@ -377,6 +534,7 @@ final class LocalVocabularyStore: ObservableObject {
             contexts = merged.contexts
             definitionCandidates = merged.definitionCandidates
             reviewEvents = merged.reviewEvents
+            syncEvents = merged.syncEvents
             recommendationFeedback = merged.recommendationFeedback
             settings = merged.settings
             save()
@@ -410,6 +568,7 @@ final class LocalVocabularyStore: ObservableObject {
                 contexts: contexts,
                 definitionCandidates: definitionCandidates,
                 reviewEvents: reviewEvents,
+                syncEvents: syncEvents,
                 recommendationFeedback: recommendationFeedback,
                 settings: settings
             ),
@@ -419,6 +578,7 @@ final class LocalVocabularyStore: ObservableObject {
         contexts = merged.contexts
         definitionCandidates = merged.definitionCandidates
         reviewEvents = merged.reviewEvents
+        syncEvents = merged.syncEvents
         recommendationFeedback = merged.recommendationFeedback
         settings = merged.settings
         save()
@@ -435,12 +595,176 @@ final class LocalVocabularyStore: ObservableObject {
                 settings: settings
             ))
         }
-        return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count, skippedSummary: skippedSummary(pushResult))
+        let skipped = skippedSummary(pushResult)
+        appendSyncEvent(
+            succeeded: true,
+            summary: skipped.isEmpty
+                ? "카드 \(cards.count), 이벤트 \(reviewEvents.count) 동기화"
+                : "동기화 완료 · 스킵 \(skipped)",
+            now: Date()
+        )
+        return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count, skippedSummary: skipped)
     }
 
-    private func addResolvedCard(_ result: DictionaryResult, captureMethod: CaptureMethod, dueAt: Date, now: Date, wordbook: Wordbook = .user) -> VocabularyCard {
+    func recordSyncFailure(_ error: Error, now: Date = Date()) {
+        let summary: String
+        if let cloudError = error as? CloudSyncError {
+            switch cloudError {
+            case .http(let status, let requestID):
+                summary = "동기화 실패 · HTTP \(status) · 요청 \(String(requestID.prefix(12)))"
+            case .server:
+                if let requestID = cloudError.requestID {
+                    summary = "동기화 실패 · 네트워크/응답 · 요청 \(String(requestID.prefix(12)))"
+                } else {
+                    summary = "동기화 실패 · 네트워크/응답"
+                }
+            case .invalidConfig:
+                summary = "동기화 실패 · 설정 확인 필요"
+            case .invalidResponse:
+                summary = "동기화 실패 · 응답 형식"
+            }
+        } else {
+            summary = "동기화 실패 · 로컬 처리"
+        }
+        appendSyncEvent(succeeded: false, summary: summary, now: now)
+    }
+
+    func pendingDictionaryEnrichmentTargets() -> [DictionaryEnrichmentTarget] {
+        cards
+            .filter {
+                $0.deletedAt == nil &&
+                    $0.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    $0.definitionSourcePrimary != "user" &&
+                    !$0.lemma.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .sorted {
+                if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+                return $0.id < $1.id
+            }
+            .map {
+                DictionaryEnrichmentTarget(
+                    cardId: $0.id,
+                    lemma: Self.normalizedDictionaryLemma($0.lemma)
+                )
+            }
+    }
+
+    @discardableResult
+    func applyDictionaryEnrichment(
+        _ results: [CloudDictionaryLookupResult],
+        requestedTargets: [DictionaryEnrichmentTarget],
+        now: Date = Date()
+    ) -> DictionaryEnrichmentApplySummary {
+        var resultByLemma: [String: CloudDictionaryLookupResult] = [:]
+        for result in results where result.outcome == .resolved {
+            let lemma = Self.normalizedDictionaryLemma(result.lemma)
+            if resultByLemma[lemma] == nil {
+                resultByLemma[lemma] = result
+            }
+        }
+
+        var appliedCardIds: [String] = []
+        let schedulerSettings = schedulerSettings()
+        for target in requestedTargets {
+            guard let index = cards.firstIndex(where: { $0.id == target.cardId }),
+                  cards[index].deletedAt == nil,
+                  cards[index].meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  cards[index].definitionSourcePrimary != "user",
+                  Self.normalizedDictionaryLemma(cards[index].lemma) == target.lemma,
+                  let result = resultByLemma[target.lemma]
+            else {
+                continue
+            }
+
+            let meaning = result.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard meaning.isEmpty == false else { continue }
+
+            let baseCardVersion = cards[index].version
+            var card = cards[index]
+            card.meaningKo = meaning
+            let definitionEn = result.definitionEn.trimmingCharacters(in: .whitespacesAndNewlines)
+            let partOfSpeech = result.partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
+            let exampleSentence = result.exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+            if definitionEn.isEmpty == false { card.definitionEn = definitionEn }
+            if partOfSpeech.isEmpty == false { card.partOfSpeech = partOfSpeech }
+            if card.exampleSentence.isEmpty, exampleSentence.isEmpty == false {
+                card.exampleSentence = exampleSentence
+            }
+            card.definitionSourcePrimary = result.sourceType.isEmpty ? "server_dictionary" : result.sourceType
+            card.dueAt = DueTimeJitter.apply(
+                to: Scheduler.initialDueAt(now: now, settings: schedulerSettings),
+                now: now,
+                settings: schedulerSettings
+            )
+            card.updatedAt = now
+            card.version += 1
+            cards[index] = card
+
+            definitionCandidates.append(
+                StoredDefinitionCandidate(
+                    id: UUID().uuidString,
+                    cardId: card.id,
+                    source: card.definitionSourcePrimary,
+                    rawText: [meaning, definitionEn].filter { !$0.isEmpty }.joined(separator: "\n"),
+                    parsedMeaningKo: meaning,
+                    parsedDefinitionEn: definitionEn,
+                    partOfSpeech: partOfSpeech,
+                    exampleSentence: exampleSentence,
+                    confidence: min(max(result.confidence, 0), 1),
+                    selectedAsPrimary: true,
+                    createdAt: now,
+                    originDeviceId: SyncBatchFactory.deviceId(),
+                    baseCardVersion: baseCardVersion
+                )
+            )
+            appliedCardIds.append(card.id)
+        }
+
+        if appliedCardIds.isEmpty == false {
+            // save() also rebuilds the notification queue. Blank cards are not
+            // eligible for review, so resetting dueAt above makes this their
+            // first real notification rather than replaying an old stale date.
+            save()
+        }
+        return DictionaryEnrichmentApplySummary(appliedCardIds: appliedCardIds)
+    }
+
+    func retryDictionaryEnrichment(cardId: String) {
+        guard let index = cards.firstIndex(where: {
+            $0.id == cardId &&
+                $0.deletedAt == nil &&
+                $0.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else { return }
+        let now = Date()
+        var updated = cards[index]
+        updated.definitionSourcePrimary = "dictionary_retry"
+        updated.updatedAt = now
+        updated.version += 1
+        update(card: updated)
+        MacAutoSyncController.shared.clearDictionaryEnrichmentRetry(cardId: cardId)
+        message = "\(updated.displayWord) 다시 해석 요청됨"
+        enqueueAutoSync()
+    }
+
+    func setDictionaryEnrichmentStatus(_ status: DictionaryEnrichmentStatus) {
+        dictionaryEnrichmentStatus = status
+    }
+
+    private static func normalizedDictionaryLemma(_ value: String) -> String {
+        normalizeCloudDictionaryLemma(value)
+    }
+
+    private func addResolvedCard(
+        _ result: DictionaryResult,
+        captureMethod: CaptureMethod,
+        sourceURL: String? = nil,
+        dueAt: Date,
+        now: Date,
+        wordbook: Wordbook = .user
+    ) -> VocabularyCard {
         if let existingIndex = cards.firstIndex(where: { $0.deletedAt == nil && $0.lemma == result.lemma }) {
             var card = cards[existingIndex]
+            let baseCardVersion = card.version
             let promote = card.wordbook == .recommended && wordbook == .user
             let shouldUpdatePrimary = !result.meaningKo.isEmpty && (card.meaningKo.isEmpty || result.sourceType == "user" || promote)
             if shouldUpdatePrimary {
@@ -454,8 +778,21 @@ final class LocalVocabularyStore: ObservableObject {
             card.updatedAt = now
             card.version += 1
             cards[existingIndex] = card
-            appendContext(cardId: card.id, result: result, captureMethod: captureMethod, now: now)
-            appendCandidate(cardId: card.id, result: result, selected: shouldUpdatePrimary, now: now)
+            appendContext(
+                cardId: card.id,
+                result: result,
+                captureMethod: captureMethod,
+                sourceURL: sourceURL,
+                now: now
+            )
+            appendCandidate(
+                cardId: card.id,
+                result: result,
+                selected: shouldUpdatePrimary,
+                now: now,
+                originDeviceId: shouldUpdatePrimary ? SyncBatchFactory.deviceId() : nil,
+                baseCardVersion: shouldUpdatePrimary ? baseCardVersion : nil
+            )
             save()
             return card
         }
@@ -479,7 +816,13 @@ final class LocalVocabularyStore: ObservableObject {
             version: 1
         )
         cards.append(card)
-        appendContext(cardId: card.id, result: result, captureMethod: captureMethod, now: now)
+        appendContext(
+            cardId: card.id,
+            result: result,
+            captureMethod: captureMethod,
+            sourceURL: sourceURL,
+            now: now
+        )
         appendCandidate(cardId: card.id, result: result, selected: true, now: now)
         save()
         return card
@@ -514,13 +857,83 @@ final class LocalVocabularyStore: ObservableObject {
         save()
     }
 
-    private func appendContext(cardId: String, result: DictionaryResult, captureMethod: CaptureMethod, now: Date) {
-        let sentence = result.sourceSentence.isEmpty ? result.exampleSentence : result.sourceSentence
-        if sentence.isEmpty && result.sourceApp.isEmpty { return }
-        contexts.append(StoredContext(id: UUID().uuidString, cardId: cardId, sourceSentence: sentence, sourceApp: result.sourceApp, captureMethod: captureMethod, createdAt: now))
+    private func appendSyncEvent(succeeded: Bool, summary: String, now: Date) {
+        syncEvents.append(
+            StoredSyncEvent(
+                id: UUID().uuidString,
+                succeeded: succeeded,
+                summary: summary,
+                createdAt: now
+            )
+        )
+        if syncEvents.count > 100 {
+            syncEvents = Array(syncEvents.sorted { $0.createdAt < $1.createdAt }.suffix(100))
+        }
+        save()
     }
 
-    private func appendCandidate(cardId: String, result: DictionaryResult, selected: Bool, now: Date) {
+    private func appendManualEditEvent(
+        previous: VocabularyCard,
+        updated: VocabularyCard,
+        action: String,
+        metadata: [String: String],
+        now: Date
+    ) {
+        append(
+            event: ReviewEventDraft(
+                cardId: updated.id,
+                response: .manualEdit,
+                previousStatus: previous.status,
+                nextStatus: updated.status,
+                previousDueAt: previous.dueAt,
+                nextDueAt: updated.dueAt,
+                previousIntervalDays: previous.intervalDays,
+                nextIntervalDays: updated.intervalDays,
+                metadata: metadata.merging(["action": action]) { current, _ in current }
+            ),
+            now: now
+        )
+    }
+
+    private func definitionContent(of card: VocabularyCard) -> [String] {
+        [
+            card.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines),
+            card.definitionEn.trimmingCharacters(in: .whitespacesAndNewlines),
+            card.partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines),
+            card.exampleSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+    }
+
+    private func appendContext(
+        cardId: String,
+        result: DictionaryResult,
+        captureMethod: CaptureMethod,
+        sourceURL: String?,
+        now: Date
+    ) {
+        let sentence = result.sourceSentence.isEmpty ? result.exampleSentence : result.sourceSentence
+        if sentence.isEmpty && result.sourceApp.isEmpty && sourceURL == nil { return }
+        contexts.append(
+            StoredContext(
+                id: UUID().uuidString,
+                cardId: cardId,
+                sourceSentence: sentence,
+                sourceURL: SourceURLSanitizer.sanitize(sourceURL),
+                sourceApp: result.sourceApp,
+                captureMethod: captureMethod,
+                createdAt: now
+            )
+        )
+    }
+
+    private func appendCandidate(
+        cardId: String,
+        result: DictionaryResult,
+        selected: Bool,
+        now: Date,
+        originDeviceId: String? = nil,
+        baseCardVersion: Int? = nil
+    ) {
         definitionCandidates.append(
             StoredDefinitionCandidate(
                 id: UUID().uuidString,
@@ -533,7 +946,63 @@ final class LocalVocabularyStore: ObservableObject {
                 exampleSentence: result.exampleSentence,
                 confidence: result.confidence,
                 selectedAsPrimary: selected,
-                createdAt: now
+                createdAt: now,
+                originDeviceId: originDeviceId,
+                baseCardVersion: baseCardVersion
+            )
+        )
+    }
+
+    private func ensureCardMeaningCandidate(_ card: VocabularyCard, now: Date) {
+        guard !card.meaningKo.isEmpty || !card.definitionEn.isEmpty else { return }
+        let alreadyPreserved = definitionCandidates.contains {
+            $0.cardId == card.id &&
+                $0.parsedMeaningKo == card.meaningKo &&
+                $0.parsedDefinitionEn == card.definitionEn
+        }
+        guard !alreadyPreserved else { return }
+        appendStoredMeaningCandidate(card, source: card.definitionSourcePrimary, selected: false, now: now)
+    }
+
+    private func appendManualMeaningCandidate(
+        _ card: VocabularyCard,
+        baseCardVersion: Int,
+        now: Date
+    ) {
+        guard !card.meaningKo.isEmpty || !card.definitionEn.isEmpty else { return }
+        appendStoredMeaningCandidate(
+            card,
+            source: "user",
+            selected: true,
+            now: now,
+            originDeviceId: SyncBatchFactory.deviceId(),
+            baseCardVersion: baseCardVersion
+        )
+    }
+
+    private func appendStoredMeaningCandidate(
+        _ card: VocabularyCard,
+        source: String,
+        selected: Bool,
+        now: Date,
+        originDeviceId: String? = nil,
+        baseCardVersion: Int? = nil
+    ) {
+        definitionCandidates.append(
+            StoredDefinitionCandidate(
+                id: UUID().uuidString,
+                cardId: card.id,
+                source: source.isEmpty ? "user" : source,
+                rawText: card.meaningKo.isEmpty ? card.definitionEn : card.meaningKo,
+                parsedMeaningKo: card.meaningKo,
+                parsedDefinitionEn: card.definitionEn,
+                partOfSpeech: card.partOfSpeech,
+                exampleSentence: card.exampleSentence,
+                confidence: 1,
+                selectedAsPrimary: selected,
+                createdAt: now,
+                originDeviceId: originDeviceId,
+                baseCardVersion: baseCardVersion
             )
         )
     }
@@ -596,6 +1065,39 @@ final class LocalVocabularyStore: ObservableObject {
         "단어 50개 이상 저장하면 추천이 시작됩니다 (현재 \(activeCards.filter { $0.wordbook == .user }.count)개)"
     }
 
+    private func recordCaptureSuccess(method: CaptureMethod, detailCode: String) {
+        recordCaptureDiagnostic(
+            CaptureDiagnosticRecord(
+                outcome: .succeeded,
+                mechanism: diagnosticMechanism(method),
+                detailCode: detailCode,
+                occurredAt: Date()
+            )
+        )
+    }
+
+    private func recordCaptureDiagnostic(_ record: CaptureDiagnosticRecord) {
+        lastCaptureDiagnostic = record
+        CaptureDiagnosticStore.save(record)
+    }
+
+    private func diagnosticMechanism(_ method: CaptureMethod) -> String {
+        switch method {
+        case .macClipboardHotkey:
+            return "clipboard_hotkey"
+        case .macService:
+            return pendingCaptureSourceApp == MacCaptureSource.urlScheme ? "url_scheme" : "mac_service"
+        case .manual:
+            return "manual"
+        case .recommendation:
+            return "recommendation"
+        case .androidProcessText:
+            return "android_process_text"
+        case .androidShare:
+            return "android_share"
+        }
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: storeURL) else {
             if recoverFromBackup() {
@@ -619,7 +1121,15 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     private func save() {
-        let snapshot = StoreSnapshot(cards: cards, contexts: contexts, definitionCandidates: definitionCandidates, reviewEvents: reviewEvents, recommendationFeedback: recommendationFeedback, settings: settings)
+        let snapshot = StoreSnapshot(
+            cards: cards,
+            contexts: contexts,
+            definitionCandidates: definitionCandidates,
+            reviewEvents: reviewEvents,
+            syncEvents: syncEvents,
+            recommendationFeedback: recommendationFeedback,
+            settings: settings
+        )
         do {
             let data = try JSONEncoder.vocab.encode(snapshot)
             try rotateBackupIfNeeded()
@@ -646,6 +1156,7 @@ final class LocalVocabularyStore: ObservableObject {
         contexts = snapshot.contexts
         definitionCandidates = snapshot.definitionCandidates
         reviewEvents = snapshot.reviewEvents
+        syncEvents = snapshot.syncEvents
         recommendationFeedback = snapshot.recommendationFeedback
         settings = snapshot.settings
         repairEpochScheduleFieldsFromReviewEvents()
@@ -708,11 +1219,50 @@ struct CloudSyncSummary {
     var skippedSummary: String = ""
 }
 
+struct DictionaryEnrichmentTarget: Hashable, Sendable {
+    var cardId: String
+    var lemma: String
+}
+
+struct DictionaryEnrichmentApplySummary: Equatable, Sendable {
+    var appliedCardIds: [String]
+
+    var appliedCount: Int { appliedCardIds.count }
+}
+
+struct DictionaryEnrichmentStatus: Equatable, Sendable {
+    var pendingCount: Int = 0
+    var resolvedCount: Int = 0
+    var notFoundCount: Int = 0
+    var providerFailureCount: Int = 0
+    var endpointUnavailable = false
+    var nextRetryAt: Date?
+
+    static let idle = DictionaryEnrichmentStatus()
+
+    var userFacingSummary: String {
+        if endpointUnavailable {
+            return "서버 사전 기능을 사용할 수 없어 기존 동기화만 유지합니다."
+        }
+        var parts: [String] = []
+        if pendingCount > 0 { parts.append("대기 \(pendingCount)") }
+        if resolvedCount > 0 { parts.append("완료 \(resolvedCount)") }
+        if notFoundCount > 0 { parts.append("미등록 \(notFoundCount)") }
+        if providerFailureCount > 0 { parts.append("제공자 오류 \(providerFailureCount)") }
+        if let nextRetryAt, pendingCount + notFoundCount + providerFailureCount > 0 {
+            parts.append("재시도 \(nextRetryAt.formatted(date: .omitted, time: .shortened))")
+        }
+        guard parts.isEmpty == false else { return "" }
+        return "사전 보강 · " + parts.joined(separator: " · ")
+    }
+}
+
 struct StoreSnapshot: Codable {
     var cards: [VocabularyCard]
     var contexts: [StoredContext]
     var definitionCandidates: [StoredDefinitionCandidate]
     var reviewEvents: [StoredReviewEvent]
+    var syncEvents: [StoredSyncEvent]
     var recommendationFeedback: [RecommendationFeedback]
     var settings: UserSettingsData
 
@@ -721,6 +1271,7 @@ struct StoreSnapshot: Codable {
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
         reviewEvents: [StoredReviewEvent],
+        syncEvents: [StoredSyncEvent] = [],
         recommendationFeedback: [RecommendationFeedback] = [],
         settings: UserSettingsData
     ) {
@@ -728,6 +1279,7 @@ struct StoreSnapshot: Codable {
         self.contexts = contexts
         self.definitionCandidates = definitionCandidates
         self.reviewEvents = reviewEvents
+        self.syncEvents = syncEvents
         self.recommendationFeedback = recommendationFeedback
         self.settings = settings
     }
@@ -737,6 +1289,7 @@ struct StoreSnapshot: Codable {
         case contexts
         case definitionCandidates
         case reviewEvents
+        case syncEvents
         case recommendationFeedback
         case settings
     }
@@ -747,6 +1300,7 @@ struct StoreSnapshot: Codable {
         contexts = try container.decode([StoredContext].self, forKey: .contexts)
         definitionCandidates = try container.decode([StoredDefinitionCandidate].self, forKey: .definitionCandidates)
         reviewEvents = try container.decode([StoredReviewEvent].self, forKey: .reviewEvents)
+        syncEvents = try container.decodeIfPresent([StoredSyncEvent].self, forKey: .syncEvents) ?? []
         recommendationFeedback = try container.decodeIfPresent([RecommendationFeedback].self, forKey: .recommendationFeedback) ?? []
         settings = try container.decode(UserSettingsData.self, forKey: .settings)
     }

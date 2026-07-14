@@ -199,7 +199,7 @@ enum DictionaryResolver {
             partOfSpeech: "",
             exampleSentence: analysis.sourceSentence,
             rawSource: "",
-            sourceType: "user",
+            sourceType: "pending_capture",
             confidence: 0,
             sourceSentence: analysis.sourceSentence,
             sourceApp: sourceApp
@@ -303,6 +303,14 @@ enum DictionaryResolver {
 }
 
 enum MacDictionary {
+    static func koreanEnglishDictionaryIsAvailable() -> Bool {
+        #if canImport(CoreServices)
+        return koreanEnglishDictionary() != nil
+        #else
+        return false
+        #endif
+    }
+
     static func lookup(_ text: String) -> String? {
         #if canImport(CoreServices)
         let nsText = text as NSString

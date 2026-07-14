@@ -7,6 +7,9 @@ import { openDatabase } from "../src/db.js";
 import { createSyncServer } from "../src/http.js";
 
 const token = "test-token";
+const meaningConflictFixture = JSON.parse(
+  fs.readFileSync(new URL("../../shared/test-vectors/meaning_conflicts.json", import.meta.url), "utf8")
+);
 
 test("roundtrips a sync batch through the HTTP server and writes a daily backup", async (t) => {
   const app = await startTestServer(t);
@@ -61,7 +64,9 @@ test("synthesizes one deterministic meaning candidate for legacy card-only retri
     id: "legacy-card-only",
     meaning_ko: "구버전에서 저장한 뜻",
     definition_en: "saved by a legacy client",
-    updated_at: "2026-07-03T04:00:00.000Z"
+    updated_at: "2026-07-03T04:00:00.000Z",
+    version: 2,
+    created_device_id: "android-legacy"
   });
 
   const first = await postJson(app.url("/sync/batch"), { cards: [legacyCard] }, token);
@@ -72,6 +77,8 @@ test("synthesizes one deterministic meaning candidate for legacy card-only retri
   assert.equal(first.body.applied.definition_candidates, 1);
   assert.equal(firstCandidate.source, "card_snapshot");
   assert.equal(firstCandidate.parsed_meaning_ko, legacyCard.meaning_ko);
+  assert.equal(firstCandidate.origin_device_id, "android-legacy");
+  assert.equal(firstCandidate.base_card_version, 1);
 
   const retry = await postJson(app.url("/sync/batch"), { cards: [legacyCard] }, token);
   const retrySnapshot = await getJson(app.url("/sync/snapshot"), token);
@@ -88,8 +95,16 @@ test("retains both simultaneous offline meanings while the existing card merge p
     version: 2,
     updated_at: "2026-07-03T05:00:00.000Z"
   });
-  const alphaEdit = { ...sharedRevision, meaning_ko: "alpha meaning" };
-  const zetaEdit = { ...sharedRevision, meaning_ko: "zeta meaning" };
+  const alphaEdit = {
+    ...sharedRevision,
+    meaning_ko: "alpha meaning",
+    created_device_id: "android-offline"
+  };
+  const zetaEdit = {
+    ...sharedRevision,
+    meaning_ko: "zeta meaning",
+    created_device_id: "mac-offline"
+  };
 
   await postJson(app.url("/sync/batch"), { cards: [alphaEdit] }, token);
   await postJson(app.url("/sync/batch"), { cards: [zetaEdit] }, token);
@@ -103,6 +118,96 @@ test("retains both simultaneous offline meanings while the existing card merge p
       .sort(),
     ["alpha meaning", "zeta meaning"]
   );
+  assert.deepEqual(
+    snapshot.body.definition_candidates
+      .filter((candidate) => candidate.card_id === sharedRevision.id)
+      .map((candidate) => [candidate.origin_device_id, candidate.base_card_version])
+      .sort(),
+    [["android-offline", 1], ["mac-offline", 1]]
+  );
+});
+
+test("accepts legacy candidates without lineage and rejects incomplete lineage", async (t) => {
+  const app = await startTestServer(t);
+  const legacyCandidate = { ...fullBatch().definition_candidates[0] };
+  delete legacyCandidate.origin_device_id;
+  delete legacyCandidate.base_card_version;
+  const incompleteCandidate = {
+    ...legacyCandidate,
+    id: "candidate-incomplete-lineage",
+    origin_device_id: "android-a"
+  };
+
+  const response = await postJson(app.url("/sync/batch"), {
+    definition_candidates: [legacyCandidate, incompleteCandidate]
+  }, token);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.applied.definition_candidates, 1);
+  assert.equal(response.body.skipped.definition_candidates, 1);
+  assert.match(
+    response.body.skipped.reasons.map((reason) => reason.reason).join("\n"),
+    /provided together/
+  );
+});
+
+test("matches the shared meaning-conflict merge, export, and restore contract", async (t) => {
+  for (const fixtureCase of meaningConflictFixture.cases) {
+    const forward = await startTestServer(t);
+    const reverse = await startTestServer(t);
+
+    const forwardAndroid = await postJson(forward.url("/sync/batch"), fixtureCase.android_offline, token);
+    const forwardMac = await postJson(forward.url("/sync/batch"), fixtureCase.mac_offline, token);
+    const reverseMac = await postJson(reverse.url("/sync/batch"), fixtureCase.mac_offline, token);
+    const reverseAndroid = await postJson(reverse.url("/sync/batch"), fixtureCase.android_offline, token);
+
+    for (const response of [forwardAndroid, forwardMac, reverseMac, reverseAndroid]) {
+      assert.equal(response.status, 200, fixtureCase.name);
+    }
+
+    const forwardSnapshot = await getJson(forward.url("/sync/snapshot"), token);
+    const reverseSnapshot = await getJson(reverse.url("/sync/snapshot"), token);
+    assertMeaningConflictSnapshot(forwardSnapshot.body, fixtureCase.expected, fixtureCase.name);
+    assertMeaningConflictSnapshot(reverseSnapshot.body, fixtureCase.expected, fixtureCase.name);
+
+    const currentCard = forwardSnapshot.body.cards.find(
+      (card) => card.id === fixtureCase.expected.card_id
+    );
+    const restoreCandidate = forwardSnapshot.body.definition_candidates.find(
+      (candidate) => candidate.id === fixtureCase.expected.restore.candidate_id
+    );
+    assert.ok(currentCard, `${fixtureCase.name}: merged card must be exported`);
+    assert.ok(restoreCandidate, `${fixtureCase.name}: restore candidate must be exported`);
+
+    const restored = await postJson(forward.url("/sync/batch"), {
+      cards: [{
+        ...currentCard,
+        meaning_ko: restoreCandidate.parsed_meaning_ko,
+        definition_en: restoreCandidate.parsed_definition_en,
+        part_of_speech: restoreCandidate.part_of_speech,
+        source_sentence_primary: restoreCandidate.example_sentence,
+        definition_source_primary: restoreCandidate.source,
+        updated_at: fixtureCase.expected.restore.updated_at,
+        version: currentCard.version + 1
+      }]
+    }, token);
+    assert.equal(restored.status, 200, fixtureCase.name);
+    assert.equal(restored.body.applied.cards, 1, fixtureCase.name);
+
+    const restoredSnapshot = await getJson(forward.url("/sync/snapshot"), token);
+    const restoredCard = restoredSnapshot.body.cards.find(
+      (card) => card.id === fixtureCase.expected.card_id
+    );
+    assert.equal(restoredCard?.meaning_ko, fixtureCase.expected.restore.meaning_ko, fixtureCase.name);
+    assert.deepEqual(
+      restoredSnapshot.body.definition_candidates
+        .filter((candidate) => candidate.card_id === fixtureCase.expected.card_id)
+        .map((candidate) => candidate.id)
+        .sort(),
+      [...fixtureCase.expected.preserved_candidate_ids].sort(),
+      fixtureCase.name
+    );
+  }
 });
 
 test("skips broken records without coercing core memory fields", async (t) => {
@@ -415,6 +520,33 @@ async function startTestServer(t, serverOptions = {}) {
   };
 }
 
+function assertMeaningConflictSnapshot(snapshot, expected, name) {
+  const card = snapshot.cards.find((item) => item.id === expected.card_id);
+  const candidates = snapshot.definition_candidates.filter(
+    (candidate) => candidate.card_id === expected.card_id
+  );
+  assert.equal(card?.meaning_ko, expected.primary.meaning_ko, name);
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.id).sort(),
+    [...expected.preserved_candidate_ids].sort(),
+    name
+  );
+  assert.equal(
+    candidates.find((candidate) => candidate.id === expected.primary.candidate_id)?.parsed_meaning_ko,
+    expected.primary.meaning_ko,
+    name
+  );
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.id).filter((id) =>
+      candidates.some((candidate) =>
+        candidate.id === id && candidate.origin_device_id && candidate.base_card_version
+      )
+    ).sort(),
+    [...expected.conflict_candidate_ids].sort(),
+    name
+  );
+}
+
 async function postJson(url, body, bearerToken) {
   const response = await fetch(url, {
     method: "POST",
@@ -502,6 +634,8 @@ function fullBatch() {
         example_sentence: null,
         confidence: 1,
         selected_as_primary: true,
+        origin_device_id: "test-device",
+        base_card_version: 1,
         created_at: "2026-07-03T00:00:00.000Z"
       }
     ],
