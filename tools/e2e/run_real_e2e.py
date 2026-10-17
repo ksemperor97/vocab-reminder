@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Real end-to-end run: sync server + Android app on an emulator + the Mac store.
+"""Real end-to-end run: sync server + Android app on an emulator + the Mac app.
 
 Nothing here is mocked. A fresh server process runs on this machine, the debug
 APK is built against it and driven through adb/uiautomator, and the Mac side is
-the real VocabCore store driven by `vocab-check store`. Each scenario checks
-what the server stored, what each device stored, and what the phone shows.
+both the real VocabCore store driven by `vocab-check store` and the packaged
+menu bar app driven through XCUITest (mac/VocabReminderMac/UITests). Each
+scenario checks what the server stored, what each device stored, and what the
+phone and Mac windows show.
 
     /Users/sjk/Workspace/.venv/bin/python tools/e2e/run_real_e2e.py --serial emulator-5554
 
@@ -12,7 +14,9 @@ Options:
     --serial SERIAL      adb device (default: $ANDROID_SERIAL)
     --port PORT          server port (default 8799; the emulator reaches it at 10.0.2.2)
     --legacy-apk PATH    install this older APK first and check the upgrade keeps its data
-    --skip-build         reuse existing APK / vocab-check builds
+    --skip-build         reuse existing APK / vocab-check / UI test builds
+    --no-mac-ui          skip the XCUITest scenarios (they need Xcode and macOS
+                         Automation Mode, which asks for authentication once)
     --out DIR            where evidence goes (default: a temp dir, printed at the end)
 
 The phone must be an emulator or test device: the app's data on it is wiped.
@@ -36,6 +40,8 @@ import android_driver as phone  # noqa: E402
 PACKAGE = "com.vocabreminder.android"
 NODE = os.environ.get("NODE", "/opt/homebrew/opt/node@22/bin/node")
 JAVA_HOME = os.environ.get("JAVA_HOME", "/opt/homebrew/opt/openjdk@17")
+MAC_DIR = ROOT / "mac" / "VocabReminderMac"
+XCODE_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
 ANDROID_HOME = os.environ.get("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
 
 
@@ -170,6 +176,66 @@ class Mac:
         return [card for card in self.run("list")["cards"] if card["lemma"] == lemma]
 
 
+class MacApp:
+    """The packaged menu bar app, driven through XCUITest one step at a time."""
+
+    def __init__(self, workdir, server):
+        self.dir = workdir / "mac-app"
+        self.dir.mkdir(parents=True)
+        self.server = server
+        self.app = MAC_DIR / "VocabReminder-E2E.app"
+        self.env = dict(os.environ)
+        if not os.environ.get("DEVELOPER_DIR") and XCODE_DEVELOPER_DIR.exists():
+            self.env["DEVELOPER_DIR"] = str(XCODE_DEVELOPER_DIR)
+        self.steps = 0
+
+    def build(self):
+        log("packaging VocabReminder-E2E.app and building the UI tests")
+        subprocess.run(["./package_app.sh"], cwd=MAC_DIR, env=dict(self.env, E2E_VARIANT="1"),
+                       check=True, capture_output=True)
+        subprocess.run(self.xcodebuild("build-for-testing"), cwd=MAC_DIR, env=self.env,
+                       check=True, capture_output=True)
+
+    def xcodebuild(self, action, *extra):
+        return ["xcodebuild", action, "-project", "UITests/VocabReminderUITests.xcodeproj",
+                "-scheme", "VocabReminderUITests", "-destination", "platform=macOS,arch=arm64",
+                "-derivedDataPath", "UITests/build", *extra]
+
+    def run(self, test, word, meaning):
+        """Runs one UI test step; returns the window screenshot it attached."""
+        self.steps += 1
+        name = f"{self.steps:02d}-{test}"
+        result_bundle = self.dir / f"{name}.xcresult"
+        env = dict(self.env, **{
+            "TEST_RUNNER_VOCAB_E2E_APP": str(self.app),
+            "TEST_RUNNER_VOCAB_E2E_DATA_DIR": str(self.dir / "data"),
+            "TEST_RUNNER_VOCAB_E2E_SERVER": self.server.url,
+            "TEST_RUNNER_VOCAB_E2E_TOKEN": self.server.token,
+            "TEST_RUNNER_VOCAB_E2E_WORD": word,
+            "TEST_RUNNER_VOCAB_E2E_MEANING": meaning,
+        })
+        result = subprocess.run(
+            self.xcodebuild("test-without-building", "-resultBundlePath", str(result_bundle),
+                            f"-only-testing:VocabReminderUITests/MenuBarAppUITests/{test}"),
+            cwd=MAC_DIR, env=env, capture_output=True, text=True)
+        (self.dir / f"{name}.log").write_text(result.stdout + result.stderr)
+        shot = self.export_screenshot(result_bundle, self.dir / f"{name}.png")
+        if result.returncode != 0:
+            failures = [line for line in result.stdout.splitlines() if "error:" in line]
+            raise RuntimeError(f"{test} failed: {' | '.join(failures[-2:]) or 'see ' + name + '.log'}")
+        return shot
+
+    def export_screenshot(self, result_bundle, target):
+        export_dir = self.dir / (result_bundle.stem + "-attachments")
+        exported = subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", str(result_bundle),
+                                   "--output-path", str(export_dir)], env=self.env, capture_output=True)
+        pngs = sorted(export_dir.glob("*.png")) if exported.returncode == 0 else []
+        if not pngs:
+            return None
+        pngs[-1].rename(target)
+        return target
+
+
 def active(cards):
     return [card for card in cards if not card.get("deleted_at") and not card.get("deleted")]
 
@@ -196,6 +262,7 @@ def main():
     parser.add_argument("--port", type=int, default=8799)
     parser.add_argument("--legacy-apk")
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--no-mac-ui", action="store_true")
     parser.add_argument("--out")
     args = parser.parse_args()
     if not args.serial:
@@ -228,6 +295,11 @@ def main():
         apk, vocab_check = build(args, f"http://10.0.2.2:{args.port}", server.token)
         handset = Phone(workdir)
         mac = Mac(workdir, vocab_check, server)
+        mac_app = None
+        if not args.no_mac_ui:
+            mac_app = MacApp(workdir, server)
+            if not args.skip_build:
+                mac_app.build()
 
         if args.legacy_apk:
             @scenario("upgrade from the previous APK keeps every card")
@@ -314,6 +386,40 @@ def main():
             assert "meticulous" not in handset.screen_texts()
             assert not active(server.cards("meticulous"))
             return "deleted on server and phone; card gone from the phone screen"
+
+        if mac_app:
+            @scenario("a word saved in the Mac app window shows up on the phone screen")
+            def _():
+                mac_app.run("testCaptureWordAndSync", "ephemeral", "덧없는")
+                card = wait_until(lambda: active(server.cards("ephemeral")), what="Mac app capture on server")[0]
+                assert card["meaning_ko"] == "덧없는", f"server meaning {card['meaning_ko']}"
+                handset.restart()
+                wait_until(lambda: active(handset.cards("ephemeral")), what="card on phone")
+                handset.restart()
+                assert "ephemeral" in handset.screen_texts() and "덧없는" in handset.screen_texts()
+                handset.screenshot("from-mac-app")
+                return "typed, previewed and saved in the Mac window; listed on the phone with its meaning"
+
+            @scenario("a phone capture shows up in the Mac app window")
+            def _():
+                handset.capture("robust")
+                card = wait_until(lambda: active(server.cards("robust")), what="phone capture on server")[0]
+                expected = card["meaning_ko"] or "뜻 없음"
+                mac_app.run("testWordArrivesAfterSync", "robust", expected)
+                return f"after '지금 동기화' the Mac window lists robust with '{expected}'"
+
+            @scenario("a meaning edited in the Mac app editor reaches the phone")
+            def _():
+                mac_app.run("testEditMeaningAndSync", "robust", "(Mac 앱) 튼튼한")
+                wait_until(lambda: any(c["meaning_ko"] == "(Mac 앱) 튼튼한" for c in active(server.cards("robust"))),
+                           what="edit on server")
+                handset.restart()
+                wait_until(lambda: any(c["meaning_ko"] == "(Mac 앱) 튼튼한" for c in active(handset.cards("robust"))),
+                           what="edit on phone")
+                handset.restart()
+                assert "(Mac 앱) 튼튼한" in handset.screen_texts(), "phone screen does not show the Mac edit"
+                handset.screenshot("mac-app-edit")
+                return "edited in the Mac card editor; the phone shows the new meaning"
 
         @scenario("reads never write")
         def _():

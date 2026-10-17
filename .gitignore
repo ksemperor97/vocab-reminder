@@ -48,3 +48,6 @@ tools/scrcpy.app/
 shared/recommendations/recommendation_enriched_candidates.json
 shared/recommendations/recommendation_definition_cache.json
 server/tunnel/state.json
+mac/VocabReminderMac/VocabReminder-E2E.app/
+mac/VocabReminderMac/UITests/build/
+mac/VocabReminderMac/UITests/**/xcuserdata/

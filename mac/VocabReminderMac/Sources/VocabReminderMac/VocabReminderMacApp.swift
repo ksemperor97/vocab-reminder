@@ -36,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var recommendationTimer: Timer?
 
+    /// End-to-end runs point the app at a scratch data directory; they must not
+    /// register login items, grab the global hotkey or prompt for notifications.
+    private var isIsolatedRun: Bool {
+        ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"] != nil
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NSApp.servicesProvider = self
@@ -46,16 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
         NSUpdateDynamicServices()
-        GlobalHotKeyController.shared.onPressed = { [weak self] in
-            LocalVocabularyStore.shared.captureClipboard(NSPasteboard.general.string(forType: .string))
-            self?.showMainWindow()
+        if !isIsolatedRun {
+            GlobalHotKeyController.shared.onPressed = { [weak self] in
+                LocalVocabularyStore.shared.captureClipboard(NSPasteboard.general.string(forType: .string))
+                self?.showMainWindow()
+            }
+            MacNotificationScheduler.shared.requestAuthorization()
         }
-        MacNotificationScheduler.shared.requestAuthorization()
         LocalVocabularyStore.shared.maintainRecommendations()
         recommendationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             Task { @MainActor in LocalVocabularyStore.shared.maintainRecommendations() }
         }
-        LoginItemController.registerAtLaunchIfNeeded(store: LocalVocabularyStore.shared)
+        if !isIsolatedRun { LoginItemController.registerAtLaunchIfNeeded(store: LocalVocabularyStore.shared) }
         MacAutoSyncController.shared.start(store: LocalVocabularyStore.shared)
     }
 
@@ -211,6 +219,7 @@ struct MenuBarView: View {
             Button("오늘 복습하기") { openMainWindow() }
                 .disabled(store.dueCount == 0)
             Button("최근 저장 단어") { openMainWindow() }
+                .accessibilityIdentifier("menu_open_main")
             Button("설정") { openMainWindow() }
         }
         .padding(12)
@@ -271,6 +280,7 @@ struct ContentView: View {
                         HStack {
                             TextField("단어 또는 문장", text: $manualText)
                                 .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("capture_text_field")
                             Button("미리보기") {
                                 store.capture(
                                     text: manualText,
@@ -278,6 +288,7 @@ struct ContentView: View {
                                     sourceApp: MacCaptureSource.manual
                                 )
                             }
+                            .accessibilityIdentifier("capture_preview_button")
                             Button("클립보드") {
                                 store.captureClipboard(NSPasteboard.general.string(forType: .string))
                             }
@@ -312,6 +323,7 @@ struct ContentView: View {
                         Text(store.message)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("status_message")
 
                         Divider()
 
@@ -327,6 +339,7 @@ struct ContentView: View {
         }
         .onAppear(perform: sanitizeSelection)
         .onChange(of: store.activeCards.map(\.id)) { _, _ in sanitizeSelection() }
+        .background(IsolatedRunWindowPlacement())
     }
 
     private var selectedCard: VocabularyCard? {
@@ -350,6 +363,40 @@ struct ContentView: View {
     }
 }
 
+/// In end-to-end runs (VOCAB_REMINDER_DATA_DIR set) the window floats above other
+/// apps at a fixed, tall frame so UI automation clicks reach it no matter what
+/// else is open on the desktop. Normal launches are untouched.
+private struct IsolatedRunWindowPlacement: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"] == nil ? NSView() : PlacementView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class PlacementView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            // Place once, after SwiftUI has applied its own initial frame. Moving
+            // the window repeatedly sets off Stage Manager animations mid-test.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.place() }
+        }
+
+        private func place() {
+            guard let window, let screen = NSScreen.main else { return }
+            let visible = screen.visibleFrame
+            window.isRestorable = false
+            window.setFrameAutosaveName("")
+            window.level = .floating
+            window.setFrame(
+                NSRect(x: visible.minX, y: visible.minY, width: min(960, visible.width), height: visible.height),
+                display: true
+            )
+            window.orderFrontRegardless()
+        }
+    }
+}
+
 struct SidebarCardRow: View {
     var card: VocabularyCard
 
@@ -357,6 +404,7 @@ struct SidebarCardRow: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(card.displayWord)
                 .font(.headline)
+                .accessibilityIdentifier("sidebar_word_\(card.lemma)")
             MeaningFallbackText(card: card, missingText: "뜻 없음")
             Text("\(card.status.rawValue) · 다음 학습: \(relativeDueLabel(card.dueAt))")
                 .font(.caption)
@@ -411,6 +459,7 @@ struct PreviewView: View {
                     .foregroundStyle(.secondary)
                 TextField("뜻", text: $meaning)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("preview_meaning_field")
                 if meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    !result.definitionEn.isEmpty {
                     EnglishDefinitionFallback(definition: result.definitionEn)
@@ -436,6 +485,7 @@ struct PreviewView: View {
             HStack {
                 Button("저장", action: onSave)
                     .keyboardShortcut(.return)
+                    .accessibilityIdentifier("preview_save_button")
                 Button("취소", action: onCancel)
             }
         }
@@ -545,6 +595,7 @@ struct SettingsView: View {
                 Button(cloudSyncRunning ? "동기화 중" : "지금 동기화") {
                     runCloudSync()
                 }
+                .accessibilityIdentifier("sync_now_button")
                 .disabled(cloudSyncRunning || !canCloudSync)
             }
 #if DEBUG
@@ -725,6 +776,7 @@ struct CardEditorView: View {
                         .fontWeight(.semibold)
                     Spacer()
                     Button("닫기", action: onClose)
+                        .accessibilityIdentifier("editor_close_button")
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -739,6 +791,7 @@ struct CardEditorView: View {
                     LabeledContent("뜻") {
                         TextField("뜻", text: $meaningKo)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier("editor_meaning_field")
                     }
                     if meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                        !definitionEn.isEmpty {
@@ -771,6 +824,7 @@ struct CardEditorView: View {
                         )
                     }
                     .keyboardShortcut(.return)
+                    .accessibilityIdentifier("editor_save_button")
                     Button("되돌리기") { load(card) }
                     Button("삭제") {
                         store.softDeleteCard(card)
@@ -813,6 +867,7 @@ struct CardEditorView: View {
                 Text(store.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("status_message")
             }
             .padding(24)
         }
@@ -839,7 +894,9 @@ struct CardRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.displayWord)
                 .font(.headline)
+                .accessibilityIdentifier("card_word_\(card.lemma)")
             MeaningFallbackText(card: card, missingText: "뜻 없음 · 알림 보류")
+                .accessibilityIdentifier("card_meaning_\(card.lemma)")
             if !card.exampleSentence.isEmpty {
                 Text(card.exampleSentence)
                     .font(.caption)

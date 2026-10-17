@@ -1,3 +1,10 @@
+# Mac app UI in the real end-to-end run — 2026-10-17
+
+- Add `mac/VocabReminderMac/UITests`, an XCUITest project that drives the packaged menu bar app: open it from the menu bar, type and preview a word, save, press "지금 동기화", edit a meaning in the card editor.
+- The end-to-end run uses it for three cross-device scenarios (Mac window → phone screen, phone → Mac window, Mac editor → phone).
+- `E2E_VARIANT=1 ./package_app.sh` builds `VocabReminder-E2E.app` with its own bundle id and no Services entry or URL scheme; runs with `VOCAB_REMINDER_DATA_DIR` skip the login item, global hotkey and notification prompt, and float the window at a fixed frame.
+- Key Mac controls carry accessibility identifiers.
+
 # Sync protocol 3, SQLite clients, real end-to-end run — 2026-10-17
 
 - Merge cards per field group (content / schedule clocks) on server, Android and Mac; deletion, wordbook promotion and recommendation start are monotonic. Pinned by `shared/test-vectors/card_merge.json`.
