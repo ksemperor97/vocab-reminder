@@ -45,6 +45,10 @@ export function readConfig(overrides = {}) {
     overrides.backupDir ?? process.env.VOCAB_SYNC_BACKUP_DIR ?? "./backups",
     runtimeRoot
   );
+  const appUpdateDir = resolveRuntimePath(
+    overrides.appUpdateDir ?? process.env.VOCAB_SYNC_APP_UPDATE_DIR ?? "./app-updates",
+    runtimeRoot
+  );
 
   return {
     runtimeRoot,
@@ -53,6 +57,7 @@ export function readConfig(overrides = {}) {
     token: String(overrides.token ?? process.env.VOCAB_SYNC_TOKEN ?? ""),
     dbPath,
     backupDir,
+    appUpdateDir,
     backupRetention,
     maxBodyBytes,
     maxCollectionItems

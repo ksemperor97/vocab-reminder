@@ -431,6 +431,27 @@ test("release build passes the sync token through the child environment, never a
   }
 });
 
+test("Android self-update is on for release builds only", () => {
+  const gradle = fs.readFileSync(
+    path.join(repositoryRoot, "android", "VocabReminderAndroid", "app", "build.gradle.kts"),
+    "utf8",
+  );
+  const block = (name) => {
+    const start = gradle.indexOf(name);
+    assert.notEqual(start, -1, name);
+    return gradle.slice(start, gradle.indexOf("\n        }", start));
+  };
+  assert.match(gradle, /defaultConfig \{[^}]*SELF_UPDATE_ENABLED", "false"/s);
+  assert.match(block('getByName("release")'), /SELF_UPDATE_ENABLED", "true"/);
+  assert.match(block('create("deviceQa")'), /SELF_UPDATE_ENABLED", "false"/);
+  assert.match(block('getByName("debug")'), /SELF_UPDATE_ENABLED", e2eSelfUpdate\.toString\(\)/);
+  assert.match(gradle, /onVariants\(selector\(\)\.withBuildType\("debug"\)\)/);
+
+  const release = fs.readFileSync(path.join(repositoryRoot, "tools", "build_sync_release.sh"), "utf8");
+  assert.match(release, /publish_android_update\.mjs/);
+  assert.match(release, /--signer-sha256 "\$ANDROID_SIGNER_SHA256"/);
+});
+
 test("Cloudflare mutations require the repository-pinned Wrangler binary", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
   assert.equal(packageJson.devDependencies.wrangler, "4.110.0");

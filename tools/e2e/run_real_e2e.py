@@ -14,6 +14,7 @@ Options:
     --serial SERIAL      adb device (default: $ANDROID_SERIAL)
     --port PORT          server port (default 8799; the emulator reaches it at 10.0.2.2)
     --legacy-apk PATH    install this older APK first and check the upgrade keeps its data
+    --no-self-update     skip the in-app update scenario (it needs a second APK build)
     --skip-build         reuse existing APK / vocab-check / UI test builds
     --no-mac-ui          skip the XCUITest scenarios (they need Xcode and macOS
                          Automation Mode, which asks for authentication once)
@@ -24,6 +25,8 @@ The phone must be an emulator or test device: the app's data on it is wiped.
 import argparse
 import json
 import os
+import re
+import shutil
 import secrets
 import sqlite3
 import subprocess
@@ -43,6 +46,9 @@ JAVA_HOME = os.environ.get("JAVA_HOME", "/opt/homebrew/opt/openjdk@17")
 MAC_DIR = ROOT / "mac" / "VocabReminderMac"
 XCODE_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
 ANDROID_HOME = os.environ.get("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
+ANDROID_DIR = ROOT / "android" / "VocabReminderAndroid"
+E2E_APK_DIR = ANDROID_DIR / "app" / "build" / "e2e"
+INSTALLER_PACKAGES = {"com.google.android.packageinstaller", "com.android.packageinstaller"}
 
 
 def log(message):
@@ -108,6 +114,11 @@ class Phone:
         self.dir = workdir / "phone"
         self.dir.mkdir(parents=True)
         self.shots = 0
+
+    def version_code(self):
+        out = phone.adb("shell", "dumpsys", "package", PACKAGE)
+        match = re.search(r"versionCode=(\d+)", out)
+        return int(match.group(1)) if match else None
 
     def install(self, apk, fresh):
         if fresh:
@@ -240,20 +251,44 @@ def active(cards):
     return [card for card in cards if not card.get("deleted_at") and not card.get("deleted")]
 
 
+def apk_version(apk):
+    aapt = sorted((Path(ANDROID_HOME) / "build-tools").glob("*/aapt"))[-1]
+    badging = subprocess.run([str(aapt), "dump", "badging", str(apk)], check=True, capture_output=True, text=True).stdout
+    match = re.search(r"versionCode='(\d+)' versionName='([^']*)'", badging)
+    return int(match.group(1)), match.group(2)
+
+
+def gradle_debug_apk(env, out):
+    subprocess.run(["./gradlew", "--no-daemon", "-q", ":app:assembleDebug"], cwd=ANDROID_DIR, env=env, check=True)
+    shutil.copyfile(ANDROID_DIR / "app/build/outputs/apk/debug/app-debug.apk", out)
+    return out
+
+
 def build(args, server_url_for_phone, token):
-    apk = ROOT / "android/VocabReminderAndroid/app/build/outputs/apk/debug/app-debug.apk"
+    """Builds the debug APK the run installs and, for the self-update scenario, the
+    same app with a higher versionCode. Both carry self-update and the debug key."""
+    base = E2E_APK_DIR / "base.apk"
+    update = E2E_APK_DIR / "update.apk"
     if not args.skip_build:
+        E2E_APK_DIR.mkdir(parents=True, exist_ok=True)
         log("building Android debug APK against the e2e server")
         env = dict(os.environ, JAVA_HOME=JAVA_HOME, ANDROID_HOME=ANDROID_HOME,
-                   VOCAB_SYNC_DEFAULT_URL=server_url_for_phone, VOCAB_SYNC_DEFAULT_TOKEN=token)
-        subprocess.run(["./gradlew", "--no-daemon", "-q", ":app:assembleDebug"],
-                       cwd=ROOT / "android/VocabReminderAndroid", env=env, check=True)
+                   VOCAB_SYNC_DEFAULT_URL=server_url_for_phone, VOCAB_SYNC_DEFAULT_TOKEN=token,
+                   VOCAB_E2E_SELF_UPDATE="1")
+        for key in ("VOCAB_E2E_VERSION_CODE", "VOCAB_E2E_VERSION_NAME"):
+            env.pop(key, None)
+        gradle_debug_apk(env, base)
+        if not args.no_self_update:
+            code, name = apk_version(base)
+            log(f"building the update APK ({code} -> {code + 1})")
+            gradle_debug_apk(dict(env, VOCAB_E2E_VERSION_CODE=str(code + 1), VOCAB_E2E_VERSION_NAME=f"{name}-e2e-update"),
+                             update)
         log("building vocab-check")
         subprocess.run(["./swift.sh", "build", "--product", "vocab-check"], cwd=ROOT / "mac/VocabReminderMac",
                        check=True, capture_output=True)
     bin_path = subprocess.run(["./swift.sh", "build", "--show-bin-path"], cwd=ROOT / "mac/VocabReminderMac",
                               check=True, capture_output=True, text=True).stdout.strip().splitlines()[-1]
-    return apk, Path(bin_path) / "vocab-check"
+    return base, update, Path(bin_path) / "vocab-check"
 
 
 def main():
@@ -263,6 +298,7 @@ def main():
     parser.add_argument("--legacy-apk")
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--no-mac-ui", action="store_true")
+    parser.add_argument("--no-self-update", action="store_true")
     parser.add_argument("--out")
     args = parser.parse_args()
     if not args.serial:
@@ -292,7 +328,7 @@ def main():
         return wrap
 
     try:
-        apk, vocab_check = build(args, f"http://10.0.2.2:{args.port}", server.token)
+        apk, update_apk, vocab_check = build(args, f"http://10.0.2.2:{args.port}", server.token)
         handset = Phone(workdir)
         mac = Mac(workdir, vocab_check, server)
         mac_app = None
@@ -429,6 +465,56 @@ def main():
             after = server.query("SELECT COUNT(*) FROM sync_changes")[0][0]
             assert before == after, f"change log grew from {before} to {after}"
             return f"change log stayed at {after} rows across GET /sync/snapshot and /sync/changes"
+
+        if not args.no_self_update:
+            @scenario("the app updates itself from the sync server and keeps its data")
+            def _():
+                installed = handset.version_code()
+                code, name = apk_version(update_apk)
+                assert code > installed, f"update APK {code} is not newer than installed {installed}"
+                cards_before = handset.query("SELECT id FROM cards ORDER BY id")
+                visible_before = [w for w in ("resilient", "ephemeral", "robust") if active(handset.cards(w))]
+                phone.adb("shell", "appops", "set", PACKAGE, "REQUEST_INSTALL_PACKAGES", "default")
+
+                published = subprocess.run(
+                    [NODE, "server/tools/publish_android_update.mjs", "--runtime-root", str(server.dir),
+                     "--apk", str(update_apk), "--version-code", str(code), "--version-name", name],
+                    cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+                log(published)
+                assert server.get("/app/android/latest")["versionCode"] == code
+
+                # The check on app start shows the banner; its button starts the update.
+                handset.restart()
+                phone.wait_for(f"새 버전 {name}이 있습니다", timeout=20)
+                handset.screenshot("update-banner")
+                phone.tap("업데이트")
+                # First time only: the app explains, then opens "Install unknown apps".
+                phone.wait_for("설치 권한이 한 번 필요합니다", timeout=10)
+                handset.screenshot("install-permission-guide")
+                phone.tap("설정 열기")
+                phone.tap_node(phone.find_any(("Allow from this source", "이 출처 허용"), timeout=15))
+                handset.screenshot("allow-from-this-source")
+                phone.adb("shell", "input", "keyevent", "KEYCODE_BACK")
+
+                # Back in the app the update continues: download, verify, system installer.
+                confirm = phone.find_in_package(INSTALLER_PACKAGES, ("Update", "업데이트", "Install", "설치"), timeout=60)
+                handset.screenshot("system-installer")
+                phone.tap_node(confirm)
+                wait_until(lambda: handset.version_code() == code, timeout=90, what=f"versionCode {code} installed")
+
+                handset.restart()
+                for word in visible_before:
+                    assert word in handset.screen_texts(), f"{word} missing after the update"
+                cards_after = handset.query("SELECT id FROM cards ORDER BY id")
+                assert cards_after == cards_before, f"cards changed: {len(cards_before)} -> {len(cards_after)}"
+                leftovers = phone.adb("shell", "run-as", PACKAGE, "ls", "cache/app-update", check=False).strip()
+                assert leftovers in ("",) or "No such file" in leftovers, f"download left in cache: {leftovers}"
+                phone.tap("설정")
+                phone.wait_for(f"현재 버전 {name} ({code})", timeout=10)
+                phone.wait_for("최신 버전입니다.", timeout=20)
+                handset.screenshot("after-self-update")
+                return (f"{installed} -> {code} through the banner, '이 출처 허용' and the system installer; "
+                        f"{len(cards_after)} cards and {', '.join(visible_before)} still on screen; cache emptied")
 
         @scenario("nothing is left waiting to upload")
         def _():

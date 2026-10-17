@@ -57,6 +57,34 @@ def find(text, exact=True, timeout=10.0):
     raise LookupError(f"'{text}' not on screen; visible: {texts()[:40]}")
 
 
+def find_any(labels, timeout=10.0):
+    """First node whose text is one of `labels` (e.g. a system screen in English or Korean)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for node in nodes():
+            if (node.get("text") or "") in labels:
+                return node
+        time.sleep(0.5)
+    raise LookupError(f"none of {labels} on screen; visible: {texts()[:40]}")
+
+
+def find_in_package(packages, labels, timeout=30.0):
+    """First node whose text is one of `labels`, inside one of `packages` (e.g. the system installer)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for node in nodes():
+            if node.get("package") in packages and (node.get("text") or "") in labels:
+                return node
+        time.sleep(0.5)
+    raise LookupError(f"none of {labels} in {packages}; visible: {texts()[:40]}")
+
+
+def tap_node(node):
+    x, y = center(node)
+    adb("shell", "input", "tap", str(x), str(y))
+    time.sleep(0.8)
+
+
 def tap(text, exact=True, timeout=10.0):
     x, y = center(find(text, exact, timeout))
     adb("shell", "input", "tap", str(x), str(y))

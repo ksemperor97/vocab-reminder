@@ -14,6 +14,12 @@ fun syncBuildValue(name: String): String {
 val defaultSyncServerUrl = syncBuildValue("VOCAB_SYNC_DEFAULT_URL")
 val defaultSyncBearerToken = syncBuildValue("VOCAB_SYNC_DEFAULT_TOKEN")
 val allowSyncReleaseDryRun = syncBuildValue("ALLOW_SYNC_RELEASE_DRY_RUN") == "1"
+// The real e2e run (tools/e2e/run_real_e2e.py) builds debug APKs with self-update
+// on and a chosen versionCode, so it can exercise an update signed with the same
+// debug key. Release builds ignore both; deviceQa never gets self-update.
+val e2eSelfUpdate = syncBuildValue("VOCAB_E2E_SELF_UPDATE") == "1"
+val e2eVersionCode = syncBuildValue("VOCAB_E2E_VERSION_CODE").takeIf { it.isNotEmpty() }?.toInt()
+val e2eVersionName = syncBuildValue("VOCAB_E2E_VERSION_NAME").takeIf { it.isNotEmpty() }
 
 fun expandHome(path: String): String {
     val home = System.getenv("HOME")?.takeIf { it.isNotBlank() }
@@ -144,6 +150,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEFAULT_SYNC_SERVER_URL", buildConfigString(defaultSyncServerUrl))
         buildConfigField("String", "DEFAULT_SYNC_BEARER_TOKEN", buildConfigString(defaultSyncBearerToken))
+        buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
     }
 
     buildFeatures {
@@ -162,6 +169,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", e2eSelfUpdate.toString())
+        }
         create("deviceQa") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".qa"
@@ -169,10 +179,12 @@ android {
             // credentials in the ambient environment.
             buildConfigField("String", "DEFAULT_SYNC_SERVER_URL", "\"\"")
             buildConfigField("String", "DEFAULT_SYNC_BEARER_TOKEN", "\"\"")
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
             matchingFallbacks += listOf("debug")
         }
         getByName("release") {
             externalReleaseSigningConfig?.let { signingConfig = it }
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
         }
     }
 
@@ -194,6 +206,15 @@ android {
             java.srcDir("src/debug/java")
             res.srcDir("src/debug/res")
             manifest.srcFile("src/debug/AndroidManifest.xml")
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { output ->
+            e2eVersionCode?.let { output.versionCode.set(it) }
+            e2eVersionName?.let { output.versionName.set(it) }
         }
     }
 }

@@ -289,6 +289,8 @@ export function buildArtifacts(options) {
     VOCAB_SYNC_DEFAULT_URL: workerUrl,
     VOCAB_SYNC_DEFAULT_TOKEN: syncToken,
     SYNC_RELEASE_DIST_DIR: state.files.artifacts,
+    // The staged token is not live yet; phones must not be offered this APK.
+    SYNC_RELEASE_SKIP_ANDROID_PUBLISH: "1",
   });
   run("bash", [path.join(repositoryRoot, "tools", "build_sync_release.sh")], { env: childEnvironment });
   run("bash", [path.join(repositoryRoot, "tools", "check_sync_release_artifacts.sh")], { env: childEnvironment });

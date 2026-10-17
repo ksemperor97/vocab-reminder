@@ -244,6 +244,7 @@ internal fun SettingsScreen(
     onShowCaptureGuide: () -> Unit,
     onOpenSync: () -> Unit,
     onBackFromSync: () -> Unit,
+    updateContent: @Composable () -> Unit,
     syncContent: @Composable () -> Unit
 ) {
     LazyColumn(
@@ -269,6 +270,9 @@ internal fun SettingsScreen(
                 syncContent()
             }
         } else {
+            item {
+                updateContent()
+            }
             item {
                 AndroidReadinessPanel(
                     items = readinessItems,

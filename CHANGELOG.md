@@ -1,3 +1,10 @@
+# Android self-update from the sync server — 2026-10-18
+
+- Server: authenticated `GET /app/android/latest` (versionCode, versionName, sha256, size) and `GET /app/android/apk` (streamed), served from the runtime's `app-updates/android/`.
+- `server/tools/publish_android_update.mjs` publishes an APK atomically and keeps the previous one; `tools/build_sync_release.sh` publishes after each release build.
+- Android release builds check for a newer version on start and in 설정 > 앱 업데이트, download into the cache, verify SHA-256, package, versionCode and signing certificate, and open the system installer through PackageInstaller (`REQUEST_INSTALL_PACKAGES`, with an "이 출처 허용" guide). Debug and deviceQa builds keep it off.
+- The real end-to-end run installs a debug build, publishes the same app with a higher versionCode, and updates through the app, checking that every card survives.
+
 # Mac app UI in the real end-to-end run — 2026-10-17
 
 - Add `mac/VocabReminderMac/UITests`, an XCUITest project that drives the packaged menu bar app: open it from the menu bar, type and preview a word, save, press "지금 동기화", edit a meaning in the card editor.
