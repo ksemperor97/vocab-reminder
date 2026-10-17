@@ -25,8 +25,13 @@ jobs:
         with:
           node-version-file: server/.node-version
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
       - run: npm --prefix server ci
+      # The review pipeline builds a catalog from the root devDependency
+      # subtlex-word-frequencies.
+      - run: npm ci
       - run: npm --prefix server test
       - name: Recommendation review pipeline
         run: node --test shared/recommendations/scripts/recommendation_review_pipeline.test.mjs
