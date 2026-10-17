@@ -1,0 +1,84 @@
+name: CI
+
+# Checks only: no sync tokens or signing keys are available here, and release
+# builds and the emulator-backed E2E run (tools/e2e/run_real_e2e.py) stay local.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: server/.node-version
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm --prefix server ci
+      - run: npm --prefix server test
+      - name: Recommendation review pipeline
+        run: node --test shared/recommendations/scripts/recommendation_review_pipeline.test.mjs
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Unit tests read ../../../shared/test-vectors, so keep the full checkout.
+        working-directory: android/VocabReminderAndroid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-33 build-tools;30.0.3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Upload reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: android/VocabReminderAndroid/app/build/reports
+          retention-days: 7
+
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mac/VocabReminderMac
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcode-select -p
+          swift --version
+      # swift.sh runs `swift test --no-parallel`; suites share URLProtocol stubs.
+      - run: ./swift.sh test
+      - run: ./swift.sh run vocab-check vectors
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: node tools/scan_secret_leaks.mjs
