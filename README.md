@@ -16,14 +16,27 @@ The source of truth for implementation decisions is in `docs/`:
 
 ```text
 .
-├── android/VocabReminderAndroid/   # Kotlin + Jetpack Compose Android app
+├── android/VocabReminderAndroid/   # Kotlin + Jetpack Compose app (SQLite store, ViewModel UI)
 ├── docs/                           # Product guide, UX criteria, implementation plan, status
-├── mac/VocabReminderMac/           # SwiftUI macOS app skeleton
-├── server/                         # Self-hosted Node + SQLite sync server
-└── shared/
-    ├── schema/                     # Platform-neutral entity schemas
-    └── test-vectors/               # Shared scheduler and historical recommendation vectors
+├── mac/VocabReminderMac/
+│   ├── Sources/VocabCore/          # Models, scheduler, SQLite store, sync, dictionary (no UI)
+│   ├── Sources/VocabReminderMac/   # SwiftUI menu bar app
+│   └── Sources/VocabCheck/         # vocab-check: shared vectors + headless driver of the real store
+├── server/                         # Self-hosted Node + SQLite sync server (merge/dedupe authority)
+├── shared/
+│   ├── schema/                     # Platform-neutral entity schemas
+│   └── test-vectors/               # Scheduler, capture, card-merge and recommendation vectors
+└── tools/
+    └── e2e/                        # Real end-to-end run: server + emulator + Mac store
 ```
+
+## Architecture
+
+- **The server is the authority** for anything that needs one answer across devices: recommendation selection, merging cards, and folding duplicate lemmas. Clients are replicas that keep working offline.
+- **Sync protocol 3.** Cards merge per field group: content (meaning, definition, example, provenance) and schedule (status, due date, interval, lapses) each carry their own `*_version`/`*_updated_at` clock, so a meaning edit on one device and a review on another both survive. Deletion, wordbook promotion and the recommendation start only move one way. The rules are implemented in JS, Kotlin and Swift and pinned by `shared/test-vectors/card_merge.json`.
+- **Duplicate lemmas** captured on two devices are folded only on the server: one survivor keeps the furthest learning progress, the others become tombstones with `merged_into`, and their history rows are re-pointed.
+- **Reads never write.** `GET /sync/snapshot` and `/sync/changes` are side-effect free; recommendations are topped up after each upload and on a 10-minute server timer.
+- **Clients store rows in SQLite** (wire JSON per row) and upload from an outbox of rows changed locally, instead of rewriting and fingerprinting whole collections. Older Android (SharedPreferences) and Mac (`vocab-data.json`) stores are imported once on first launch.
 
 Recommendation pipeline:
 
@@ -72,15 +85,15 @@ Current Android slice:
 - Galaxy Fit3 mirrored notifications support quick replies: `네`/`좋습니다` = remembered, `아니오`/`아니` = forgotten, and `나중에 연락드리겠습니다`/`나중에` = unavailable; meaning notifications advance on any reply.
 - `forgotten` replaces the notification with meaning/example and schedules a short relearning check.
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
-- Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
+- Recommended words stay in `wordbook=recommended`; capturing the same lemma on the same device promotes it to the user wordbook while keeping progress.
 - Existing active recommendations count against open daily slots so repeated planning does not overfill the recommendation queue.
 - The computer sync server owns the recommendation catalogue, selection policy, daily budget, and permanent known/dismissed exclusions. Apps receive ordinary cards through existing sync endpoints.
 - Server recommendation tests cover migration, feedback-only exclusions, multiple devices, and catalogue edits without client updates.
 - Recommendation feedback excludes known/dismissed lemmas, shifts `[알아요]` harder, and moves dismissed topics down.
 - Android records `recommendations_introduced_at` when showing the first synced recommendation notice.
-- Review events are stored append-only in local app storage.
-- Sync-shaped batches can be exported/imported locally and pushed to the self-hosted server.
-- Sync import folds active duplicate lemmas into one card, keeps their contexts attached, and preserves the most advanced review progress when a recommended duplicate is promoted to the user wordbook.
+- Cards, contexts, candidates, review events and feedback live in a SQLite database; history lookups are indexed per card.
+- Sync-shaped batches can be exported/imported locally and pushed to the self-hosted server; only rows in the upload outbox are sent.
+- Duplicate lemmas from two devices are folded by the server and arrive as ordinary tombstones.
 - Target sync UX: Android release builds use a fixed HTTPS tunnel endpoint, with foreground sync, after-change immediate sync, and 2-hour WorkManager recovery.
 - Debug builds can override server URL + bearer token for local development.
 
@@ -88,7 +101,7 @@ Current sync server slice:
 
 - Node 22 HTTP server on port 8787, backed by `better-sqlite3`.
 - `GET /health`, `POST /sync/batch`, and `GET /sync/snapshot` with `Authorization: Bearer <token>`.
-- Cards merge by latest `updated_at`/`version`; review events and recommendation feedback are append-only/idempotent by `id`.
+- Cards merge per field group (sync protocol 3); history rows and recommendation feedback are insert-only/idempotent by `id`. Same-lemma active cards are folded into one survivor.
 - Broken records are skipped and reported instead of being coerced to defaults.
 - Daily SQLite backups are written to `server/backups/` and pruned to 30 files.
 
@@ -107,26 +120,21 @@ Mac local MVP:
 - Mac recommendation fill requests sync; neither Mac nor Android generates recommendations locally. Start/known/dismiss actions sync back to the server.
 - Offline apps retain downloaded cards; new recommendations arrive on the next successful sync.
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards use a separate intro notification with start/known/dismiss actions.
-- Shared scheduler/recommendation parity check with `shared/test-vectors/scheduler.json` and `shared/test-vectors/recommendations.json`.
+- Shared vector parity (scheduler, capture normalisation, card merge) via `vocab-check vectors`.
 - Local sync batch export/import for manual inspection and recovery.
-- Self-check verifies that capturing a locally recommended lemma promotes it to the user wordbook while preserving progress.
 - Debug/manual Mac sync can push/pull the same server contract with a server URL and bearer token.
-- Sync import also folds active duplicate lemmas into one card while preserving contexts.
 - Sync import/export preserves recommendation feedback generated on Android or Mac.
 
-Run:
+Run, test, and check the Mac side with `swift.sh`, which also works on a Command Line Tools-only Mac (it picks an SDK whose SwiftUI macros are available and points Swift Testing at its macro plugin):
 
 ```sh
 cd mac/VocabReminderMac
-swift run
+./swift.sh test
+./swift.sh run vocab-check vectors
+./package_app.sh && open VocabReminder.app
 ```
 
-Check the Swift scheduler against the shared vectors:
-
-```sh
-cd mac/VocabReminderMac
-swift run VocabReminderMac --check-scheduler-vectors
-```
+`VOCAB_REMINDER_DATA_DIR=/some/dir` makes the app (or `vocab-check store`) use an isolated data directory.
 
 ## Mac Mini Sync Server
 
@@ -175,11 +183,16 @@ Check the Mac mini setup, tunnel, release endpoint, artifacts, and connected And
 VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
 ```
 
-Before the real tunnel exists, the local server contract can be smoke-tested with:
+## Real end-to-end run
+
+Tests pin the rules; this run shows the product working. It starts a fresh sync server, builds the debug APK against it, drives the app on an Android emulator through adb/uiautomator, and uses the real Mac store through `vocab-check store`. Each scenario checks the server rows, both device databases and the phone screen, and saves screenshots:
 
 ```sh
-npm run sync:smoke
+npm run e2e:real -- --serial emulator-5554
+npm run e2e:real -- --serial emulator-5554 --legacy-apk path/to/previous.apk   # also checks the upgrade
 ```
+
+Scenarios: a phone capture reaching the Mac; an offline phone review plus a Mac meaning edit both surviving; the same word captured on both devices folding into one card; a Mac deletion reaching the phone; reads never writing; outboxes draining. The device's app data is wiped, so use an emulator or test device.
 
 The component checks are also available separately:
 

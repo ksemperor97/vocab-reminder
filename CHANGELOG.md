@@ -1,3 +1,14 @@
+# Sync protocol 3, SQLite clients, real end-to-end run — 2026-10-17
+
+- Merge cards per field group (content / schedule clocks) on server, Android and Mac; deletion, wordbook promotion and recommendation start are monotonic. Pinned by `shared/test-vectors/card_merge.json`.
+- Fold same-lemma cards captured on two devices on the server only (tombstones with `merged_into`, history re-pointed); remove client-side folding.
+- Make `GET /sync/snapshot` and `/sync/changes` read-only; top up recommendations after uploads and on a server timer with indexed queries.
+- Android: SQLite store with a one-time import from SharedPreferences, upload outbox, store split (models, merge, enrichment, legacy import, SyncCoordinator), AppViewModel plus per-screen Compose files.
+- Mac: VocabCore library, SQLite store with a one-time import from `vocab-data.json`, upload outbox, `vocab-check` CLI (vectors + headless store driver), Swift Testing suite; cards keep phonetic/source/provenance fields and millisecond timestamps.
+- Accept provenance-only contexts (empty sentence) that were previously skipped; stop creating empty definition candidates.
+- Remove the Even G2 relay and the legacy Firebase output.
+- Add `tools/e2e/run_real_e2e.py` (server + Android emulator + Mac store) and drop the smoke/soak scripts it replaces.
+
 # Server-managed recommendations — 2026-09-23
 
 - Move candidate data, selection, day budgets, and known/dismissed enforcement to the computer sync server.

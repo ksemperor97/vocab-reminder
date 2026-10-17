@@ -408,7 +408,7 @@ NODE="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$HOME/Library/La
 - [ ] Mac mini 서버/tunnel 복구 후 누적 변경분이 자동 반영된다.
 - [ ] 모바일 데이터에서도 Android sync가 성공한다.
 - [ ] 실제 네트워크를 5분 끊은 뒤 자동 복구와 누적 sync를 확인한다.
-- [ ] `tools/run_sync_soak.sh`를 24시간 실행해 failure 0, DB integrity, 중복 없음, secret-free evidence를 확인한다.
+- [ ] 실제 기기 end-to-end(`npm run e2e:real`)를 통과시키고, 운영 서버에서 24시간 동안 `npm run sync:doctor`가 failure 0, DB integrity, 중복 없음을 보고하는지 확인한다.
 - [ ] 최신 clean commit에서 `npm run qc:all`이 통과하고 `dist/sync-release/release-manifest.json`의 source commit과 Android/Mac artifact provenance가 일치한다.
 - [ ] 최신 Android release가 보존된 인증서로 기존 설치본에 upgrade된다.
 - [ ] 운영 token rotation은 maintenance window에서 새 token 200/옛 token 401과 장비 재설치까지 확인한다.

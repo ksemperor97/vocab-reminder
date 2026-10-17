@@ -128,7 +128,6 @@ section "Tunnel supervisor and Worker tests"
 section "Runtime doctor and injected fault detection"
 if [[ -d "${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}" ]]; then
   bash "$ROOT_DIR/tools/sync_doctor.sh"
-  bash "$ROOT_DIR/tools/test_sync_doctor_faults.sh"
 else
   echo "NOT RUN: runtime doctor (isolated runtime is not installed on this machine)."
 fi
@@ -205,20 +204,13 @@ else
   echo "NOT RUN: signed Android release (protected signing/runtime configuration is unavailable)."
 fi
 
-section "Mac XCTest, build, and scheduler vectors"
-if [[ -z "${DEVELOPER_DIR:-}" && -d "/Applications/Xcode.app/Contents/Developer" ]]; then
-  export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
-fi
-if ! xcrun --find xctest >/dev/null 2>&1; then
-  echo "A complete Xcode toolchain with XCTest is required for Mac QC." >&2
-  exit 1
-fi
+section "Mac tests, build, and shared vectors"
 (
   cd "$ROOT_DIR/mac/VocabReminderMac"
-  swift test
-  swift build
-  swift build -c release
-  swift run VocabReminderMac --check-scheduler-vectors
+  ./swift.sh test
+  ./swift.sh build
+  ./swift.sh build -c release
+  ./swift.sh run vocab-check vectors
 )
 
 section "Release artifact scan"

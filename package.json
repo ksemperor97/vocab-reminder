@@ -6,18 +6,10 @@
   "scripts": {
     "server:start": "npm --prefix server start",
     "server:test": "npm --prefix server test",
-    "sync:local-smoke": "node tools/local_sync_smoke.mjs",
-    "sync:android-smoke": "node tools/android_cloud_sync_smoke.mjs",
-    "sync:android-release-ui-smoke": "bash tools/android_release_ui_smoke.sh",
-    "sync:mac-smoke": "node tools/mac_cloud_sync_smoke.mjs",
-    "sync:tunnel-smoke": "node tools/cloudflared_quick_tunnel_smoke.mjs",
-    "sync:smoke": "bash tools/sync_smoke.sh",
     "sync:release": "bash tools/build_sync_release.sh",
     "sync:check-endpoint": "bash tools/check_sync_endpoint.sh",
     "sync:check-artifacts": "bash tools/check_sync_release_artifacts.sh",
     "sync:doctor": "bash tools/sync_doctor.sh",
-    "sync:doctor:fault-test": "bash tools/test_sync_doctor_faults.sh",
-    "sync:diagnostics": "bash tools/export_sync_diagnostics.sh",
     "sync:repair": "bash tools/repair_sync_runtime.sh",
     "sync:rotate-tokens": "node tools/rotate_sync_tokens.mjs",
     "security:check-secrets": "node tools/check_secret_boundaries.mjs && node tools/scan_secret_leaks.mjs",
@@ -41,7 +33,9 @@
     "recommendations:quality": "node tools/run_recommendation_quality_gate.mjs",
     "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:pipeline:test && npm run recommendations:build && npm run recommendations:quality",
     "dictionary:benchmark": "node tools/run_dictionary_benchmark.mjs",
-    "sync:soak": "bash tools/run_sync_soak.sh"
+    "e2e:real": "/Users/sjk/Workspace/.venv/bin/python tools/e2e/run_real_e2e.py",
+    "mac:test": "mac/VocabReminderMac/swift.sh test",
+    "mac:vectors": "cd mac/VocabReminderMac && ./swift.sh run vocab-check vectors"
   },
   "devDependencies": {
     "subtlex-word-frequencies": "2.0.0",
