@@ -840,24 +840,6 @@ class LocalVocabularyStore private constructor(
         )
     }
 
-    /** Atomic revision check + event ID deduplication for retried G2 answers. */
-    fun applyG2Response(cardId: String, revision: String, actionId: String, response: ReviewResponse, now: Instant): String = synchronized(CARD_MUTATION_LOCK) {
-        if (events().any { it.metadata["g2_action_id"] == actionId }) return@synchronized "applied"
-        require(response in listOf(ReviewResponse.REMEMBERED, ReviewResponse.FORGOTTEN, ReviewResponse.UNAVAILABLE))
-        val card = findCard(cardId) ?: return@synchronized "stale"
-        if ("${card.version}:${card.updatedAt}" != revision || card.dueAt.isAfter(now) || card.status == CardStatus.SUSPENDED) return@synchronized "stale"
-        val config = settings().toSchedulerSettings()
-        val result = DueTimeJitter.apply(Scheduler.applyReview(
-            card.toSchedulerCard(), response, config, now,
-            recentResponses(card.id, 2), unavailableCountToday(card.id, config.timezone, now),
-            forgottenCountToday(card.id, config.timezone, now)
-        ), now, config)
-        updateCardAndAppendEvent(card.withSchedulerCard(result.card, now), result.event.copy(
-            metadata = result.event.metadata + mapOf("source" to "even_g2", "g2_action_id" to actionId)
-        ), now)
-        "applied"
-    }
-
     fun updateCardAndAppendEvent(card: VocabularyCard, event: ReviewEventDraft, now: Instant) {
         updateCardsAndAppendEvents(listOf(card), listOf(event), now)
     }

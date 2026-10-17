@@ -1394,7 +1394,6 @@ private fun SettingsScreen(
     onBackFromSync: () -> Unit,
     syncContent: @Composable () -> Unit
 ) {
-    val g2Context = LocalContext.current
     LazyColumn(
         modifier = Modifier
             .testTag("settings_list")
@@ -1404,11 +1403,6 @@ private fun SettingsScreen(
     ) {
         item {
             Text(stringResource(R.string.tab_settings), style = MaterialTheme.typography.headlineSmall)
-        }
-        item {
-            Button(onClick = { g2Context.startActivity(Intent(g2Context, com.vocabreminder.android.g2.G2ConnectActivity::class.java)) }) {
-                Text("G2 링 복습 연결")
-            }
         }
         if (showSyncSettings) {
             item {

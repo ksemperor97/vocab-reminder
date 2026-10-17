@@ -63,6 +63,8 @@ export function migrateDatabaseSchema(db) {
     );
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_cards_deleted_at ON cards(deleted_at);");
+  // The Even G2 relay was removed; drop its pairing sessions from older databases.
+  db.exec("DROP TABLE IF EXISTS g2_sessions;");
   migrateChangeLog(db);
 }
 

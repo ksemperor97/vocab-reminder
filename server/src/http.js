@@ -1,5 +1,4 @@
 import { createRecommendationCatalogLoader, maintainRecommendations } from "./recommendations.js";
-import { G2Relay } from "./g2.js";
 import { readChanges } from "./changes.js";
 import crypto from "node:crypto";
 import http from "node:http";
@@ -52,8 +51,6 @@ export function createSyncServer({
   );
   db.prepare("UPDATE sync_metadata SET value = ? WHERE key = 'epoch'").run(crypto.randomUUID());
   const store = new SyncStore(db, { maxCollectionItems });
-  const g2 = new G2Relay(db, now);
-  const pairingLimiter = createFixedWindowRateLimiter(30, now);
 
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -73,7 +70,7 @@ export function createSyncServer({
         dictionaryResolver,
         maxDictionaryBatchItems: dictionaryBatchLimit,
         dictionaryRateLimiter,
-        requestId, g2, pairingLimiter, recommendationCatalog, now
+        requestId, recommendationCatalog, now
       });
     } catch (error) {
       sendError(response, error, requestId);
@@ -94,30 +91,6 @@ export function createSyncServer({
 async function route(context) {
   const { request, response, store } = context;
   const url = new URL(request.url ?? "/", "http://localhost");
-
-  if (url.pathname.startsWith("/g2/")) {
-    response.setHeader("Access-Control-Allow-Origin", "*");
-    response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
-    response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    response.setHeader("Cache-Control", "no-store");
-    if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
-    const path = url.pathname;
-    const body = request.method === "POST" ? await readJsonBody(request, 8192) : {};
-    const bearer = /^Bearer\s+(.+)$/i.exec(String(request.headers.authorization ?? ""))?.[1];
-    let result;
-    if (path === "/g2/create" && request.method === "POST") {
-      requireBearer(request, context.token); result = context.g2.create();
-    } else if (path === "/g2/host" && request.method === "POST") {
-      requireBearer(request, context.token); result = context.g2.host(body.id, body);
-    } else if (path === "/g2/pair" && request.method === "POST") {
-      context.pairingLimiter.consume(); result = context.g2.pair(body.code);
-    } else if (path === "/g2/state" && request.method === "GET") {
-      result = context.g2.state(url.searchParams.get("id"), bearer);
-    } else if (path === "/g2/answer" && request.method === "POST") {
-      result = context.g2.answer(body.sessionId, bearer, body);
-    } else { sendJson(response,404,{error:{message:"Not found."}}); return; }
-    sendJson(response,200,result); return;
-  }
 
   if (url.pathname === "/health" && request.method === "GET") {
     requireBearer(request, context.token);
