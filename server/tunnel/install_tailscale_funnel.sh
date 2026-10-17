@@ -135,7 +135,7 @@ if [[ "$status" != "200" ]]; then
   die "The Funnel URL did not answer /health with 200 (last status: ${status:-none}). Check 'tailscale funnel status' and that the server is running." 1
 fi
 wrong="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
-  -H "Authorization: Bearer funnel-check-wrong-token" "$PUBLIC_URL/health" || true)"
+  -H "Authorization: Bearer intentionally-wrong-funnel-check-token" "$PUBLIC_URL/health" || true)"
 [[ "$wrong" == "401" ]] || die "The Funnel URL accepted a wrong token (status $wrong); refusing to continue." 1
 echo "OK: $PUBLIC_URL/health returns 200 with the token and 401 without it."
 

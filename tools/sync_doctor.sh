@@ -273,7 +273,7 @@ else
   warn "deployment state is missing"
 fi
 
-print_section "Mac mini server"
+print_section "Sync server"
 
 sync_token=""
 sync_host="127.0.0.1"

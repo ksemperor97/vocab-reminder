@@ -95,6 +95,16 @@ NODE_ABI="$("$NODE_BIN" -p 'process.versions.modules')"
 EXPECTED_NODE_MAJOR="${VOCAB_SYNC_NODE_MAJOR:-$(tr -d '[:space:]' < "$SERVER_DIR/.node-version")}"
 [[ "$NODE_MAJOR" == "$EXPECTED_NODE_MAJOR" ]] || \
   die "Node $EXPECTED_NODE_MAJOR is required, but $NODE_BIN is $NODE_VERSION. Set VOCAB_SYNC_NODE_BIN explicitly."
+# Prefer Homebrew's major-version opt path: the Cellar path that execPath
+# resolves to disappears on the next brew upgrade and would break launchd.
+if [[ -z "${VOCAB_SYNC_NODE_BIN:-}" ]]; then
+  for stable_node in "/opt/homebrew/opt/node@$EXPECTED_NODE_MAJOR/bin/node" "/usr/local/opt/node@$EXPECTED_NODE_MAJOR/bin/node"; do
+    if [[ -x "$stable_node" && "$("$stable_node" -p 'process.versions.node.split(".")[0]')" == "$EXPECTED_NODE_MAJOR" ]]; then
+      NODE_BIN="$stable_node"
+      break
+    fi
+  done
+fi
 NODE_DIR="$(cd "$(dirname "$NODE_BIN")" && pwd -P)"
 NPM_BIN="${VOCAB_SYNC_NPM_BIN:-$(command -v npm)}"
 

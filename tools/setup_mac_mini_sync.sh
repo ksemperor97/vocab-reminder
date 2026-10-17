@@ -6,7 +6,7 @@ RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/Vocab
 if [[ "${VOCAB_RUNTIME_LOCK_WRAPPED:-0}" != "1" ]]; then
   exec node "$ROOT_DIR/tools/with_runtime_lock.mjs" \
     --runtime-root "$RUNTIME_ROOT" \
-    --label "Mac mini sync setup" \
+    --label "sync server setup" \
     -- bash "$0" "$@"
 fi
 SERVER_ENV="$RUNTIME_ROOT/.env"
@@ -45,7 +45,7 @@ write_tunnel_env_from_process_env() {
 }
 
 if ! command -v launchctl >/dev/null 2>&1; then
-  die "This setup script is for macOS launchd on the always-on Mac mini."
+  die "This setup script is for macOS launchd on the always-on server Mac."
 fi
 
 section "Install vocab-sync server"
@@ -74,7 +74,7 @@ nothing to install on the phone). Do this once on this Mac:
 
 Then rerun:
 
-  npm run sync:setup-mac-mini
+  npm run sync:setup-server
 EOF
   exit 78
 elif [[ "$tunnel_status" -ne 0 ]]; then

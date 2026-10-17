@@ -9,7 +9,7 @@ The source of truth for implementation decisions is in `docs/`:
 - `docs/vocab_reminder_claude_guide.md`: product and technical guide
 - `docs/vocab_reminder_user_experience.md`: user-facing completion criteria
 - `docs/vocab_reminder_implementation_plan.md`: milestone plan for coding agents
-- `docs/sync_tunnel_runbook.md`: Mac mini automatic sync tunnel setup and checklist
+- `docs/sync_tunnel_runbook.md`: sync server and tunnel runbook (Cloudflare-era details kept for reference)
 - `docs/STATUS.md`: current milestone handoff state
 
 ## Repository Layout
@@ -136,11 +136,11 @@ cd mac/VocabReminderMac
 
 `VOCAB_REMINDER_DATA_DIR=/some/dir` makes the app (or `vocab-check store`) use an isolated data directory.
 
-## Mac Mini Sync Server
+## Sync Server (Mac Studio)
 
-This app is single-user and does not use Firebase or an external cloud database. Data lives on the Mac mini SQLite server. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the Mac mini, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
+This app is single-user and does not use Firebase or an external cloud database. Data lives in a SQLite sync server on the always-on Mac Studio (`https://sjks-mac-studio.tailf6f030.ts.net`); it used to run on a Mac mini behind a Cloudflare Worker. Any always-on Mac works the same way. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the server Mac, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
 
-One-time account steps on the Mac mini:
+One-time account steps on the server Mac:
 
 1. Install Tailscale and sign in: `brew install --cask tailscale && open -a Tailscale`.
 2. In the Tailscale admin console, enable MagicDNS and HTTPS certificates, and allow Funnel for the machine. The setup prints the exact approval link if Funnel is not allowed yet.
@@ -148,7 +148,7 @@ One-time account steps on the Mac mini:
 Then install the server and publish it:
 
 ```sh
-npm run sync:setup-mac-mini      # server under launchd, then Funnel
+npm run sync:setup-server       # server under launchd, then Funnel
 npm run sync:setup-funnel        # Funnel only (re-run any time)
 ```
 
@@ -170,13 +170,29 @@ npm run sync:doctor
 npm run sync:preflight
 ```
 
-### Switching from the Cloudflare Worker
+### Moving the server to another Mac
 
-Apps built before the switch have the `workers.dev` address baked in, so the old Cloudflare Worker and quick tunnel keep running until every installed app is rebuilt:
+Data moves through the sync API, so no database files are copied by hand:
 
-1. On the Mac mini, run `npm run sync:setup-funnel`. The Cloudflare tunnel keeps running alongside, and both addresses reach the same server.
-2. Rebuild with `npm run sync:release`, then install the new Android and Mac apps.
-3. When both apps sync through the Funnel address, run `npm run sync:retire-cloudflare`.
+```sh
+node tools/migrate_sync_server.mjs \
+  --from https://old.example --from-env /path/to/old/.env \
+  --to https://<machine>.<tailnet>.ts.net --to-env "$HOME/Library/Application Support/VocabReminderServer/.env"
+```
+
+It copies every collection from the old server, uploads it to the new one, and checks that every row arrived. Tokens are read from `VOCAB_SYNC_TOKEN` in the env files and never printed. The new server folds duplicate words that the old one kept apart (the survivor keeps the furthest progress); the check lists those separately. It is safe to run again: a second run brings over whatever changed on the old server since, so run it once more right before the devices switch.
+
+### Switching the installed apps (2026-10-18 cutover)
+
+Apps built before the switch have the `workers.dev` address and the Mac mini token baked in, so the old server and its Cloudflare Worker keep running until both devices switch. The new Android build is signed with a new key (`release-signer.sha256`), so Android cannot install it over the old app:
+
+1. Phone: open the old app and press "지금 동기화" so its last changes reach the old server.
+2. This Mac: rerun `tools/migrate_sync_server.mjs` (above) to carry those changes over.
+3. Phone: uninstall the old app, install `dist/sync-release/VocabReminderAndroid-release.apk`, open it; it downloads everything from the new server.
+4. Mac: replace `VocabReminder.app` with the one in `dist/sync-release/` and press "지금 동기화".
+5. When both devices sync through the Funnel address, stop the old server and run `npm run sync:retire-cloudflare` on the Mac mini.
+
+`tools/setup_android_release_signing.sh --new-certificate` creates such a key (outside the repo) and rewrites the pin; use it only when a reinstall is acceptable.
 
 Token rotation (`npm run sync:rotate-tokens`) still rotates the Worker admin token while the Cloudflare keys are present in `tunnel.env`, and builds the rotated apps against the Funnel address.
 

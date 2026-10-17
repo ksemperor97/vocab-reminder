@@ -4,6 +4,13 @@ set +x
 umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
+# --new-certificate creates a dedicated release key and re-pins it. Apps signed
+# with the previous certificate cannot be updated in place: uninstall them
+# (after a successful sync) and install the newly signed build.
+NEW_CERTIFICATE=0
+if [[ "${1:-}" == "--new-certificate" ]]; then
+  NEW_CERTIFICATE=1
+fi
 DEFAULT_PROPERTIES="$HOME/Library/Application Support/VocabReminderAndroid/release-signing.properties"
 PROPERTIES_PATH="${VOCAB_ANDROID_SIGNING_PROPERTIES:-$DEFAULT_PROPERTIES}"
 DEFAULT_SIGNER_PIN_FILE="$ROOT_DIR/android/VocabReminderAndroid/release-signer.sha256"
@@ -134,6 +141,9 @@ normalize_fingerprint() {
 }
 
 require_pinned_signer() {
+  if [[ "$NEW_CERTIFICATE" == "1" ]]; then
+    return 0
+  fi
   local actual
   actual="$(normalize_fingerprint "$1")"
   if [[ ! "$actual" =~ ^[a-f0-9]{64}$ || "$actual" != "$PINNED_SIGNER_SHA256" ]]; then
@@ -222,7 +232,7 @@ TEMP_PROPERTIES="$SIGNING_DIR/.release-signing.properties.tmp.$$"
 trap 'rm -f "$TEMP_KEYSTORE" "$TEMP_PROPERTIES"' EXIT
 
 DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
-if [[ -f "$DEBUG_KEYSTORE" ]]; then
+if [[ "$NEW_CERTIFICATE" != "1" && -f "$DEBUG_KEYSTORE" ]]; then
   KEY_ALIAS="androiddebugkey"
   VOCAB_KEYTOOL_STORE_PASSWORD=android \
   "$KEYTOOL_BIN" -list \
@@ -290,6 +300,12 @@ chmod 700 "$SIGNING_DIR"
 chmod 600 "$KEYSTORE_PATH" "$PROPERTIES_PATH"
 write_backup_record "$FINGERPRINT" "$KEY_ALIAS" "$PROVENANCE"
 trap - EXIT
+
+if [[ "$NEW_CERTIFICATE" == "1" ]]; then
+  printf '%s\n' "$(normalize_fingerprint "$FINGERPRINT")" > "$SIGNER_PIN_FILE"
+  echo "Re-pinned the Android release signer in $SIGNER_PIN_FILE; commit that change."
+  echo "Apps signed with the previous certificate must be uninstalled before installing this build."
+fi
 
 echo "Android release signing material is ready."
 echo "Properties: $PROPERTIES_PATH"
