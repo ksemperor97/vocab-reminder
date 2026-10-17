@@ -58,6 +58,7 @@ enum CardBiographyBuilder {
         let contentMatches = candidates.filter {
             $0.cardId == card.id && candidateMatchesCurrentPrimary($0, card: card)
         }
+        if let selectedID = card.primaryDefinitionCandidateId, contentMatches.contains(where: { $0.id == selectedID }) { return selectedID }
         let sourceMatches = contentMatches.filter {
             $0.source.trimmingCharacters(in: .whitespacesAndNewlines) ==
                 card.definitionSourcePrimary.trimmingCharacters(in: .whitespacesAndNewlines)

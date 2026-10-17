@@ -1,3 +1,4 @@
+import { migrateChangeLog } from "./changes.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -62,6 +63,7 @@ export function migrateDatabaseSchema(db) {
     );
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_cards_deleted_at ON cards(deleted_at);");
+  migrateChangeLog(db);
 }
 
 export function checkpointDatabase(db, mode = "TRUNCATE") {

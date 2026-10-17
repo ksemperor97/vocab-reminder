@@ -21,9 +21,10 @@
     <string name="sync_settings_title">동기화</string>
     <string name="manual_input_button">직접 입력</string>
     <string name="summary_remaining_reviews">오늘 남은 복습 %1$d개 · 취약 %2$d · 전체 %3$d</string>
-    <string name="recommendation_waiting_text">단어 50개 이상 저장하면 추천이 시작됩니다 (현재 %1$d개)</string>
+    <string name="recommendation_waiting_text">처음부터 추천 단어를 준비합니다. 기존 복습과 하루 목표를 우선합니다.</string>
     <string name="card_edit_button">편집</string>
     <string name="card_edit_meaning_label">뜻</string>
+    <string name="notification_feedback_next">다음</string>
     <string name="card_edit_example_label">예문</string>
     <string name="card_edit_save_button">저장</string>
     <string name="card_edit_cancel_button">취소</string>

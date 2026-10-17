@@ -1,6 +1,8 @@
 # Vocabulary Reminder
 
-Monorepo skeleton for the cross-device vocabulary reminder app.
+Cross-device vocabulary reminder app for a single user.
+
+Current implementation: 0.3.0. See `docs/implementation_20260908.md` for the latest behavior, validation scope, and outstanding device/data acceptance. Recommendations now start with an empty wordbook; older 50-word threshold notes describe previous releases.
 
 The source of truth for implementation decisions is in `docs/`:
 
@@ -20,7 +22,7 @@ The source of truth for implementation decisions is in `docs/`:
 ├── server/                         # Self-hosted Node + SQLite sync server
 └── shared/
     ├── schema/                     # Platform-neutral entity schemas
-    └── test-vectors/               # Shared scheduler/recommendation vectors for Kotlin/Swift
+    └── test-vectors/               # Shared scheduler and historical recommendation vectors
 ```
 
 Recommendation pipeline:
@@ -72,10 +74,10 @@ Current Android slice:
 - Daily goal / queue cap planning, manual rebalance, quiet-hours sweep, and recommendation introduction actions.
 - Recommended words stay in `wordbook=recommended`; capturing the same lemma promotes it to the user wordbook while keeping progress.
 - Existing active recommendations count against open daily slots so repeated planning does not overfill the recommendation queue.
-- Recommendation selection uses a generated frequency-ranked academic/scientific catalogue; source notes live in `shared/recommendations/README.md`.
-- Recommendation selection is checked against shared Kotlin/Swift vectors in `shared/test-vectors/recommendations.json`.
+- The computer sync server owns the recommendation catalogue, selection policy, daily budget, and permanent known/dismissed exclusions. Apps receive ordinary cards through existing sync endpoints.
+- Server recommendation tests cover migration, feedback-only exclusions, multiple devices, and catalogue edits without client updates.
 - Recommendation feedback excludes known/dismissed lemmas, shifts `[알아요]` harder, and moves dismissed topics down.
-- The first recommendation generation records `recommendations_introduced_at` and shows the one-time start notice.
+- Android records `recommendations_introduced_at` when showing the first synced recommendation notice.
 - Review events are stored append-only in local app storage.
 - Sync-shaped batches can be exported/imported locally and pushed to the self-hosted server.
 - Sync import folds active duplicate lemmas into one card, keeps their contexts attached, and preserves the most advanced review progress when a recommended duplicate is promoted to the user wordbook.
@@ -84,7 +86,7 @@ Current Android slice:
 
 Current sync server slice:
 
-- Node 20+ HTTP server on port 8787, backed by `better-sqlite3`.
+- Node 22 HTTP server on port 8787, backed by `better-sqlite3`.
 - `GET /health`, `POST /sync/batch`, and `GET /sync/snapshot` with `Authorization: Bearer <token>`.
 - Cards merge by latest `updated_at`/`version`; review events and recommendation feedback are append-only/idempotent by `id`.
 - Broken records are skipped and reported instead of being coerced to defaults.
@@ -102,8 +104,8 @@ Mac local MVP:
 - Menu bar app with clipboard capture.
 - macOS DictionaryServices resolver first, local fallback second.
 - Save preview, card list/edit/review actions, manual rebalance.
-- Manual/after-save/after-review recommendation fill uses the same generated academic/scientific catalogue as Android, with in-app start/known/dismiss actions.
-- The first Mac recommendation fill records `recommendations_introduced_at` and shows a one-time settings opt-out notice.
+- Mac recommendation fill requests sync; neither Mac nor Android generates recommendations locally. Start/known/dismiss actions sync back to the server.
+- Offline apps retain downloaded cards; new recommendations arrive on the next successful sync.
 - Native macOS local notifications are requested at launch and scheduled from each card's `dueAt`; unstarted recommended cards use a separate intro notification with start/known/dismiss actions.
 - Shared scheduler/recommendation parity check with `shared/test-vectors/scheduler.json` and `shared/test-vectors/recommendations.json`.
 - Local sync batch export/import for manual inspection and recovery.

@@ -49,7 +49,9 @@ object CardHistoryBuilder {
         val cardCandidates = candidates.filter { it.cardId == card.id }
         val cardEvents = events.filter { it.cardId == card.id }
         val cardProjection = card.definitionProjection()
-        val primaryCandidateId = cardCandidates
+        val primaryCandidateId = card.primaryDefinitionCandidateId?.takeIf { selected ->
+            cardCandidates.any { it.id == selected && it.definitionProjection().matches(cardProjection) }
+        } ?: cardCandidates
             .filter {
                 val projection = it.definitionProjection()
                 projection.hasContent && projection.matches(cardProjection)

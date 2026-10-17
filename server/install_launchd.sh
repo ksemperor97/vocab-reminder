@@ -36,6 +36,35 @@ die() {
   exit 1
 }
 
+ignore_cloud_synced_checkout_logs() {
+  local checkout_path=$1
+  local checkout_log_dir=$2
+  local ignore_attribute=""
+
+  case "$checkout_path" in
+    "$HOME"/Library/CloudStorage/Dropbox*/*)
+      ignore_attribute="com.apple.fileprovider.ignore#P"
+      ;;
+    "$HOME"/Dropbox/*|"$HOME"/Dropbox\ \(*\)/*)
+      ignore_attribute="com.dropbox.ignored"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  [[ -e "$checkout_log_dir" ]] || return 0
+  if ! command -v xattr >/dev/null 2>&1; then
+    echo "install_launchd: warning: xattr is unavailable; generated checkout logs may still sync." >&2
+    return 0
+  fi
+  if xattr -w "$ignore_attribute" 1 "$checkout_log_dir"; then
+    echo "Excluded generated checkout logs from cloud sync: $checkout_log_dir"
+  else
+    echo "install_launchd: warning: could not exclude generated checkout logs from cloud sync." >&2
+  fi
+}
+
 on_exit() {
   local status=$?
   trap - EXIT
@@ -75,6 +104,7 @@ mkdir -p \
 chmod 700 "$RUNTIME_ROOT" "$RELEASES_DIR" "$DATA_DIR" "$BACKUP_DIR" "$LOG_DIR" "$STATE_DIR"
 RUNTIME_REAL="$(cd "$RUNTIME_ROOT" && pwd -P)"
 CHECKOUT_REAL="$(cd "$SERVER_DIR/.." && pwd -P)"
+ignore_cloud_synced_checkout_logs "$CHECKOUT_REAL" "$SERVER_DIR/logs"
 case "$RUNTIME_REAL/" in
   "$CHECKOUT_REAL/"*) die "runtime root must be outside the source checkout." ;;
 esac

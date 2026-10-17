@@ -10,7 +10,8 @@
     "db:restore-drill": "node tools/db_admin.mjs restore-drill",
     "preflight": "node tools/preflight.mjs",
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "pretest": "node tools/check_node_runtime.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0"

@@ -986,14 +986,14 @@ enum MacNotificationPlan {
     static func scheduledCards(
         cards: [VocabularyCard],
         settings: UserSettingsData,
-        processedCardIdsToday: Set<String> = []
+        processedCardIdsToday: Set<String> = [],
+        now: Date = Date()
     ) -> [VocabularyCard] {
         let budget = max(0, min(settings.maxQueueSize, settings.dailyWordGoal))
         let remaining = max(0, budget - processedCardIdsToday.count)
         guard remaining > 0 else { return [] }
-        let now = Date()
         let userCards = cards
-            .filter { $0.wordbook == .user && isNotificationEligible($0) }
+            .filter { ($0.wordbook == .user || $0.recommendationStartedAt != nil) && isNotificationEligible($0) }
         let dueUserCards = userCards
             .filter { $0.dueAt <= now }
             .sorted { Scheduler.isHigherPriority($0.notificationSchedulerCard, than: $1.notificationSchedulerCard, now: now) }
@@ -1003,7 +1003,7 @@ enum MacNotificationPlan {
 
         if settings.enableWordRecommendations {
             let recommendations = cards
-                .filter { $0.wordbook == .recommended && isNotificationEligible($0) }
+                .filter { $0.wordbook == .recommended && $0.recommendationStartedAt == nil && $0.dueAt <= now && isNotificationEligible($0) }
                 .sorted { $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt }
             if let recommendation = recommendations.first {
                 return [recommendation]

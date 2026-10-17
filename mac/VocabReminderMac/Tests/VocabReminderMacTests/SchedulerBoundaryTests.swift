@@ -144,3 +144,18 @@ final class SchedulerSharedVectorTests: XCTestCase {
         try SchedulerVectorCommand.verifySharedSchedulerVectors()
     }
 }
+
+extension SchedulerBoundaryTests {
+    func testQuietReleaseUsesLocalMorningAcrossBothDSTTransitions() throws {
+        let formatter = ISO8601DateFormatter()
+        let settings = SchedulerSettings(quietHoursStart: "23:00", quietHoursEnd: "09:00", timezone: "America/New_York")
+        for (input, expected) in [
+            ("2026-03-08T06:55:00Z", "2026-03-08T13:30:00Z"),
+            ("2026-11-01T05:55:00Z", "2026-11-01T14:30:00Z"),
+            ("2026-11-01T06:55:00Z", "2026-11-01T14:30:00Z")
+        ] {
+            let now = try XCTUnwrap(formatter.date(from: input))
+            XCTAssertEqual(Scheduler.avoidQuietHours(now, settings: settings), formatter.date(from: expected))
+        }
+    }
+}

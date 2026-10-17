@@ -14,6 +14,47 @@ const subtlex = JSON.parse(readFileSync(subtlexPath, "utf8"));
 const ranks = new Map(subtlex.map((entry, index) => [entry.word.toLowerCase(), { rank: index + 1, count: entry.count }]));
 
 const entries = [
+  ["errand", "심부름, 볼일", "a short trip to complete a small task", "noun", "I have an errand to run before dinner.", "everyday"],
+  ["clutter", "잡동사니, 어수선함", "things left together in an untidy space", "noun", "We cleared the clutter from the kitchen table.", "everyday"],
+  ["frugal", "절약하는, 검소한", "careful about spending money or using resources", "adjective", "Her frugal habits helped her save for a trip.", "everyday"],
+  ["sturdy", "튼튼한", "strong enough to withstand regular use", "adjective", "We need a sturdy shelf for these books.", "everyday"],
+  ["perishable", "상하기 쉬운", "likely to spoil unless stored properly", "adjective", "Keep perishable food in the refrigerator.", "everyday"],
+  ["upkeep", "유지 관리", "the work needed to keep something in good condition", "noun", "The old house requires regular upkeep.", "everyday"],
+  ["replenish", "다시 채우다", "to fill a supply again after it has been used", "verb", "Please replenish the water before we leave.", "everyday"],
+  ["improvise", "즉흥적으로 하다", "to create or do something without advance preparation", "verb", "We had to improvise a meal with what was left.", "everyday"],
+  ["layover", "경유지 체류", "a break between parts of a journey", "noun", "We explored the city during our long layover.", "travel"],
+  ["detour", "우회로", "a different route taken to avoid the usual way", "noun", "Road repairs forced us to take a detour.", "travel"],
+  ["itinerary", "여행 일정", "a plan listing the places and times of a trip", "noun", "Our itinerary leaves one afternoon free.", "travel"],
+  ["secluded", "외딴, 한적한", "away from busy places and other people", "adjective", "We found a secluded beach near the village.", "travel"],
+  ["scenic", "경치가 좋은", "offering attractive views of the landscape", "adjective", "We took the scenic route along the coast.", "travel"],
+  ["lodging", "임시 숙소", "a place to stay for a short period", "noun", "We arranged lodging near the station.", "travel"],
+  ["embark", "승선하다, 시작하다", "to begin a journey or an undertaking", "verb", "They will embark on their voyage tomorrow.", "travel"],
+  ["souvenir", "기념품", "an object kept to remember a place or occasion", "noun", "She brought home a small souvenir from the market.", "travel"],
+  ["cordial", "다정한, 정중한", "friendly and polite toward others", "adjective", "Our neighbors gave us a cordial welcome.", "relationships"],
+  ["tactful", "재치 있게 배려하는", "careful to avoid upsetting someone when speaking", "adjective", "He offered a tactful response to the awkward question.", "relationships"],
+  ["resentment", "분개, 원망", "anger that remains after unfair treatment", "noun", "Talking openly helped ease her resentment.", "relationships"],
+  ["reconcile", "화해시키다, 조화시키다", "to bring people or ideas back into agreement", "verb", "They tried to reconcile after the argument.", "relationships"],
+  ["reassure", "안심시키다", "to help someone feel less worried", "verb", "I called to reassure him that everyone was safe.", "relationships"],
+  ["reluctant", "내키지 않는", "not willing or eager to do something", "adjective", "She was reluctant to ask for help.", "relationships"],
+  ["candid", "솔직한", "honest and direct in expressing thoughts", "adjective", "We had a candid conversation about our plans.", "relationships"],
+  ["rapport", "친밀한 관계", "a comfortable connection based on mutual understanding", "noun", "The teacher built a warm rapport with the class.", "relationships"],
+  ["surplus", "잉여분", "an amount left after needs have been met", "noun", "The farm donated its surplus to a food bank.", "society"],
+  ["subsidy", "보조금", "money provided to help cover a cost", "noun", "The subsidy made bus travel more affordable.", "society"],
+  ["advocate", "옹호하다", "to speak in support of an idea or cause", "verb", "Residents advocate safer streets for children.", "society"],
+  ["civic", "시민의, 지역 사회의", "relating to a town or the responsibilities of its people", "adjective", "Volunteering is part of civic life.", "society"],
+  ["livelihood", "생계 수단", "the way a person earns enough to live", "noun", "Fishing provides a livelihood for many families.", "society"],
+  ["ordinance", "조례", "a rule made by a local government", "noun", "The new ordinance limits noise at night.", "society"],
+  ["heritage", "유산", "traditions and places passed down from earlier generations", "noun", "The festival celebrates the town's cultural heritage.", "society"],
+  ["stewardship", "책임 있는 관리", "the careful protection and management of something", "noun", "The park depends on responsible stewardship.", "society"],
+  ["savory", "짭짤하고 풍미 있는", "having a rich taste that is not sweet", "adjective", "She served a savory pie for lunch.", "nature_food"],
+  ["simmer", "뭉근히 끓이다", "to cook liquid gently just below boiling", "verb", "Let the soup simmer for twenty minutes.", "nature_food"],
+  ["forage", "먹이를 찾아다니다", "to search for food in the surrounding area", "verb", "Birds forage among the fallen leaves.", "nature_food"],
+  ["canopy", "나뭇가지가 이루는 덮개", "an overhead cover formed by branches or material", "noun", "The forest canopy sheltered us from the rain.", "nature_food"],
+  ["estuary", "하구", "the area where a river meets the sea", "noun", "Many birds gather at the estuary in winter.", "nature_food"],
+  ["drought", "가뭄", "a long period with very little rain", "noun", "The drought left the fields dry.", "nature_food"],
+  ["thrive", "잘 자라다, 번성하다", "to grow or develop very well", "verb", "These plants thrive in sunny gardens.", "nature_food"],
+  ["brittle", "잘 부러지는", "hard but easily broken into pieces", "adjective", "The dry branches were brittle.", "nature_food"],
+
   ["subtle", "미묘한, 감지하기 어려운", "delicate or not obvious", "adjective", "The change produced a subtle improvement.", "academic"],
   ["preliminary", "예비의, 초기 단계의", "coming before a more important action or event", "adjective", "These are preliminary results.", "academic"],
   ["substantial", "상당한, 실질적인", "large in amount, value, or importance", "adjective", "The model showed a substantial improvement.", "academic"],
@@ -249,7 +290,7 @@ const jsonPath = resolve(process.env.RECOMMENDATION_CATALOG_OUTPUT ??
   resolve(repoRoot, "shared/recommendations/recommendation_catalog.json"));
 writeFileSync(jsonPath, JSON.stringify({
   schemaVersion: 2,
-  catalogVersion: "2026-07-13.1",
+  catalogVersion: "2026-09-21.1",
   source: {
     package: "subtlex-word-frequencies",
     version: "2.0.0",
@@ -268,70 +309,8 @@ writeFileSync(jsonPath, JSON.stringify({
       ...(promotionText ? ["reviewed-promotions-sha256"] : [])
     ]
   },
-  generatedAt: "2026-07-13",
+  generatedAt: "2026-09-21",
   entries: catalog
 }, null, 2) + "\n");
 
-const kotlinEntries = catalog.map((entry) => {
-  return [
-    "        RecommendationSeed(",
-    `            lemma = ${kotlinString(entry.lemma)},`,
-    `            meaningKo = ${kotlinString(entry.meaningKo)},`,
-    `            definitionEn = ${kotlinString(entry.definitionEn)},`,
-    `            partOfSpeech = ${kotlinString(entry.partOfSpeech)},`,
-    `            exampleSentence = ${kotlinString(entry.exampleSentence)},`,
-    `            frequencyRank = ${entry.frequencyRank},`,
-    `            topic = ${kotlinString(entry.topic)}`,
-    "        )"
-  ].join("\n");
-}).join(",\n");
-
-const kotlinPath = resolve(process.env.RECOMMENDATION_KOTLIN_OUTPUT ??
-  resolve(repoRoot, "android/VocabReminderAndroid/app/src/main/java/com/vocabreminder/android/recommendation/RecommendationCatalog.kt"));
-writeFileSync(kotlinPath, `package com.vocabreminder.android.recommendation
-
-// Generated from shared/recommendations/recommendation_catalog.json.
-// Source ranks are derived from subtlex-word-frequencies 2.0.0 (ISC/SUBTLEXus).
-object RecommendationCatalog {
-    val seeds: List<RecommendationSeed> = listOf(
-${kotlinEntries}
-    )
-}
-`);
-
-const swiftEntries = catalog.map((entry) => {
-  return [
-    "        RecommendationSeed(",
-    `            lemma: ${swiftString(entry.lemma)},`,
-    `            meaningKo: ${swiftString(entry.meaningKo)},`,
-    `            definitionEn: ${swiftString(entry.definitionEn)},`,
-    `            partOfSpeech: ${swiftString(entry.partOfSpeech)},`,
-    `            exampleSentence: ${swiftString(entry.exampleSentence)},`,
-    `            frequencyRank: ${entry.frequencyRank},`,
-    `            topic: ${swiftString(entry.topic)}`,
-    "        )"
-  ].join("\n");
-}).join(",\n");
-
-const swiftPath = resolve(process.env.RECOMMENDATION_SWIFT_OUTPUT ??
-  resolve(repoRoot, "mac/VocabReminderMac/Sources/VocabReminderMac/RecommendationCatalog.swift"));
-writeFileSync(swiftPath, `import Foundation
-
-// Generated from shared/recommendations/recommendation_catalog.json.
-// Source ranks are derived from subtlex-word-frequencies 2.0.0 (ISC/SUBTLEXus).
-enum RecommendationCatalog {
-    static let seeds: [RecommendationSeed] = [
-${swiftEntries}
-    ]
-}
-`);
-
-console.log(`Wrote ${catalog.length} recommendation seeds`);
-
-function kotlinString(value) {
-  return JSON.stringify(value);
-}
-
-function swiftString(value) {
-  return JSON.stringify(value);
-}
+console.log(`Wrote ${catalog.length} server recommendation seeds`);

@@ -66,9 +66,14 @@ NODE_BIN="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$SERVER_PLIS
 if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
   NODE_BIN="$(command -v node || true)"
 fi
-if [[ -n "$NODE_BIN" ]]; then
-  NODE_BIN="$("$NODE_BIN" -p 'process.execPath')"
-fi
+# Keep Homebrew's major-version opt path: Cellar patch-version paths disappear
+# after brew upgrade/cleanup. The tunnel does not load native SQLite modules.
+for stable_node in /opt/homebrew/opt/node@22/bin/node /usr/local/opt/node@22/bin/node; do
+  if [[ -x "$stable_node" ]] && [[ "$("$stable_node" -p 'process.versions.node.split(".")[0]')" == "22" ]]; then
+    NODE_BIN="$stable_node"
+    break
+  fi
+done
 
 case "$provider" in
   cloudflare_quick_worker|cloudflare-worker|quick-worker)

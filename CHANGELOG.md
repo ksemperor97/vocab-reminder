@@ -1,3 +1,27 @@
+# Server-managed recommendations — 2026-09-23
+
+- Move candidate data, selection, day budgets, and known/dismissed enforcement to the computer sync server.
+- Serve recommendations and migration tombstones through existing sync routes, preserving saved and started words.
+- Remove bundled client recommendation catalogues and local generation; keep downloaded cards available offline.
+- Publish catalogue edits atomically on the computer without a client update or server restart.
+
+# Recommendation fixes — 2026-09-21
+
+- Add 40 project-authored words across everyday life, travel, relationships, society, and nature/food.
+- Balance topics across recommendation batches and single-slot refills while retaining difficulty and review priority.
+- Normalize exclusion keys and apply permanent known/dismissed feedback to active recommended cards, including cards restored by sync; explicitly saved user cards remain available.
+
+# 0.3.0 — 2026-09-08
+
+- Recommend from the first launch; remove the 50-word threshold on both devices.
+- Refill available slots after learning starts and explain recommendation waiting states.
+- Keep quiet hours silent while preparing recommendations locally.
+- Commit Mac card edits and history atomically; preserve input and report storage failures.
+- Add authenticated paginated change sync with persisted cursors and legacy-server fallback.
+- Persist explicit primary definition candidate IDs; use local context topics for recommendations.
+- Separate Android card/history presentation from the main activity.
+- Pin development Node 22 and verify the SQLite native module before running server tests.
+
 # VocabReminder changelog
 
 ## 0.2.0 - 2026-07-14

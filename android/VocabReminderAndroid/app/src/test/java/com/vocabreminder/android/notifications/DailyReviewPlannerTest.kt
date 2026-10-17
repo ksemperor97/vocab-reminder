@@ -16,6 +16,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.vocabreminder.android.R
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
@@ -61,37 +62,57 @@ class DailyReviewPlannerTest {
         NotificationClock.resetForTest()
     }
 
-    @Test
-    fun planAndScheduleDoesNotRecommendBeforeFiftyUserWords() {
-        val now = Instant.parse("2026-07-03T00:00:00Z")
-        addFutureUserCards(count = 49, now = now)
-
-        val summary = DailyReviewPlanner.planAndSchedule(context, now)
-
-        assertEquals(0, summary.generatedRecommendations)
-        assertEquals(0, summary.scheduledNotifications)
-        assertEquals(0, store.cards().count { it.wordbook == Wordbook.RECOMMENDED })
+    private fun importServerRecommendations(now: Instant, count: Int = 10) {
+        val cards = org.json.JSONArray()
+        repeat(count) { index ->
+            cards.put(org.json.JSONObject().put("id", "server-recommendation-$index")
+                .put("lemma", "serveronlyword$index").put("display_word", "serveronlyword$index")
+                .put("meaning_ko", "서버 뜻 $index").put("status", "new").put("wordbook", "recommended")
+                .put("due_at", now.toString()).put("created_at", now.toString()).put("updated_at", now.toString())
+                .put("version", 1).put("created_device_id", "recommendation-server"))
+        }
+        store.importSyncBatchJson(org.json.JSONObject().put("cards", cards).toString())
     }
 
     @Test
-    fun planAndScheduleFillsRecommendationSlotsAfterFiftyUserWords() {
-        val now = Instant.parse("2026-07-03T00:00:00Z")
-        addFutureUserCards(count = 50, now = now)
-
+    fun quietHoursKeepSyncedRecommendationsWithoutPostingPrompts() {
+        val now = Instant.parse("2026-07-03T15:00:00Z")
+        importServerRecommendations(now)
         val summary = DailyReviewPlanner.planAndSchedule(context, now)
-        val recommendations = store.cards().filter { it.wordbook == Wordbook.RECOMMENDED }
+        assertEquals(0, summary.generatedRecommendations)
+        assertEquals(0, summary.scheduledNotifications)
+        assertEquals(10, store.cards().size)
+        assertNull(ReminderNotifications.activePromptCardId(context))
+    }
 
-        assertEquals(10, summary.generatedRecommendations)
+    @Test
+    fun newDayNeverCreatesLocalRecommendations() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        importServerRecommendations(now, 1)
+        val card = store.cards().single()
+        store.markRecommendationStarted(card.id, now)
+        val tomorrow = now.plusSeconds(86400)
+        store.updateCard(store.findCard(card.id)!!.copy(dueAt = tomorrow.plusSeconds(86400)))
+        assertEquals(0, DailyReviewPlanner.planAndSchedule(context, tomorrow).generatedRecommendations)
+        assertEquals(1, store.cards().size)
+    }
+
+    @Test
+    fun emptyWordbookWaitsForServerInsteadOfGeneratingLocalWords() {
+        val summary = DailyReviewPlanner.planAndSchedule(context, defaultNow)
+        assertEquals(0, summary.generatedRecommendations)
+        assertEquals(0, summary.scheduledNotifications)
+        assertTrue(store.cards().isEmpty())
+    }
+
+    @Test
+    fun plannerDisplaysWordsAbsentFromTheOldBundledCatalogue() {
+        importServerRecommendations(defaultNow)
+        val summary = DailyReviewPlanner.planAndSchedule(context, defaultNow)
+        assertEquals(0, summary.generatedRecommendations)
         assertEquals(10, summary.scheduledNotifications)
-        assertEquals(0, summary.rebalancedCards)
-        assertEquals(summary.generatedRecommendations, recommendations.size)
-        assertTrue(recommendations.all { it.meaningKo.isNotBlank() })
-        assertTrue(recommendations.all { it.recommendationStartedAt == null })
-        if (summary.recommendationIntroShown) {
-            assertEquals(now, store.settings().recommendationsIntroducedAt)
-        } else {
-            assertNull(store.settings().recommendationsIntroducedAt)
-        }
+        assertEquals(10, store.cards().size)
+        assertTrue(store.cards().all { it.meaningKo.startsWith("서버 뜻") })
     }
 
     @Test
@@ -118,6 +139,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun dueQueueShowsOnePromptAndAdvancesAfterAction() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val now = Instant.parse("2026-07-03T00:00:00Z")
         repeat(2) { index ->
@@ -156,6 +178,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun rememberedMeaningWaitsForDismissWithoutTimeoutOrQueueAlarm() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val firstPromptId = seedDueQueueAndShowFirstPrompt()
 
@@ -182,6 +205,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun feedbackDeleteIntentClearsSlotAndShowsNextPrompt() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val firstPromptId = seedDueQueueAndShowFirstPrompt()
         sendReviewAction(firstPromptId, ReviewResponse.FORGOTTEN)
@@ -431,6 +455,7 @@ class DailyReviewPlannerTest {
         val now = NotificationClock.now()
         addFutureUserCards(count = 50, now = now)
         store.markRecommendationsIntroduced(now)
+        importServerRecommendations(now)
         DailyReviewPlanner.planAndSchedule(context, now)
         val dismissedId = requireNotNull(ReminderNotifications.activePromptCardId(context))
         val dismissedCard = store.findCard(dismissedId)!!
@@ -527,13 +552,46 @@ class DailyReviewPlannerTest {
 
         sendReviewAction(firstPromptId, ReviewResponse.REMEMBERED)
 
-        val feedbackInput = notificationFor(store.findCard(firstPromptId)!!.notificationId).singleWearableReplyRemoteInput()
+        val feedbackNotification = notificationFor(store.findCard(firstPromptId)!!.notificationId)
+        assertEquals(listOf("다음"), feedbackNotification.actionTitles())
+        val feedbackInput = feedbackNotification.singleWearableReplyRemoteInput()
         assertTrue(feedbackInput.allowFreeFormInput)
         assertEquals(listOf("다음"), feedbackInput.choices!!.map { it.toString() })
     }
 
     @Test
+    fun lastCardWatchAnswerImmediatelyShowsMeaningWithPhoneNextButton() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
+        shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val now = NotificationClock.now()
+        val card = store.addCard(
+            displayWord = "lastword",
+            meaningKo = "마지막 뜻",
+            exampleSentence = "The last card still reveals its meaning.",
+            dueAt = now,
+            now = now.minusSeconds(1)
+        )
+        assertTrue(ReminderNotifications.showReview(context, card, now = now))
+
+        fireWatchReply(card.id, ReminderNotifications.REPLY_KIND_REVIEW_PROMPT, "네")
+
+        val feedback = notificationFor(card.notificationId)
+        assertEquals(NotificationPhase.FEEDBACK, ReminderNotifications.activeNotificationState(context)?.phase)
+        assertEquals(NotificationFeedbackKind.REMEMBERED, ReminderNotifications.activeNotificationState(context)?.feedbackKind)
+        assertTrue(feedback.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("마지막 뜻"))
+        assertEquals(R.layout.notification_feedback_compact, feedback.contentView.layoutId)
+        assertEquals(listOf("다음"), feedback.actionTitles())
+        assertEquals(0, feedback.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+
+        fireFeedbackNextAction(feedback)
+
+        assertNull(ReminderNotifications.activeNotificationState(context))
+        assertEquals(0, postedNotificationCount())
+    }
+
+    @Test
     fun futureCardWatchReplyDoesNotWriteEvent() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val now = NotificationClock.now()
         val card = store.addCard(
@@ -554,6 +612,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun feedbackWatchReplyAdvancesQueueAndDuplicateDeleteIntentDoesNotDoublePost() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val firstPromptId = seedDueQueueAndShowFirstPrompt()
         sendReviewAction(firstPromptId, ReviewResponse.REMEMBERED)
@@ -851,7 +910,8 @@ class DailyReviewPlannerTest {
         val now = Instant.parse("2026-07-11T01:00:00Z")
         addFutureUserCards(count = 50, now = now)
 
-        assertEquals(10, DailyReviewPlanner.planAndSchedule(context, now).generatedRecommendations)
+        importServerRecommendations(now)
+        assertEquals(0, DailyReviewPlanner.planAndSchedule(context, now).generatedRecommendations)
         val processed = store.cards().first { it.wordbook == Wordbook.RECOMMENDED }
         ReminderNotifications.clearActivePrompt(context)
         store.softDeleteRecommendation(processed.id, "known", now.plusSeconds(60))
@@ -981,6 +1041,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun staleReviewActionOnlyClearsNotificationWithoutWritingEvent() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val now = NotificationClock.now()
         val card = store.addCard(
@@ -1035,6 +1096,7 @@ class DailyReviewPlannerTest {
 
     @Test
     fun bootRecoverySchedulesSyncPlannerAndQuietHourBoundaries() {
+        store.saveSettings(store.settings().copy(enableWordRecommendations = false))
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val now = NotificationClock.now()
         store.addCard(
@@ -1212,6 +1274,12 @@ class DailyReviewPlannerTest {
                 expectedPostedAtMillis = state.postedAt.toEpochMilli()
             )
         }
+    }
+
+    private fun fireFeedbackNextAction(notification: Notification) {
+        val nextAction = requireNotNull(notification.actions).single { it.title.toString() == "다음" }
+        val intent = shadowOf(nextAction.actionIntent).savedIntent
+        NotificationQueueAdvanceReceiver().onReceive(context, intent)
     }
 
     private fun notificationManager(): NotificationManager {

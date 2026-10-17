@@ -56,7 +56,9 @@ private func koreanMeaning(from definition: String) -> String? {
         with: " ",
         options: .regularExpression
     )
-    for rawPart in stripped.components(separatedBy: CharacterSet(charactersIn: "\n\r•·")) {
+    // A middle dot can join words inside one Korean meaning (for example,
+    // "장점·입장"), so only actual line and bullet separators split entries.
+    for rawPart in stripped.components(separatedBy: CharacterSet(charactersIn: "\n\r•")) {
         var part = rawPart
             .replacingOccurrences(of: #"▸.*$"#, with: "", options: .regularExpression)
             .replacingOccurrences(

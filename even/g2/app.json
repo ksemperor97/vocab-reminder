@@ -1,0 +1,21 @@
+{
+  "package_id": "com.vocabreminder.g2",
+  "edition": "202601",
+  "name": "Vocab Ring Trial",
+  "version": "0.2.0",
+  "min_sdk_version": "0.0.14",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "휴대폰의 복습 문제를 받고 링 응답을 학습 기록에 반영합니다.",
+      "whitelist": [
+        "https://vocab-sync.vocab-reminder-sjk.workers.dev"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "ko",
+    "en"
+  ]
+}

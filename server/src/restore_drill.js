@@ -27,7 +27,10 @@ export async function runRestoreDrill({ backupPath, backupDir, statePath } = {})
     db = openDatabase(restoredPath);
     const restoredSummary = inspectDatabase(db);
     const token = crypto.randomBytes(32).toString("hex");
-    ({ server } = createSyncServer({ db, token }));
+    ({ server } = createSyncServer({
+      recommendationCatalog: null, // Verify restored data without generating or migrating cards.
+      db, token
+    }));
     await new Promise((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", resolve);

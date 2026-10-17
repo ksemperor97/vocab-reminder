@@ -23,5 +23,13 @@ data class DictionaryLookupResult(
     val confidence: Double = 0.0,
     val attemptedAt: Instant? = null,
     val errorCode: DictionaryLookupErrorCode? = null,
-    val requestId: String? = null
+    val requestId: String? = null,
+    val senses: List<DictionarySense> = emptyList()
+)
+
+data class DictionarySense(
+    val meaningKo: String,
+    val definitionEn: String = "",
+    val partOfSpeech: String = "",
+    val exampleSentence: String = ""
 )

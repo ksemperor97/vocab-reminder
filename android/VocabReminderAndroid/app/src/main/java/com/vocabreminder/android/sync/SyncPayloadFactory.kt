@@ -76,6 +76,7 @@ object SyncPayloadFactory {
             .put("source_url_primary", sourceUrlPrimary.ifBlank { JSONObject.NULL })
             .put("source_app_primary", sourceAppPrimary.ifBlank { JSONObject.NULL })
             .put("definition_source_primary", definitionSourcePrimary)
+            .put("primary_definition_candidate_id", primaryDefinitionCandidateId ?: JSONObject.NULL)
             .put("status", status.name.lowercase())
             .put("due_at", dueAt.toString())
             .put("interval_days", intervalDays)
@@ -185,6 +186,7 @@ object SyncPayloadFactory {
             sourceAppPrimary = string("source_app_primary"),
             sourceUrlPrimary = string("source_url_primary"),
             definitionSourcePrimary = string("definition_source_primary", "unknown"),
+            primaryDefinitionCandidateId = optString("primary_definition_candidate_id").takeIf { it.isNotBlank() && it != "null" },
             status = enumValue(string("status", CardStatus.NEW.name), CardStatus.NEW),
             wordbook = enumValue(string("wordbook", Wordbook.USER.name), Wordbook.USER),
             dueAt = dueAt,

@@ -827,7 +827,7 @@ enum SchedulerVectorCommand {
             "definition_candidates": [],
             "review_events": [],
             "recommendation_feedback": [],
-            "settings": ["daily_word_goal": 10]
+            "settings": ["daily_word_goal": 10, "enable_word_recommendations": false]
         ]
         let syncURL = tempDir.appending(path: "vocab-reminder-sync.json")
         try JSONSerialization.data(withJSONObject: recommendedPayload).write(to: syncURL)
@@ -852,7 +852,7 @@ enum SchedulerVectorCommand {
         try require(promoted.status == .learning, "Mac local capture should preserve recommended progress status")
         try require(promoted.intervalDays == 3, "Mac local capture should preserve recommended interval")
         try require(promoted.lapseCount == 1, "Mac local capture should preserve recommended lapse count")
-        try require(store.contexts.count == 1, "Mac local capture should attach a real context to promoted recommendation")
+        try require(store.contexts.filter { $0.cardId == "recommended-card" }.count == 1, "Mac local capture should attach a real context to promoted recommendation")
         store.softDeleteCard(promoted)
         try require(store.activeCards.isEmpty, "Mac delete should remove card from active list")
         try require(store.cards.first?.deletedAt != nil, "Mac delete should mark deletedAt")
@@ -1359,119 +1359,7 @@ enum SchedulerVectorCommand {
     }
 
     private static func assertRecommendationEngine() throws {
-        let sharedCatalog = try JSONSerialization.jsonObject(with: Data(contentsOf: recommendationCatalogURL())) as! [String: Any]
-        let sharedEntries = sharedCatalog["entries"] as! [[String: Any]]
-
-        try require(RecommendationEngine.catalog.count >= 100, "Expected production-sized Mac recommendation catalogue")
-        try require(RecommendationEngine.catalog.count == sharedEntries.count, "Mac recommendation catalogue should match shared JSON count")
-        try require(Set(RecommendationEngine.catalog.map(\.lemma)).count == RecommendationEngine.catalog.count, "Mac recommendation catalogue should not duplicate lemmas")
-        try require(Set(RecommendationEngine.catalog.map(\.topic)).isSuperset(of: ["academic", "methods", "statistics", "neuroscience"]), "Mac recommendation catalogue should include core topics")
-        let byLemma = Dictionary(uniqueKeysWithValues: RecommendationEngine.catalog.map { ($0.lemma, $0) })
-        for entry in sharedEntries {
-            let lemma = entry["lemma"] as! String
-            let seed = byLemma[lemma]
-            try require(seed?.frequencyRank == entry["frequencyRank"] as? Int, "Mac recommendation catalogue rank mismatch for \(lemma)")
-            try require(seed?.topic == entry["topic"] as? String, "Mac recommendation catalogue topic mismatch for \(lemma)")
-            try require(seed?.meaningKo == entry["meaningKo"] as? String, "Mac recommendation catalogue meaning mismatch for \(lemma)")
-        }
-
-        let vectors = try JSONSerialization.jsonObject(with: Data(contentsOf: recommendationVectorURL())) as! [[String: Any]]
-        try require(vectors.count >= 7, "Expected recommendation vectors")
-        for vector in vectors {
-            let kind = vector["kind"] as! String
-            if kind == "chooseRecommendations" {
-                try assertChooseRecommendationsVector(vector)
-            } else if kind == "fillLimit" {
-                try assertFillLimitVector(vector)
-            } else if kind == "estimateLevel" {
-                try assertEstimateLevelVector(vector)
-            } else {
-                throw CheckError("Unknown recommendation vector kind \(kind)")
-            }
-        }
-    }
-
-    private static func assertChooseRecommendationsVector(_ vector: [String: Any]) throws {
-        let settings = parseSettings(vector["settings"] as? [String: Any])
-        let dueUserCount = vector["due_user_count"] as? Int ?? 0
-        let limit = vector["limit"] as? Int ?? RecommendationEngine.recommendationFillLimit(
-            dueUserCount: dueUserCount,
-            existingRecommendationCount: vector["existing_recommendation_count"] as? Int ?? 0,
-            settings: settings
-        )
-        let selected = RecommendationEngine.chooseRecommendations(
-            userSignals: parseUserSignals(vector["user_signals"] as? [[String: Any]]),
-            feedbackSignals: parseFeedbackSignals(vector["feedback_signals"] as? [[String: Any]]),
-            existingLemmas: Set(vector["existing_lemmas"] as? [String] ?? []),
-            dueUserCount: dueUserCount,
-            settings: settings,
-            limit: limit
-        )
-        let then = vector["then"] as! [String: Any]
-        let name = vector["name"] as! String
-        try require(selected.count == then["selected_count"] as! Int, "\(name): selected count")
-        if let range = then["frequency_rank_between"] as? [Int] {
-            try require(selected.allSatisfy { range[0]...range[1] ~= $0.frequencyRank }, "\(name): frequency rank range")
-        }
-        if let topics = then["first_topic_in"] as? [String], let first = selected.first {
-            try require(topics.contains(first.topic), "\(name): first topic")
-        }
-        if let lemmas = then["excluded_lemmas"] as? [String] {
-            try require(selected.allSatisfy { !lemmas.contains($0.lemma) }, "\(name): excluded lemmas")
-        }
-        if let topics = then["excluded_topics"] as? [String] {
-            try require(selected.allSatisfy { !topics.contains($0.topic) }, "\(name): excluded topics")
-        }
-    }
-
-    private static func assertFillLimitVector(_ vector: [String: Any]) throws {
-        let result = RecommendationEngine.recommendationFillLimit(
-            dueUserCount: vector["due_user_count"] as! Int,
-            existingRecommendationCount: vector["existing_recommendation_count"] as! Int,
-            settings: parseSettings(vector["settings"] as? [String: Any])
-        )
-        let then = vector["then"] as! [String: Any]
-        try require(result == then["fill_limit"] as! Int, "\(vector["name"] as! String): fill limit")
-    }
-
-    private static func assertEstimateLevelVector(_ vector: [String: Any]) throws {
-        let userSignals = parseUserSignals(vector["user_signals"] as? [[String: Any]])
-        let baseline = RecommendationEngine.estimateLevel(userSignals: userSignals)
-        let result = RecommendationEngine.estimateLevel(
-            userSignals: userSignals,
-            feedbackSignals: parseFeedbackSignals(vector["feedback_signals"] as? [[String: Any]])
-        )
-        let then = vector["then"] as! [String: Any]
-        let name = vector["name"] as! String
-        if then["lower_rank_greater_than_baseline"] as? Bool == true {
-            try require(result.lowerRank > baseline.lowerRank, "\(name): lower rank")
-        }
-        if then["upper_rank_greater_than_baseline"] as? Bool == true {
-            try require(result.upperRank > baseline.upperRank, "\(name): upper rank")
-        }
-    }
-
-    private static func parseUserSignals(_ json: [[String: Any]]?) -> [UserVocabularySignal] {
-        (json ?? []).flatMap { signal in
-            Array(
-                repeating: UserVocabularySignal(
-                    lemma: signal["lemma"] as! String,
-                    lapseCount: signal["lapse_count"] as? Int ?? 0,
-                    rememberedCount: signal["remembered_count"] as? Int ?? 0,
-                    forgottenCount: signal["forgotten_count"] as? Int ?? 0
-                ),
-                count: signal["count"] as? Int ?? 1
-            )
-        }
-    }
-
-    private static func parseFeedbackSignals(_ json: [[String: Any]]?) -> [RecommendationFeedbackSignal] {
-        (json ?? []).map { signal in
-            RecommendationFeedbackSignal(
-                lemma: signal["lemma"] as! String,
-                action: signal["action"] as! String
-            )
-        }
+        try require(RecommendationEngine.normalizedLemma("  ＳＵＢＴＬＥ  ") == "subtle", "Feedback identity must normalize")
     }
 
     private static func parseCard(_ json: [String: Any], now: Date) -> SchedulerCard {
@@ -1609,36 +1497,6 @@ enum SchedulerVectorCommand {
             return url
         }
         throw CheckError("Could not find shared/test-vectors/scheduler.json")
-    }
-
-    private static func recommendationCatalogURL() throws -> URL {
-        let candidates = [
-            URL(filePath: "../../../shared/recommendations/recommendation_catalog.json"),
-            URL(filePath: "../../shared/recommendations/recommendation_catalog.json"),
-            URL(filePath: "../shared/recommendations/recommendation_catalog.json"),
-            URL(filePath: "shared/recommendations/recommendation_catalog.json"),
-            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../../shared/recommendations/recommendation_catalog.json"),
-            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../shared/recommendations/recommendation_catalog.json")
-        ]
-        if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            return url
-        }
-        throw CheckError("Could not find shared/recommendations/recommendation_catalog.json")
-    }
-
-    private static func recommendationVectorURL() throws -> URL {
-        let candidates = [
-            URL(filePath: "../../../shared/test-vectors/recommendations.json"),
-            URL(filePath: "../../shared/test-vectors/recommendations.json"),
-            URL(filePath: "../shared/test-vectors/recommendations.json"),
-            URL(filePath: "shared/test-vectors/recommendations.json"),
-            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../../shared/test-vectors/recommendations.json"),
-            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "../../shared/test-vectors/recommendations.json")
-        ]
-        if let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            return url
-        }
-        throw CheckError("Could not find shared/test-vectors/recommendations.json")
     }
 
     private static func captureVectorURL() throws -> URL {

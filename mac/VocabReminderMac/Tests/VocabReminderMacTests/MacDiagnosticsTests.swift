@@ -64,7 +64,7 @@ final class MacDiagnosticsTests: XCTestCase {
         )
         store.savePreview(meaningOverride: "뜻", exampleOverride: "문맥", method: .macService)
 
-        let context = try XCTUnwrap(store.contexts.last)
+        let context = try XCTUnwrap(store.contexts.first { $0.captureMethod == .macService })
         XCTAssertEqual(context.sourceApp, MacCaptureSource.urlScheme)
         XCTAssertEqual(context.sourceURL, "https://example.test/source")
         XCTAssertEqual(MacCaptureSource.mechanismLabel(for: context), "URL scheme")

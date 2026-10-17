@@ -14,6 +14,7 @@ import android.os.Build
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
@@ -178,9 +179,7 @@ object ReminderNotifications {
                 .setContentTitle("${card.displayWord} ✓")
                 .setContentText("${card.meaningKo} · 다음 복습: $nextReview")
                 .setStyle(NotificationCompat.BigTextStyle().bigText("${card.meaningKo}\n다음 복습: $nextReview"))
-                .setAutoCancel(true)
-                .setDeleteIntent(feedbackDeleteIntent(context, card))
-                .withWatchReply(context, card, REPLY_KIND_FEEDBACK),
+                .asFeedback(context, card),
             now = now,
             respectQuietHours = false
         )
@@ -198,9 +197,7 @@ object ReminderNotifications {
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setAutoCancel(true)
-                .setDeleteIntent(feedbackDeleteIntent(context, card))
-                .withWatchReply(context, card, REPLY_KIND_FEEDBACK),
+                .asFeedback(context, card),
             now = now,
             respectQuietHours = false
         )
@@ -275,9 +272,7 @@ object ReminderNotifications {
                 .setContentText("뜻: ${card.meaningKo}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setAutoCancel(true)
-                .setDeleteIntent(feedbackDeleteIntent(context, card))
-                .withWatchReply(context, card, REPLY_KIND_FEEDBACK),
+                .asFeedback(context, card),
             now = now,
             respectQuietHours = false
         )
@@ -671,6 +666,34 @@ object ReminderNotifications {
     private fun watchReplyPendingIntentFlags(): Int {
         return PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+    }
+
+    private fun NotificationCompat.Builder.asFeedback(
+        context: Context,
+        card: VocabularyCard
+    ): NotificationCompat.Builder {
+        return setOnlyAlertOnce(false)
+            .setAutoCancel(true)
+            .setDeleteIntent(feedbackDeleteIntent(context, card))
+            .setCustomContentView(feedbackCompactView(context, card))
+            .addAction(feedbackNextAction(context, card))
+            .withWatchReply(context, card, REPLY_KIND_FEEDBACK)
+    }
+
+    private fun feedbackCompactView(context: Context, card: VocabularyCard): RemoteViews {
+        return RemoteViews(context.packageName, R.layout.notification_feedback_compact).apply {
+            setTextViewText(R.id.notification_feedback_title, card.displayWord)
+            setTextViewText(R.id.notification_feedback_meaning, card.meaningKo)
+            setOnClickPendingIntent(R.id.notification_feedback_next, feedbackDeleteIntent(context, card))
+        }
+    }
+
+    private fun feedbackNextAction(context: Context, card: VocabularyCard): NotificationCompat.Action {
+        return NotificationCompat.Action.Builder(
+            0,
+            "다음",
+            feedbackDeleteIntent(context, card)
+        ).build()
     }
 
     @Synchronized

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "catalogVersion": "2026-07-13.1",
+  "catalogVersion": "2026-09-21.1",
   "source": {
     "package": "subtlex-word-frequencies",
     "version": "2.0.0",
@@ -30,7 +30,7 @@
       "project-authored-seed-v1"
     ]
   },
-  "generatedAt": "2026-07-13",
+  "generatedAt": "2026-09-21",
   "entries": [
     {
       "lemma": "prior",
@@ -117,6 +117,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "souvenir",
+      "meaningKo": "기념품",
+      "definitionEn": "an object kept to remember a place or occasion",
+      "partOfSpeech": "noun",
+      "exampleSentence": "She brought home a small souvenir from the market.",
+      "frequencyRank": 7143,
+      "frequencyCount": 240,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:souvenir",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "phenomenon",
       "meaningKo": "현상",
       "definitionEn": "an observable fact or event",
@@ -127,6 +141,20 @@
       "topic": "academic",
       "difficultyBand": "intermediate",
       "entryId": "recommendation:phenomenon",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "errand",
+      "meaningKo": "심부름, 볼일",
+      "definitionEn": "a short trip to complete a small task",
+      "partOfSpeech": "noun",
+      "exampleSentence": "I have an errand to run before dinner.",
+      "frequencyRank": 7885,
+      "frequencyCount": 204,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:errand",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -285,6 +313,48 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "heritage",
+      "meaningKo": "유산",
+      "definitionEn": "traditions and places passed down from earlier generations",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The festival celebrates the town's cultural heritage.",
+      "frequencyRank": 10342,
+      "frequencyCount": 129,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:heritage",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "reluctant",
+      "meaningKo": "내키지 않는",
+      "definitionEn": "not willing or eager to do something",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "She was reluctant to ask for help.",
+      "frequencyRank": 10373,
+      "frequencyCount": 128,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:reluctant",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "improvise",
+      "meaningKo": "즉흥적으로 하다",
+      "definitionEn": "to create or do something without advance preparation",
+      "partOfSpeech": "verb",
+      "exampleSentence": "We had to improvise a meal with what was left.",
+      "frequencyRank": 10445,
+      "frequencyCount": 127,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:improvise",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "enhance",
       "meaningKo": "향상시키다",
       "definitionEn": "to improve or increase something",
@@ -341,6 +411,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "advocate",
+      "meaningKo": "옹호하다",
+      "definitionEn": "to speak in support of an idea or cause",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Residents advocate safer streets for children.",
+      "frequencyRank": 11149,
+      "frequencyCount": 113,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:advocate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "transform",
       "meaningKo": "변환하다, 변화시키다",
       "definitionEn": "to change in form or appearance",
@@ -369,6 +453,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "civic",
+      "meaningKo": "시민의, 지역 사회의",
+      "definitionEn": "relating to a town or the responsibilities of its people",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Volunteering is part of civic life.",
+      "frequencyRank": 11348,
+      "frequencyCount": 110,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:civic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "dense",
       "meaningKo": "빽빽한, 조밀한",
       "definitionEn": "closely compacted together",
@@ -393,6 +491,48 @@
       "topic": "methods",
       "difficultyBand": "intermediate",
       "entryId": "recommendation:dynamic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "detour",
+      "meaningKo": "우회로",
+      "definitionEn": "a different route taken to avoid the usual way",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Road repairs forced us to take a detour.",
+      "frequencyRank": 11552,
+      "frequencyCount": 107,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:detour",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "surplus",
+      "meaningKo": "잉여분",
+      "definitionEn": "an amount left after needs have been met",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The farm donated its surplus to a food bank.",
+      "frequencyRank": 11756,
+      "frequencyCount": 104,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:surplus",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "candid",
+      "meaningKo": "솔직한",
+      "definitionEn": "honest and direct in expressing thoughts",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We had a candid conversation about our plans.",
+      "frequencyRank": 11865,
+      "frequencyCount": 102,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:candid",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -439,6 +579,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "thrive",
+      "meaningKo": "잘 자라다, 번성하다",
+      "definitionEn": "to grow or develop very well",
+      "partOfSpeech": "verb",
+      "exampleSentence": "These plants thrive in sunny gardens.",
+      "frequencyRank": 12785,
+      "frequencyCount": 89,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:thrive",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "visualize",
       "meaningKo": "시각화하다",
       "definitionEn": "to represent something visually",
@@ -449,6 +603,76 @@
       "topic": "methods",
       "difficultyBand": "intermediate",
       "entryId": "recommendation:visualize",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "simmer",
+      "meaningKo": "뭉근히 끓이다",
+      "definitionEn": "to cook liquid gently just below boiling",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Let the soup simmer for twenty minutes.",
+      "frequencyRank": 12951,
+      "frequencyCount": 87,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:simmer",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "sturdy",
+      "meaningKo": "튼튼한",
+      "definitionEn": "strong enough to withstand regular use",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We need a sturdy shelf for these books.",
+      "frequencyRank": 13048,
+      "frequencyCount": 86,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:sturdy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "ordinance",
+      "meaningKo": "조례",
+      "definitionEn": "a rule made by a local government",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The new ordinance limits noise at night.",
+      "frequencyRank": 13070,
+      "frequencyCount": 86,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:ordinance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "canopy",
+      "meaningKo": "나뭇가지가 이루는 덮개",
+      "definitionEn": "an overhead cover formed by branches or material",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The forest canopy sheltered us from the rain.",
+      "frequencyRank": 13095,
+      "frequencyCount": 86,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:canopy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "itinerary",
+      "meaningKo": "여행 일정",
+      "definitionEn": "a plan listing the places and times of a trip",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Our itinerary leaves one afternoon free.",
+      "frequencyRank": 13176,
+      "frequencyCount": 85,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:itinerary",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -551,6 +775,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "resentment",
+      "meaningKo": "분개, 원망",
+      "definitionEn": "anger that remains after unfair treatment",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Talking openly helped ease her resentment.",
+      "frequencyRank": 14020,
+      "frequencyCount": 76,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:resentment",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "suppress",
       "meaningKo": "억제하다, 누르다",
       "definitionEn": "to prevent something from being expressed",
@@ -561,6 +799,20 @@
       "topic": "neuroscience",
       "difficultyBand": "intermediate",
       "entryId": "recommendation:suppress",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "livelihood",
+      "meaningKo": "생계 수단",
+      "definitionEn": "the way a person earns enough to live",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Fishing provides a livelihood for many families.",
+      "frequencyRank": 14035,
+      "frequencyCount": 76,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:livelihood",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -589,6 +841,34 @@
       "topic": "academic",
       "difficultyBand": "intermediate",
       "entryId": "recommendation:explicit",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "brittle",
+      "meaningKo": "잘 부러지는",
+      "definitionEn": "hard but easily broken into pieces",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "The dry branches were brittle.",
+      "frequencyRank": 14590,
+      "frequencyCount": 71,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:brittle",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "drought",
+      "meaningKo": "가뭄",
+      "definitionEn": "a long period with very little rain",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The drought left the fields dry.",
+      "frequencyRank": 14694,
+      "frequencyCount": 70,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:drought",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -677,6 +957,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "embark",
+      "meaningKo": "승선하다, 시작하다",
+      "definitionEn": "to begin a journey or an undertaking",
+      "partOfSpeech": "verb",
+      "exampleSentence": "They will embark on their voyage tomorrow.",
+      "frequencyRank": 15390,
+      "frequencyCount": 64,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:embark",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "approximate",
       "meaningKo": "대략의, 근사적인",
       "definitionEn": "close to the actual value but not exact",
@@ -715,6 +1009,20 @@
       "topic": "statistics",
       "difficultyBand": "boundary",
       "entryId": "recommendation:anomaly",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "cordial",
+      "meaningKo": "다정한, 정중한",
+      "definitionEn": "friendly and polite toward others",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Our neighbors gave us a cordial welcome.",
+      "frequencyRank": 15737,
+      "frequencyCount": 62,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:cordial",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -761,6 +1069,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "reconcile",
+      "meaningKo": "화해시키다, 조화시키다",
+      "definitionEn": "to bring people or ideas back into agreement",
+      "partOfSpeech": "verb",
+      "exampleSentence": "They tried to reconcile after the argument.",
+      "frequencyRank": 16232,
+      "frequencyCount": 58,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:reconcile",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "artifact",
       "meaningKo": "인공 산물, 잡음",
       "definitionEn": "an unintended result of a process or measurement",
@@ -803,6 +1125,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "scenic",
+      "meaningKo": "경치가 좋은",
+      "definitionEn": "offering attractive views of the landscape",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We took the scenic route along the coast.",
+      "frequencyRank": 17026,
+      "frequencyCount": 53,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:scenic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "coherent",
       "meaningKo": "일관된, 논리적으로 연결된",
       "definitionEn": "logical and consistent",
@@ -813,6 +1149,20 @@
       "topic": "academic",
       "difficultyBand": "boundary",
       "entryId": "recommendation:coherent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "secluded",
+      "meaningKo": "외딴, 한적한",
+      "definitionEn": "away from busy places and other people",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We found a secluded beach near the village.",
+      "frequencyRank": 17221,
+      "frequencyCount": 52,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:secluded",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -845,6 +1195,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "clutter",
+      "meaningKo": "잡동사니, 어수선함",
+      "definitionEn": "things left together in an untidy space",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We cleared the clutter from the kitchen table.",
+      "frequencyRank": 18046,
+      "frequencyCount": 48,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:clutter",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "attribute",
       "meaningKo": "귀인하다, 속성",
       "definitionEn": "to regard something as caused by something else",
@@ -855,6 +1219,20 @@
       "topic": "academic",
       "difficultyBand": "boundary",
       "entryId": "recommendation:attribute",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "reassure",
+      "meaningKo": "안심시키다",
+      "definitionEn": "to help someone feel less worried",
+      "partOfSpeech": "verb",
+      "exampleSentence": "I called to reassure him that everyone was safe.",
+      "frequencyRank": 18560,
+      "frequencyCount": 45,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:reassure",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -897,6 +1275,20 @@
       "topic": "neuroscience",
       "difficultyBand": "boundary",
       "entryId": "recommendation:reinforcement",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "lodging",
+      "meaningKo": "임시 숙소",
+      "definitionEn": "a place to stay for a short period",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We arranged lodging near the station.",
+      "frequencyRank": 18959,
+      "frequencyCount": 43,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:lodging",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -1153,6 +1545,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "rapport",
+      "meaningKo": "친밀한 관계",
+      "definitionEn": "a comfortable connection based on mutual understanding",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The teacher built a warm rapport with the class.",
+      "frequencyRank": 22053,
+      "frequencyCount": 32,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:rapport",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "posterior",
       "meaningKo": "사후의, 사후분포",
       "definitionEn": "updated after observing evidence",
@@ -1237,6 +1643,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "tactful",
+      "meaningKo": "재치 있게 배려하는",
+      "definitionEn": "careful to avoid upsetting someone when speaking",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "He offered a tactful response to the awkward question.",
+      "frequencyRank": 23189,
+      "frequencyCount": 29,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:tactful",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "intermittent",
       "meaningKo": "간헐적인",
       "definitionEn": "occurring at irregular intervals",
@@ -1247,6 +1667,34 @@
       "topic": "methods",
       "difficultyBand": "boundary",
       "entryId": "recommendation:intermittent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "replenish",
+      "meaningKo": "다시 채우다",
+      "definitionEn": "to fill a supply again after it has been used",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Please replenish the water before we leave.",
+      "frequencyRank": 24244,
+      "frequencyCount": 26,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:replenish",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "upkeep",
+      "meaningKo": "유지 관리",
+      "definitionEn": "the work needed to keep something in good condition",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The old house requires regular upkeep.",
+      "frequencyRank": 24256,
+      "frequencyCount": 26,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:upkeep",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -1275,6 +1723,20 @@
       "topic": "neuroscience",
       "difficultyBand": "boundary",
       "entryId": "recommendation:elicit",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "layover",
+      "meaningKo": "경유지 체류",
+      "definitionEn": "a break between parts of a journey",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We explored the city during our long layover.",
+      "frequencyRank": 24587,
+      "frequencyCount": 25,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:layover",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -1545,6 +2007,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "forage",
+      "meaningKo": "먹이를 찾아다니다",
+      "definitionEn": "to search for food in the surrounding area",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Birds forage among the fallen leaves.",
+      "frequencyRank": 29920,
+      "frequencyCount": 16,
+      "topic": "nature_food",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:forage",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "retrospective",
       "meaningKo": "회고적인, 후향적인",
       "definitionEn": "looking back on or dealing with past events",
@@ -1601,6 +2077,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "perishable",
+      "meaningKo": "상하기 쉬운",
+      "definitionEn": "likely to spoil unless stored properly",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Keep perishable food in the refrigerator.",
+      "frequencyRank": 32372,
+      "frequencyCount": 13,
+      "topic": "everyday",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:perishable",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "quantify",
       "meaningKo": "정량화하다",
       "definitionEn": "to measure or express as a number",
@@ -1653,6 +2143,20 @@
       "topic": "methods",
       "difficultyBand": "advanced",
       "entryId": "recommendation:criterion",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "savory",
+      "meaningKo": "짭짤하고 풍미 있는",
+      "definitionEn": "having a rich taste that is not sweet",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "She served a savory pie for lunch.",
+      "frequencyRank": 34104,
+      "frequencyCount": 11,
+      "topic": "nature_food",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:savory",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -1755,6 +2259,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "frugal",
+      "meaningKo": "절약하는, 검소한",
+      "definitionEn": "careful about spending money or using resources",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Her frugal habits helped her save for a trip.",
+      "frequencyRank": 36446,
+      "frequencyCount": 9,
+      "topic": "everyday",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:frugal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "gradient",
       "meaningKo": "기울기, 변화도",
       "definitionEn": "a rate of change across space or value",
@@ -1839,6 +2357,20 @@
       "reviewStatus": "curated_at_authoring"
     },
     {
+      "lemma": "estuary",
+      "meaningKo": "하구",
+      "definitionEn": "the area where a river meets the sea",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Many birds gather at the estuary in winter.",
+      "frequencyRank": 43522,
+      "frequencyCount": 5,
+      "topic": "nature_food",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:estuary",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
       "lemma": "hierarchical",
       "meaningKo": "계층적인",
       "definitionEn": "arranged in levels of importance",
@@ -1877,6 +2409,20 @@
       "topic": "statistics",
       "difficultyBand": "advanced",
       "entryId": "recommendation:specificity",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "subsidy",
+      "meaningKo": "보조금",
+      "definitionEn": "money provided to help cover a cost",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The subsidy made bus travel more affordable.",
+      "frequencyRank": 44263,
+      "frequencyCount": 5,
+      "topic": "society",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:subsidy",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },
@@ -2045,6 +2591,20 @@
       "topic": "methods",
       "difficultyBand": "rare",
       "entryId": "recommendation:qualitative",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "stewardship",
+      "meaningKo": "책임 있는 관리",
+      "definitionEn": "the careful protection and management of something",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The park depends on responsible stewardship.",
+      "frequencyRank": 58002,
+      "frequencyCount": 2,
+      "topic": "society",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:stewardship",
       "contentSourceId": "vocabreminder-project-authored-seed-v1",
       "reviewStatus": "curated_at_authoring"
     },

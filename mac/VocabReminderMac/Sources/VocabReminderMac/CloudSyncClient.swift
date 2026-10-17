@@ -116,6 +116,13 @@ enum CloudRequestDiagnosticsStore {
     }
 }
 
+struct CloudDictionarySense: Equatable, Sendable {
+    var meaningKo: String
+    var definitionEn: String = ""
+    var partOfSpeech: String = ""
+    var exampleSentence: String = ""
+}
+
 struct CloudDictionaryLookupResult: Equatable, Sendable {
     var lemma: String
     var meaningKo: String
@@ -126,6 +133,7 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
     var confidence: Double
     var attemptedAt: String
     var errorCode: String?
+    var senses: [CloudDictionarySense]
 
     var outcome: CloudDictionaryOutcome {
         guard meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -153,7 +161,8 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
         sourceType: String = "server_dictionary",
         confidence: Double = 0,
         attemptedAt: String = "",
-        errorCode: String? = nil
+        errorCode: String? = nil,
+        senses: [CloudDictionarySense] = []
     ) {
         self.lemma = lemma
         self.meaningKo = meaningKo
@@ -164,6 +173,7 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
         self.confidence = confidence
         self.attemptedAt = attemptedAt
         self.errorCode = errorCode
+        self.senses = Array(senses.prefix(20))
     }
 
     init(payload: [String: Any]) throws {
@@ -179,7 +189,15 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
             sourceType: payload["sourceType"] as? String ?? payload["source_type"] as? String ?? "server_dictionary",
             confidence: (payload["confidence"] as? NSNumber)?.doubleValue ?? 0,
             attemptedAt: payload["attemptedAt"] as? String ?? payload["attempted_at"] as? String ?? "",
-            errorCode: payload["errorCode"] as? String ?? payload["error_code"] as? String
+            errorCode: payload["errorCode"] as? String ?? payload["error_code"] as? String,
+            senses: (payload["senses"] as? [[String: Any]] ?? []).prefix(20).map {
+                CloudDictionarySense(
+                    meaningKo: $0["meaningKo"] as? String ?? $0["meaning_ko"] as? String ?? "",
+                    definitionEn: $0["definitionEn"] as? String ?? $0["definition_en"] as? String ?? "",
+                    partOfSpeech: $0["partOfSpeech"] as? String ?? $0["part_of_speech"] as? String ?? "",
+                    exampleSentence: $0["exampleSentence"] as? String ?? $0["example_sentence"] as? String ?? ""
+                )
+            }
         )
     }
 }
@@ -195,6 +213,7 @@ final class CloudSyncClient {
         "recommendation_feedback"
     ]
 
+    private var supportsChanges = false
     private let config: CloudSyncConfig
     private let session: URLSession
     private let diagnosticsDefaults: UserDefaults
@@ -222,14 +241,27 @@ final class CloudSyncClient {
         ]
         for batch in Self.splitIntoBatches(localBatch) {
             let result = try await post("sync/batch", body: batch)
+            supportsChanges = supportsChanges || (result["sync_protocol"] as? Int == 2)
             aggregate = Self.mergingPushResult(aggregate, result)
         }
         return aggregate
     }
 
-    func pullSnapshot() async throws -> Data {
-        let snapshot = try await get("sync/snapshot")
-        return try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+    func pullSnapshot(cursor: String? = nil) async throws -> Data {
+        guard supportsChanges else {
+            let snapshot = try await get("sync/snapshot")
+            return try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
+        }
+        var next = cursor ?? ""
+        var collected = SyncChangeAccumulator()
+        for _ in 0..<10_000 {
+            let escaped = next.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let page = try await get("sync/changes?limit=400&cursor=\(escaped)")
+            try collected.append(page, previousCursor: next)
+            next = collected.cursor
+            if page["has_more"] as? Bool == false { return try collected.data() }
+        }
+        throw CloudSyncError.server("동기화 변경 페이지가 너무 많습니다.")
     }
 
     func health() async throws -> [String: Any] {
@@ -365,7 +397,7 @@ final class CloudSyncClient {
             return .health
         case "/sync/batch":
             return .syncPush
-        case "/sync/snapshot":
+        case "/sync/snapshot", "/sync/changes":
             return .syncPull
         case "/dict/batch":
             return .dictionaryBatch

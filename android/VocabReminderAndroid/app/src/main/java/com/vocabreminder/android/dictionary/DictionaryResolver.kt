@@ -2,7 +2,6 @@ package com.vocabreminder.android.dictionary
 
 import com.vocabreminder.android.capture.CaptureAnalysis
 import com.vocabreminder.android.capture.CaptureNormalizer
-import com.vocabreminder.android.recommendation.RecommendationCatalog
 
 data class DictionaryResult(
     val lemma: String,
@@ -21,7 +20,7 @@ data class DictionaryResult(
     val sourceTitle: String = ""
 )
 
-private data class LocalEntry(
+internal data class LocalEntry(
     val meaningKo: String,
     val definitionEn: String,
     val partOfSpeech: String,
@@ -85,17 +84,6 @@ object DictionaryResolver {
             exampleSentence = "The protocol mitigated measurement noise."
         )
     )
-    private val catalogEntries by lazy {
-        RecommendationCatalog.seeds.associate { seed ->
-            seed.lemma to LocalEntry(
-                meaningKo = seed.meaningKo,
-                definitionEn = seed.definitionEn,
-                partOfSpeech = seed.partOfSpeech,
-                exampleSentence = seed.exampleSentence
-            )
-        }
-    }
-
     fun resolve(
         rawText: String,
         sourceApp: String = "",
@@ -113,8 +101,8 @@ object DictionaryResolver {
     ): DictionaryResult {
         val entry = localEntries[analysis.lemma]
             ?: localEntries[analysis.displayWord.lowercase()]
-            ?: catalogEntries[analysis.lemma]
-            ?: catalogEntries[analysis.displayWord.lowercase()]
+            ?: OfflineDictionary.entries[analysis.lemma]
+            ?: OfflineDictionary.entries[analysis.displayWord.lowercase()]
         val exampleSentence = analysis.sourceSentence.ifBlank { entry?.exampleSentence.orEmpty() }
         return if (entry != null) {
             // guide 10.4: Android uses app/local dictionary before cloud fallback.

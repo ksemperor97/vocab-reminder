@@ -1,7 +1,23 @@
-import { ensureDailyBackup } from "./backup.js";
-import { readConfig } from "./config.js";
-import { openDatabase } from "./db.js";
-import { createSyncServer } from "./http.js";
+import fs from "node:fs";
+import { nodeRuntimeCompatibility, parkIncompatibleRuntime } from "./node_runtime.js";
+
+const expectedNodeMajor = fs.readFileSync(new URL("../.node-version", import.meta.url), "utf8").trim();
+const compatibility = nodeRuntimeCompatibility(process.versions.node, expectedNodeMajor);
+if (!compatibility.compatible) {
+  await parkIncompatibleRuntime(compatibility);
+}
+
+const [
+  { ensureDailyBackup },
+  { readConfig },
+  { openDatabase },
+  { createSyncServer }
+] = await Promise.all([
+  import("./backup.js"),
+  import("./config.js"),
+  import("./db.js"),
+  import("./http.js")
+]);
 
 const config = readConfig();
 const db = openDatabase(config.dbPath);

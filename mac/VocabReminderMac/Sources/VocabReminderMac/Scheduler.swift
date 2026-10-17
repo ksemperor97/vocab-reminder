@@ -10,6 +10,7 @@ struct SchedulerCard: Equatable {
     var meaningKo: String = "meaning"
     var wordbook: Wordbook = .user
     var deletedAt: Date?
+    var recommendationStartedAt: Date? = nil
 }
 
 struct SchedulerSettings: Equatable {
@@ -103,7 +104,7 @@ enum Scheduler {
     static func planDay(cards: [SchedulerCard], settings: SchedulerSettings = SchedulerSettings(), now: Date, userWordCount: Int = 0) -> PlanDayResult {
         // guide 6.4, 6.7, 6.9: user due cards fill the goal first; overflow is rebalanced.
         let dueUserCards = cards
-            .filter { $0.wordbook == .user && isNotificationEligible($0) && $0.dueAt <= now }
+            .filter { ($0.wordbook == .user || $0.recommendationStartedAt != nil) && isNotificationEligible($0) && $0.dueAt <= now }
             .sorted { isHigherPriority($0, than: $1, now: now) }
 
         let activeLimit = min(settings.dailyWordGoal, settings.maxQueueSize)
@@ -112,9 +113,9 @@ enum Scheduler {
         let remainingSlots = activeLimit - selectedDue.count
 
         let recommendations: [SchedulerCard]
-        if remainingSlots > 0 && settings.enableWordRecommendations && userWordCount >= 50 {
+        if remainingSlots > 0 && settings.enableWordRecommendations {
             recommendations = Array(cards
-                .filter { $0.wordbook == .recommended && isNotificationEligible($0) }
+                .filter { $0.wordbook == .recommended && $0.recommendationStartedAt == nil && isNotificationEligible($0) }
                 .sorted { $0.id < $1.id }
                 .prefix(remainingSlots))
         } else {
@@ -328,7 +329,8 @@ enum Scheduler {
             intervalBeforeLapse: intervalBeforeLapse ?? card.intervalBeforeLapse,
             meaningKo: card.meaningKo,
             wordbook: card.wordbook,
-            deletedAt: card.deletedAt
+            deletedAt: card.deletedAt,
+            recommendationStartedAt: card.recommendationStartedAt
         )
     }
 }

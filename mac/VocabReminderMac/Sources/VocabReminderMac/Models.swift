@@ -42,6 +42,7 @@ struct VocabularyCard: Identifiable, Codable, Equatable {
     var partOfSpeech: String
     var exampleSentence: String
     var definitionSourcePrimary: String
+    var primaryDefinitionCandidateId: String? = nil
     var status: CardStatus
     var wordbook: Wordbook
     var dueAt: Date

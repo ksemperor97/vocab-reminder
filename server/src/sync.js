@@ -257,6 +257,10 @@ function validateCard(value) {
   const missing = missingString(entity.entity, required.filter((field) => field !== "version"));
   if (missing) return bad(`${missing} is required.`);
   if (!Number.isInteger(entity.entity.version) || entity.entity.version < 1) return bad("version must be a positive integer.");
+  if (entity.entity.primary_definition_candidate_id != null &&
+      (typeof entity.entity.primary_definition_candidate_id !== "string" || !entity.entity.primary_definition_candidate_id.trim())) {
+    return bad("primary_definition_candidate_id must be a nonempty string or null.");
+  }
   if (entity.entity.wordbook != null && !wordbooks.has(entity.entity.wordbook)) return bad("wordbook is invalid.");
   if (!cardStatuses.has(entity.entity.status)) return bad("status is invalid.");
   for (const field of ["due_at", "created_at", "updated_at"]) {

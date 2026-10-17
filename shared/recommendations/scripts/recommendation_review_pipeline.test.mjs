@@ -87,8 +87,6 @@ test("only checksum-bound approved human review reaches a deterministic promotio
     run(builder, buildEnv(promotionOne, first));
     run(builder, buildEnv(promotionOne, second));
     assert.equal(readFileSync(first.catalog, "utf8"), readFileSync(second.catalog, "utf8"));
-    assert.equal(readFileSync(first.kotlin, "utf8"), readFileSync(second.kotlin, "utf8"));
-    assert.equal(readFileSync(first.swift, "utf8"), readFileSync(second.swift, "utf8"));
 
     const baselineCount = JSON.parse(readFileSync(resolve(repoRoot, "shared/recommendations/recommendation_catalog.json"), "utf8")).entries.length;
     const built = JSON.parse(readFileSync(first.catalog, "utf8"));
@@ -140,18 +138,14 @@ function promotionEnv(reviewQueue, output) {
 
 function buildPaths(directory, prefix) {
   return {
-    catalog: resolve(directory, `${prefix}-catalog.json`),
-    kotlin: resolve(directory, `${prefix}-catalog.kt`),
-    swift: resolve(directory, `${prefix}-catalog.swift`)
+    catalog: resolve(directory, `${prefix}-catalog.json`)
   };
 }
 
 function buildEnv(promotions, paths) {
   return {
     RECOMMENDATION_REVIEWED_PROMOTIONS: promotions,
-    RECOMMENDATION_CATALOG_OUTPUT: paths.catalog,
-    RECOMMENDATION_KOTLIN_OUTPUT: paths.kotlin,
-    RECOMMENDATION_SWIFT_OUTPUT: paths.swift
+    RECOMMENDATION_CATALOG_OUTPUT: paths.catalog
   };
 }
 

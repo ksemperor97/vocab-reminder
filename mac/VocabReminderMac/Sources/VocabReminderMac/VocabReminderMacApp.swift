@@ -32,6 +32,7 @@ struct VocabReminderMacApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
+    private var recommendationTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -48,7 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showMainWindow()
         }
         MacNotificationScheduler.shared.requestAuthorization()
-        LocalVocabularyStore.shared.refreshNotifications()
+        LocalVocabularyStore.shared.maintainRecommendations()
+        recommendationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in LocalVocabularyStore.shared.maintainRecommendations() }
+        }
         LoginItemController.registerAtLaunchIfNeeded(store: LocalVocabularyStore.shared)
         MacAutoSyncController.shared.start(store: LocalVocabularyStore.shared)
     }
@@ -437,6 +441,11 @@ struct PreviewView: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onAppear(perform: onAppear)
         .onChange(of: result.lemma) { _, _ in onAppear() }
+        .onChange(of: result.meaningKo) { _, newMeaning in
+            if meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                meaning = newMeaning
+            }
+        }
     }
 }
 
@@ -465,6 +474,8 @@ struct SettingsView: View {
                 Stepper("미루기 \(store.settings.snoozeDurationMinutes)분", value: $store.settings.snoozeDurationMinutes, in: 5...240, step: 5)
             }
             Toggle("추천 단어", isOn: $store.settings.enableWordRecommendations)
+            Text(store.recommendationStatusMessage).font(.caption).foregroundStyle(.secondary)
+            if let error = store.storageError { Text(error).foregroundStyle(.red) }
             Toggle("로그인 시 자동 시작", isOn: $launchAtLoginEnabled)
                 .disabled(!LoginItemController.canManageLoginItem)
             Text("한글 뜻은 macOS 사전 앱 > 설정에서 영한사전을 활성화하면 자동으로 채워집니다.")
@@ -771,6 +782,10 @@ struct CardEditorView: View {
                     Text("\(card.status.rawValue) · \(wordbookLabel(card.wordbook)) · 다음 학습: \(relativeDueLabel(card.dueAt))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if card.wordbook == .recommended {
+                        Text(RecommendationEngine.reason(lemma: card.lemma, contexts: store.contexts.filter { context in store.cards.contains { $0.id == context.cardId && $0.wordbook == .user } }.map(\.sourceSentence)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if card.wordbook == .recommended && card.recommendationStartedAt == nil {
                         HStack {
                             Button("시작하기") { store.markRecommendationStarted(card) }

@@ -1,6 +1,6 @@
 {
   "name": "vocab-reminder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -29,6 +29,7 @@
     "sync:setup-mac-mini": "bash tools/setup_mac_mini_sync.sh",
     "sync:preflight": "bash tools/sync_release_preflight.sh",
     "recommendations:build": "node shared/recommendations/scripts/build_catalog.mjs",
+    "recommendations:publish": "node server/tools/publish_recommendation_catalog.mjs",
     "recommendations:pool": "node shared/recommendations/scripts/build_candidate_pool.mjs",
     "recommendations:queue": "node shared/recommendations/scripts/build_fill_queue.mjs",
     "recommendations:enrich": "node shared/recommendations/scripts/enrich_fill_queue.mjs",
@@ -45,5 +46,8 @@
   "devDependencies": {
     "subtlex-word-frequencies": "2.0.0",
     "wrangler": "4.110.0"
+  },
+  "engines": {
+    "node": ">=22 <23"
   }
 }

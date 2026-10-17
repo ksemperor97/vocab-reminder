@@ -4,6 +4,38 @@ import XCTest
 
 @MainActor
 final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
+    func testPreviewLookupFillsKoreanMeaningBeforeSave() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VocabReminderPreviewLookupTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalVocabularyStore(
+            appSupportURL: directory,
+            scheduleNotifications: false,
+            previewDictionaryLookup: { lemma in
+                XCTAssertEqual(lemma, "uncomfy")
+                return CloudDictionaryLookupResult(
+                    lemma: lemma,
+                    meaningKo: "불편한, 편하지 않은",
+                    definitionEn: "informal: not comfortable",
+                    partOfSpeech: "adjective",
+                    sourceType: "definition_variant",
+                    confidence: 0.72
+                )
+            }
+        )
+
+        store.capture(text: "uncomfy")
+        for _ in 0..<20 where store.preview?.meaningKo.isEmpty != false {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(store.preview?.displayWord, "uncomfy")
+        XCTAssertEqual(store.preview?.meaningKo, "불편한, 편하지 않은")
+        XCTAssertEqual(store.preview?.sourceType, "definition_variant")
+        XCTAssertEqual(store.message, "한국어 뜻을 찾았습니다. 저장 전 preview를 확인하세요.")
+        XCTAssertTrue(store.cards.isEmpty)
+    }
+
     func testResolvedMeaningIsAppliedOnceWithSelectedCandidateAndFreshFirstDueDate() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexblanklemma"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -179,5 +211,23 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             store.schedulerRecentResponses(cardId: card.id, limit: 2),
             [.remembered, .remembered]
         )
+    }
+}
+
+extension LocalVocabularyStoreEnrichmentTests {
+    func testAlternativeSensesAndPrimaryPointerSurviveReload() throws {
+        let fixture = try makeBlankMeaningStore(words: ["codexsenselemma"])
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = fixture.store
+        let target = try XCTUnwrap(store.pendingDictionaryEnrichmentTargets().first)
+        let result = CloudDictionaryLookupResult(lemma: target.lemma, meaningKo: "은행", definitionEn: "a financial institution",
+            senses: [CloudDictionarySense(meaningKo: "강둑", definitionEn: "land beside a river", partOfSpeech: "noun")])
+        _ = store.applyDictionaryEnrichment([result], requestedTargets: [target])
+        let reloaded = LocalVocabularyStore(appSupportURL: fixture.directory, scheduleNotifications: false)
+        let card = try XCTUnwrap(reloaded.cards.first)
+        XCTAssertEqual(card.meaningKo, "은행")
+        let primary = try XCTUnwrap(reloaded.definitionCandidates.first { $0.id == card.primaryDefinitionCandidateId })
+        XCTAssertEqual(primary.parsedMeaningKo, "은행")
+        XCTAssertTrue(reloaded.definitionCandidates.contains { $0.parsedMeaningKo == "강둑" && !$0.selectedAsPrimary })
     }
 }

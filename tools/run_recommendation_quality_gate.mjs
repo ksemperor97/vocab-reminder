@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import crypto from "node:crypto";
+import { chooseRecommendations as chooseServerRecommendations } from "../server/src/recommendations.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,24 +96,11 @@ for (const [index, entry] of entries.entries()) {
 const normalizedLemmas = entries.map((entry) => entry.lemma.normalize("NFKC").toLocaleLowerCase("en-US"));
 if (new Set(normalizedLemmas).size !== normalizedLemmas.length) failures.push("Catalog lemmas must be unique.");
 
-const kotlinText = await fs.readFile(kotlinPath, "utf8");
-const swiftText = await fs.readFile(swiftPath, "utf8");
-const kotlinEntries = parseGeneratedCatalog(kotlinText, "kotlin");
-const swiftEntries = parseGeneratedCatalog(swiftText, "swift");
-const kotlinCount = kotlinEntries.length;
-const swiftCount = swiftEntries.length;
-if (kotlinCount !== entries.length) failures.push(`Android generated catalog count ${kotlinCount} differs from ${entries.length}.`);
-if (swiftCount !== entries.length) failures.push(`Mac generated catalog count ${swiftCount} differs from ${entries.length}.`);
-const androidMismatches = comparePlatformEntries(entries, kotlinEntries);
-const macMismatches = comparePlatformEntries(entries, swiftEntries);
-const crossPlatformMismatches = comparePlatformEntries(kotlinEntries, swiftEntries);
-if (androidMismatches.length > 0) failures.push(`Android generated catalog differs at ${androidMismatches.length} entries.`);
-if (macMismatches.length > 0) failures.push(`Mac generated catalog differs at ${macMismatches.length} entries.`);
-if (crossPlatformMismatches.length > 0) failures.push(`Android/Mac recommendation identity differs at ${crossPlatformMismatches.length} entries.`);
-
-const vectorAudit = await auditRecommendationVectors();
-if (vectorAudit.missingCases.length > 0) failures.push(`Shared recommendation vectors lack: ${vectorAudit.missingCases.join(", ")}.`);
-if (!vectorAudit.uniqueNames) failures.push("Shared recommendation vector case names must be unique.");
+for (const clientCatalogue of [kotlinPath, swiftPath]) {
+  if (await fs.access(clientCatalogue).then(() => true, () => false)) {
+    failures.push("Client bundles must not contain recommendation catalogues.");
+  }
+}
 
 const simulation = simulateThirtyDays(entries);
 if (simulation.duplicateLemmas.length > 0) failures.push("30-day simulation produced duplicate recommendations.");
@@ -135,8 +123,6 @@ const report = {
     checksumSha256: crypto.createHash("sha256").update(catalogText).digest("hex"),
     requiredFieldsComplete: failures.every((failure) => !failure.includes("missing")),
     uniqueLemmas: new Set(normalizedLemmas).size === normalizedLemmas.length,
-    androidGeneratedEntries: kotlinCount,
-    macGeneratedEntries: swiftCount,
     daysAtThreePerDay: Math.floor(entries.length / 3),
     licensedImportedEntries: entries.filter((entry) => contentSourceById.get(entry.contentSourceId)?.kind === "licensed_import").length,
     pendingReviewEntriesBundled: entries.filter((entry) => contentSourceById.get(entry.contentSourceId)?.kind === "licensed_import" && entry.reviewStatus !== "approved").length
@@ -146,15 +132,7 @@ const report = {
     definitionMeaningExampleProvenance: "project_authored_curated_seed",
     prospectiveExpansionSource: "Wiktionary via kaikki.org; not bundled until attribution, share-alike, and human review gates are satisfied"
   },
-  platformParity: {
-    androidGeneratedEntries: kotlinCount,
-    macGeneratedEntries: swiftCount,
-    androidCatalogMismatches: androidMismatches,
-    macCatalogMismatches: macMismatches,
-    crossPlatformIdentityMismatches: crossPlatformMismatches,
-    identityDefinition: "entryId recommendation:<normalized-lemma>; generated platform seed order and full content must match"
-  },
-  vectorAudit,
+  recommendationAuthority: "computer_server",
   simulation,
   releaseReadiness: {
     minimumTwelveMonthEntries,
@@ -167,7 +145,7 @@ const report = {
 
 await fs.mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
 await fs.writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
-console.log(`Recommendation catalog integrity: ${entries.length} complete entries, platform copies ${kotlinCount}/${swiftCount}.`);
+console.log(`Recommendation catalog integrity: ${entries.length} complete entries, computer-server authority.`);
 console.log(`30-day simulation: ${simulation.recommendedCount} recommendations, duplicates ${simulation.duplicateLemmas.length}, feedback/saved reappearances ${simulation.feedbackReappearance.length}/${simulation.savedReappearance.length}, review starvation ${simulation.reviewStarvationDays.length}.`);
 console.log(`Long-term supply: ${longTermSupplyReady ? "READY" : "NOT READY"} (${entries.length}/${minimumTwelveMonthEntries} minimum, target ${targetEntries}).`);
 console.log(`Evidence: ${outputPath}`);
@@ -221,118 +199,10 @@ function simulateThirtyDays(catalogEntries) {
 }
 
 function chooseRecommendations(catalogEntries, userSignals, feedback, existing, limit) {
-  if (userSignals.length < 50 || limit <= 0) return [];
-  const excluded = new Set([
-    ...existing,
-    ...feedback.filter((item) => item.action === "known" || item.action === "dismissed").map((item) => item.lemma)
-  ]);
-  const byLemma = new Map(catalogEntries.map((entry) => [entry.lemma, entry]));
-  const dismissedTopics = new Set(
-    feedback.filter((item) => item.action === "dismissed").map((item) => byLemma.get(item.lemma)?.topic).filter(Boolean)
-  );
-  const knownBoost = feedback.filter((item) => item.action === "known").length * 1_500;
-  const center = clamp(16_000 + knownBoost, 8_000, 55_000);
-  const lower = Math.max(5_000, center - 4_000);
-  const upper = Math.min(70_000, center + 10_000);
-  const preferredTopics = new Set(["academic", "methods"]);
-
-  return catalogEntries
-    .filter((entry) => !excluded.has(entry.lemma))
-    .toSorted((left, right) => {
-      const leftInBand = left.frequencyRank >= lower && left.frequencyRank <= upper;
-      const rightInBand = right.frequencyRank >= lower && right.frequencyRank <= upper;
-      if (leftInBand !== rightInBand) return leftInBand ? -1 : 1;
-      const leftDismissed = dismissedTopics.has(left.topic);
-      const rightDismissed = dismissedTopics.has(right.topic);
-      if (leftDismissed !== rightDismissed) return leftDismissed ? 1 : -1;
-      const leftPreferred = preferredTopics.has(left.topic);
-      const rightPreferred = preferredTopics.has(right.topic);
-      if (leftPreferred !== rightPreferred) return leftPreferred ? -1 : 1;
-      const distance = distanceFromBand(left.frequencyRank, lower, upper) - distanceFromBand(right.frequencyRank, lower, upper);
-      return distance || left.frequencyRank - right.frequencyRank;
-    })
-    .slice(0, limit);
-}
-
-function distanceFromBand(rank, lower, upper) {
-  if (rank < lower) return lower - rank;
-  if (rank > upper) return rank - upper;
-  return Math.abs(rank - Math.floor((lower + upper) / 2));
-}
-
-function clamp(value, minimum, maximum) {
-  return Math.min(maximum, Math.max(minimum, value));
-}
-
-function parseGeneratedCatalog(text, platform) {
-  const blocks = [...text.matchAll(/RecommendationSeed\(([\s\S]*?)\n\s*\)/g)].map((match) => match[1]);
-  return blocks.map((block, index) => ({
-    lemma: generatedString(block, "lemma", platform, index),
-    meaningKo: generatedString(block, "meaningKo", platform, index),
-    definitionEn: generatedString(block, "definitionEn", platform, index),
-    partOfSpeech: generatedString(block, "partOfSpeech", platform, index),
-    exampleSentence: generatedString(block, "exampleSentence", platform, index),
-    frequencyRank: generatedInteger(block, "frequencyRank", platform, index),
-    topic: generatedString(block, "topic", platform, index),
-    entryId: `recommendation:${generatedString(block, "lemma", platform, index).normalize("NFKC").toLocaleLowerCase("en-US")}`
-  }));
-}
-
-function generatedString(block, field, platform, index) {
-  const match = block.match(new RegExp(`${field}\\s*(?:=|:)\\s*("(?:\\\\.|[^"\\\\])*")`));
-  if (!match) throw new Error(`${platform} generated entry ${index} is missing ${field}.`);
-  return JSON.parse(match[1]);
-}
-
-function generatedInteger(block, field, platform, index) {
-  const match = block.match(new RegExp(`${field}\\s*(?:=|:)\\s*(\\d+)`));
-  if (!match) throw new Error(`${platform} generated entry ${index} is missing ${field}.`);
-  return Number.parseInt(match[1], 10);
-}
-
-function comparePlatformEntries(expected, actual) {
-  const fields = ["lemma", "meaningKo", "definitionEn", "partOfSpeech", "exampleSentence", "frequencyRank", "topic", "entryId"];
-  const mismatches = [];
-  const count = Math.max(expected.length, actual.length);
-  for (let index = 0; index < count; index += 1) {
-    const left = expected[index];
-    const right = actual[index];
-    const differingFields = fields.filter((field) => left?.[field] !== right?.[field]);
-    if (differingFields.length > 0) {
-      mismatches.push({
-        index,
-        expectedId: left?.entryId ?? null,
-        actualId: right?.entryId ?? null,
-        differingFields
-      });
-    }
-  }
-  return mismatches;
-}
-
-async function auditRecommendationVectors() {
-  const vectorPath = path.join(root, "shared/test-vectors/recommendations.json");
-  const vectors = JSON.parse(await fs.readFile(vectorPath, "utf8"));
-  const names = new Set(vectors.map((vector) => vector.name));
-  const requiredCases = [
-    "recommendations_stay_off_before_fifty_user_words",
-    "due_reviews_fill_goal_before_recommendations",
-    "recommendations_stop_when_setting_disabled",
-    "existing_recommendations_occupy_open_daily_slots",
-    "recommendation_fill_limit_respects_queue_cap",
-    "recommendations_use_boundary_and_preferred_topics",
-    "known_feedback_excludes_exact_lemma",
-    "known_feedback_shifts_recommendation_band_harder",
-    "dismissed_feedback_excludes_lemma_and_downranks_topic"
-  ];
-  return {
-    vectorPath: "shared/test-vectors/recommendations.json",
-    cases: vectors.length,
-    uniqueNames: names.size === vectors.length,
-    requiredCases,
-    missingCases: requiredCases.filter((name) => !names.has(name)),
-    platformExecution: "Android unit tests and Mac scheduler self-check consume the same vectors"
-  };
+  return chooseServerRecommendations(catalogEntries, {
+    cards: [...existing].map(lemma => ({ lemma, wordbook: "recommended" })),
+    recommendation_feedback: feedback
+  }, limit);
 }
 
 function defaultOutputPath() {

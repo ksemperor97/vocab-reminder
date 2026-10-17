@@ -499,6 +499,7 @@ async function startTestServer(t, serverOptions = {}) {
   const backupDir = path.join(root, "backups");
   const db = openDatabase(dbPath);
   const { server } = createSyncServer({
+    recommendationCatalog: null,
     db,
     dbPath,
     backupDir,
@@ -704,3 +705,18 @@ function settingsPayload(overrides = {}) {
     ...overrides
   };
 }
+
+test("changes endpoint authenticates, advertises protocol, and exposes incremental edits", async t => {
+  const app = await startTestServer(t);
+  assert.equal((await getJson(app.url("/sync/changes"), "wrong")).status, 401);
+  const push = await postJson(app.url("/sync/batch"), fullBatch(), token);
+  assert.equal(push.body.sync_protocol, 2);
+  const first = await getJson(app.url("/sync/changes?limit=400"), token);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.cards.length, 1);
+  assert.equal(first.body.has_more, false);
+  const next = await getJson(app.url(`/sync/changes?cursor=${encodeURIComponent(first.body.sync_cursor)}`), token);
+  assert.equal(next.body.cards.length, 0);
+  assert.equal(next.body.review_events.length, 0);
+  assert.equal((await getJson(app.url("/sync/changes?limit=0"), token)).status, 400);
+});

@@ -144,19 +144,36 @@ class CloudSyncClient(
     var lastRequestId: String? = null
         private set
 
+    private var supportsChanges = false
+    val cursorEndpoint: String get() = config.serverBaseUrl.trimEnd('/')
+
     fun push(localBatch: JSONObject): JSONObject {
         val aggregate = emptyPushResult()
         splitIntoBatches(localBatch).forEach { batch ->
             val response = postJson(config.endpoint("sync/batch"), batch)
             val result = response.body.throwIfError(response.requestId)
+            supportsChanges = supportsChanges || result.optInt("sync_protocol") == 2
             mergePushResult(aggregate, result)
         }
         return aggregate
     }
 
-    fun pullSnapshot(): JSONObject {
-        val response = getJson(config.endpoint("sync/snapshot"))
-        return response.body.throwIfError(response.requestId)
+    fun pullSnapshot(cursor: String? = null): JSONObject {
+        if (!supportsChanges) {
+            val response = getJson(config.endpoint("sync/snapshot"))
+            return response.body.throwIfError(response.requestId)
+        }
+        var next = cursor.orEmpty()
+        val collected = SyncChangeAccumulator()
+        repeat(10_000) {
+            val escaped = java.net.URLEncoder.encode(next, "UTF-8")
+            val response = getJson(config.endpoint("sync/changes?limit=400&cursor=$escaped"))
+            val page = response.body.throwIfError(response.requestId)
+            collected.append(page, next)
+            next = collected.cursor
+            if (!page.getBoolean("has_more")) return collected.snapshot()
+        }
+        throw CloudSyncException("동기화 변경 페이지가 너무 많습니다.", lastRequestId)
     }
 
     fun health(): JSONObject {
@@ -395,7 +412,19 @@ private fun parseDictionaryLookupResult(
             .takeIf { it.isNotBlank() }
             ?.let { runCatching { Instant.parse(it) }.getOrNull() },
         errorCode = errorCode,
-        requestId = requestId
+        requestId = requestId,
+        senses = json.optJSONArray("senses")?.let { array ->
+            (0 until minOf(array.length(), 20)).mapNotNull { index ->
+                array.optJSONObject(index)?.let { sense ->
+                    com.vocabreminder.android.dictionary.DictionarySense(
+                        sense.stringValue("meaningKo", "meaning_ko"),
+                        sense.stringValue("definitionEn", "definition_en"),
+                        sense.stringValue("partOfSpeech", "part_of_speech"),
+                        sense.stringValue("exampleSentence", "example_sentence")
+                    )
+                }
+            }
+        }.orEmpty()
     )
 }
 

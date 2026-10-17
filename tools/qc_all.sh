@@ -116,7 +116,7 @@ if [[ -z "$SERVER_NODE_BIN" || ! -x "$SERVER_NODE_BIN" ]]; then
 fi
 (
   cd "$ROOT_DIR/server"
-  "$SERVER_NODE_BIN" --input-type=module -e "await import('better-sqlite3'); console.log('better-sqlite3 ABI preflight passed')"
+  "$SERVER_NODE_BIN" tools/check_node_runtime.mjs
   "$SERVER_NODE_BIN" --test
 )
 

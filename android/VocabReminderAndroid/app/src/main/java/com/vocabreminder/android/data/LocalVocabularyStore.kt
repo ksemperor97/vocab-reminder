@@ -1,5 +1,6 @@
 package com.vocabreminder.android.data
 
+import com.vocabreminder.android.recommendation.RecommendationEngine
 import android.content.Context
 import android.content.SharedPreferences
 import com.vocabreminder.android.BuildConfig
@@ -40,6 +41,7 @@ data class VocabularyCard(
     val sourceAppPrimary: String = "",
     val sourceUrlPrimary: String = "",
     val definitionSourcePrimary: String = "user",
+    val primaryDefinitionCandidateId: String? = null,
     val status: CardStatus,
     val wordbook: Wordbook = Wordbook.USER,
     val dueAt: Instant,
@@ -199,7 +201,11 @@ class LocalVocabularyStore private constructor(
     private val prefs = applicationContext.getSharedPreferences("vocab_reminder_store", Context.MODE_PRIVATE)
 
     fun cards(): List<VocabularyCard> {
-        return allCards(includeDeleted = false).sortedBy { it.createdAt }
+        val excluded = recommendationFeedback().filter { it.action == "known" || it.action == "dismissed" }
+            .map { RecommendationEngine.normalizedLemma(it.lemma) }.toSet()
+        return allCards(includeDeleted = false).filter {
+            it.wordbook != Wordbook.RECOMMENDED || RecommendationEngine.normalizedLemma(it.lemma) !in excluded
+        }.sortedBy { it.createdAt }
     }
 
     fun allCards(includeDeleted: Boolean = false): List<VocabularyCard> {
@@ -494,14 +500,27 @@ class LocalVocabularyStore private constructor(
             timestamp = result.attemptedAt ?: now,
             requestId = result.requestId
         )
+        val allCandidates = (definitionCandidates() + candidate).toMutableList()
+        result.senses.take(20).forEach { sense ->
+            if ((sense.meaningKo.isNotBlank() || sense.definitionEn.isNotBlank()) && allCandidates.none {
+                    it.cardId == updated.id && it.parsedMeaningKo == sense.meaningKo &&
+                        it.parsedDefinitionEn == sense.definitionEn && it.partOfSpeech == sense.partOfSpeech
+                }) {
+                allCandidates += candidate.copy(
+                    id = UUID.randomUUID().toString(), rawText = listOf(sense.meaningKo, sense.definitionEn).joinToString("\n"),
+                    parsedMeaningKo = sense.meaningKo, parsedDefinitionEn = sense.definitionEn,
+                    partOfSpeech = sense.partOfSpeech, exampleSentence = sense.exampleSentence, selectedAsPrimary = false
+                )
+            }
+        }
         commitStoreTransaction(
             StoreTransaction(
                 cards = storedCards.map { if (it.id == updated.id) updated else it },
-                definitionCandidates = definitionCandidates() + candidate,
+                definitionCandidates = allCandidates,
                 dictionaryEnrichmentStates = dictionaryStatesReplacing(state)
             )
         )
-        updated
+        findCard(updated.id) ?: updated
     }
 
     internal fun applyDictionaryDefinitionFallback(
@@ -713,7 +732,7 @@ class LocalVocabularyStore private constructor(
             if (state.status == DictionaryEnrichmentStatus.PENDING) {
                 enqueueDictionaryEnrichmentSafely()
             }
-            return@synchronized updated
+            return@synchronized findCard(updated.id) ?: updated
         }
 
         val id = UUID.randomUUID().toString()
@@ -752,7 +771,7 @@ class LocalVocabularyStore private constructor(
         if (state.status == DictionaryEnrichmentStatus.PENDING) {
             enqueueDictionaryEnrichmentSafely()
         }
-        card
+        findCard(card.id) ?: card
     }
 
     fun addRecommendedCard(
@@ -819,6 +838,24 @@ class LocalVocabularyStore private constructor(
                 cards = allCards(includeDeleted = true).map { if (it.id == card.id) card else it }
             )
         )
+    }
+
+    /** Atomic revision check + event ID deduplication for retried G2 answers. */
+    fun applyG2Response(cardId: String, revision: String, actionId: String, response: ReviewResponse, now: Instant): String = synchronized(CARD_MUTATION_LOCK) {
+        if (events().any { it.metadata["g2_action_id"] == actionId }) return@synchronized "applied"
+        require(response in listOf(ReviewResponse.REMEMBERED, ReviewResponse.FORGOTTEN, ReviewResponse.UNAVAILABLE))
+        val card = findCard(cardId) ?: return@synchronized "stale"
+        if ("${card.version}:${card.updatedAt}" != revision || card.dueAt.isAfter(now) || card.status == CardStatus.SUSPENDED) return@synchronized "stale"
+        val config = settings().toSchedulerSettings()
+        val result = DueTimeJitter.apply(Scheduler.applyReview(
+            card.toSchedulerCard(), response, config, now,
+            recentResponses(card.id, 2), unavailableCountToday(card.id, config.timezone, now),
+            forgottenCountToday(card.id, config.timezone, now)
+        ), now, config)
+        updateCardAndAppendEvent(card.withSchedulerCard(result.card, now), result.event.copy(
+            metadata = result.event.metadata + mapOf("source" to "even_g2", "g2_action_id" to actionId)
+        ), now)
+        "applied"
     }
 
     fun updateCardAndAppendEvent(card: VocabularyCard, event: ReviewEventDraft, now: Instant) {
@@ -1114,10 +1151,23 @@ class LocalVocabularyStore private constructor(
             settings = settings(),
             deviceId = deviceId()
         )
-        val pushResult = client.push(localBatch)
-        val snapshot = client.pullSnapshot()
+        val sameEndpoint = prefs.getString("sync_cursor_endpoint", null) == client.cursorEndpoint
+        val acknowledged = if (sameEndpoint && prefs.getString("sync_cursor", null) != null) runCatching { JSONObject(prefs.getString("sync_upload_fingerprints", "{}")!!) }.getOrDefault(JSONObject()) else JSONObject()
+        var pushResult = client.push(com.vocabreminder.android.sync.SyncUploadState.pending(localBatch, acknowledged))
+        val cursor = if (sameEndpoint) prefs.getString("sync_cursor", null) else null
+        var snapshot = client.pullSnapshot(cursor)
+        if (snapshot.optBoolean("sync_reset") && acknowledged.length() > 0) {
+            pushResult = client.push(localBatch)
+            snapshot = client.pullSnapshot()
+        }
         val rawSnapshot = snapshot.toString()
         importSyncBatchJson(rawSnapshot)
+        // Advance only after the import commits; interrupted commits replay safely.
+        val editor = prefs.edit().putString("sync_cursor_endpoint", client.cursorEndpoint)
+        if (snapshot.has("sync_cursor")) editor.putString("sync_cursor", snapshot.getString("sync_cursor"))
+        else editor.remove("sync_cursor")
+        editor.putString("sync_upload_fingerprints", if (skippedSummary(pushResult).isBlank()) com.vocabreminder.android.sync.SyncUploadState.fingerprints(localBatch).toString() else "{}")
+        check(editor.commit()) { "동기화 진행 상태를 저장하지 못했습니다." }
         return CloudSyncResult(
             snapshotJson = rawSnapshot,
             skippedSummary = skippedSummary(pushResult),
@@ -1239,7 +1289,13 @@ class LocalVocabularyStore private constructor(
         // Stage every affected key on one editor and synchronously persist it so a process
         // death can expose only the old snapshot or the complete new snapshot, never a mix.
         val editor = prefs.edit()
-        transaction.cards?.let { editor.putString(KEY_CARDS, cardsJson(it)) }
+        if (transaction.cards != null || transaction.definitionCandidates != null) {
+            val candidates = (transaction.definitionCandidates ?: definitionCandidates()).groupBy { it.cardId }
+            val projected = (transaction.cards ?: allCards(includeDeleted = true)).map { card ->
+                card.copy(primaryDefinitionCandidateId = DefinitionSelection.primaryId(card, candidates[card.id].orEmpty()))
+            }
+            editor.putString(KEY_CARDS, cardsJson(projected))
+        }
         transaction.contexts?.let { editor.putString(KEY_CONTEXTS, contextsJson(it)) }
         transaction.definitionCandidates?.let {
             editor.putString(KEY_DEFINITION_CANDIDATES, definitionCandidatesJson(it))
@@ -1507,6 +1563,7 @@ class LocalVocabularyStore private constructor(
             .put("source_app_primary", sourceAppPrimary)
             .put("source_url_primary", sourceUrlPrimary)
             .put("definition_source_primary", definitionSourcePrimary)
+            .put("primary_definition_candidate_id", primaryDefinitionCandidateId ?: JSONObject.NULL)
             .put("status", status.name)
             .put("wordbook", wordbook.name)
             .put("due_at", dueAt.toString())
@@ -1602,6 +1659,7 @@ class LocalVocabularyStore private constructor(
             sourceAppPrimary = json.optString("source_app_primary"),
             sourceUrlPrimary = CaptureProvenanceExtractor.sanitizeUrl(json.optString("source_url_primary")),
             definitionSourcePrimary = json.optString("definition_source_primary", "user"),
+            primaryDefinitionCandidateId = json.optString("primary_definition_candidate_id").takeIf { it.isNotBlank() && it != "null" },
             status = CardStatus.valueOf(json.getString("status")),
             wordbook = Wordbook.valueOf(json.optString("wordbook", Wordbook.USER.name)),
             dueAt = Instant.parse(json.getString("due_at")),

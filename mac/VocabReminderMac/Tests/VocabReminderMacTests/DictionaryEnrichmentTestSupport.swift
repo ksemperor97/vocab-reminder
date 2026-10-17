@@ -83,6 +83,8 @@ func makeBlankMeaningStore(words: [String]) throws -> (store: LocalVocabularySto
         .appendingPathComponent("VocabReminderDictionaryTests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let store = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
+    store.settings.enableWordRecommendations = false
+    store.persistSettings()
     for word in words {
         store.capture(text: word, method: .manual, sourceApp: "XCTest")
         store.savePreview(meaningOverride: "", exampleOverride: "", method: .manual)

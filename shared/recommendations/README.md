@@ -1,9 +1,23 @@
 # Recommendation Catalogue
 
-The release catalogue is `recommendation_catalog.json`; generated Android and
-Mac copies are `RecommendationCatalog.kt` and `RecommendationCatalog.swift`.
-The current release contains 149 complete project-authored entries. This is
-enough to exercise the product, but only 49 days at three new words per day. It
+The release catalogue is `recommendation_catalog.json`. The computer sync server
+loads it and creates ordinary recommended cards. Android and Mac no longer bundle
+a recommendation candidate list or selection policy. Android retains a separate
+offline dictionary fallback for captures; that dictionary never supplies recommendations.
+
+After editing/building the catalogue on the computer, run `npm run recommendations:publish`
+to atomically update the running server's copy (previous copy: `.previous`). The
+server reads updates on the next sync without a restart or client update. Selection
+policy changes require deploying the server only. The publishing command accepts
+optional source and target file paths for non-default runtime locations.
+
+Legacy apps receive server recommendations through their existing snapshot/change
+sync. On sync, untouched locally generated suggestions are retired with tombstones;
+started reviews and user-saved cards are retained. Old installed clients may still
+create local suggestions while offline until upgraded to the server-only client.
+
+The current release contains 189 complete project-authored entries. This is
+enough to exercise the product, but only 63 days at three new words per day. It
 does **not** satisfy the 1,095-entry twelve-month minimum or the 2,000-entry
 product target.
 
@@ -132,21 +146,11 @@ reappearance, and zero review starvation. Set
 `RECOMMENDATION_REQUIRE_LONG_TERM=1` only for the final supply gate; it correctly
 fails while the catalogue remains below 1,095 reviewed entries.
 
-Current cross-platform behavior already covers:
-
-- recommendations disabled below 50 user words;
-- due reviews and existing active recommendations consuming daily slots first;
-- saved lemmas plus `known`/`dismissed` feedback excluding exact lemmas;
-- frequency-boundary difficulty, saved-catalogue topic preference, known
-  difficulty boost, and dismissed-topic downranking;
-- Android and Mac consuming the same catalogue and shared vectors.
-
-Two product requirements are still open and must not be represented as done:
-
-- deriving recent topic signals specifically from locally stored capture
-  context while proving that raw context never leaves the device; and
-- showing a user-facing recommendation reason such as difficulty, recent topic,
-  and frequency.
+Current behavior is verified by `server/test/recommendations.test.js` and client
+sync/planner tests. Server-side selection respects review priority, daily timezone
+budgets, queue size, topic diversity, normalized exclusion history, and disabled
+recommendations. Known/dismissed feedback also tombstones resurrected recommended
+cards. Multiple devices share one transactionally generated queue.
 
 ## Regeneration
 

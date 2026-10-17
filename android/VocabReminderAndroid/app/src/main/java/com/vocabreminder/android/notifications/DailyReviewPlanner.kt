@@ -2,7 +2,6 @@ package com.vocabreminder.android.notifications
 
 import android.content.Context
 import com.vocabreminder.android.data.LocalVocabularyStore
-import com.vocabreminder.android.recommendation.RecommendationEngine
 import com.vocabreminder.android.scheduler.Scheduler
 import com.vocabreminder.android.scheduler.ReviewResponse
 import com.vocabreminder.android.scheduler.Wordbook
@@ -13,13 +12,20 @@ object DailyReviewPlanner {
         val store = LocalVocabularyStore(context)
         val settingsData = store.settings()
         ReminderScheduler.reconcileAll(context, store, now)
+        val processedToday = processedCardIdsToday(store, settingsData.timezone, now).size
+        val settings = settingsData.toSchedulerSettings().copy(
+            dailyWordGoal = (settingsData.dailyWordGoal - processedToday).coerceAtLeast(0)
+        )
+        ReminderNotifications.pruneExpiredRecommendationSuppressions(context, now)
+        // New cards arrive through sync; planning must never create local recommendations.
+        val generated = 0
         if (QuietHoursBoundaryScheduler.isQuietHour(now, settingsData)) {
             QuietHoursBoundaryScheduler.withdrawActiveNotifications(context)
             // A meaning shown in direct response to an action/reply is solicited feedback,
             // so it remains available even while unsolicited prompts stay quiet.
             ReminderNotifications.restoreActiveNotification(context, store, now)
             return PlanSummary(
-                generatedRecommendations = 0,
+                generatedRecommendations = generated,
                 scheduledNotifications = 0,
                 rebalancedCards = 0,
                 recommendationIntroShown = false
@@ -27,13 +33,7 @@ object DailyReviewPlanner {
         }
 
         ReminderNotifications.restoreActiveNotification(context, store, now)
-        val processedToday = processedCardIdsToday(store, settingsData.timezone, now).size
-        val settings = settingsData.toSchedulerSettings().copy(
-            dailyWordGoal = (settingsData.dailyWordGoal - processedToday).coerceAtLeast(0)
-        )
-        ReminderNotifications.pruneExpiredRecommendationSuppressions(context, now)
-        val generated = RecommendationEngine.ensureRecommendations(store, settings, now)
-        val introShown = if (generated > 0 && settingsData.recommendationsIntroducedAt == null) {
+        val introShown = if (store.cards().any { it.wordbook == Wordbook.RECOMMENDED && it.recommendationStartedAt == null } && settingsData.recommendationsIntroducedAt == null) {
             ReminderNotifications.showRecommendationIntro(context, now).also { shown ->
                 if (shown) store.markRecommendationsIntroduced(now)
             }
@@ -83,7 +83,7 @@ object DailyReviewPlanner {
         )
     }
 
-    private fun processedCardIdsToday(
+    fun processedCardIdsToday(
         store: LocalVocabularyStore,
         timezone: java.time.ZoneId,
         now: Instant

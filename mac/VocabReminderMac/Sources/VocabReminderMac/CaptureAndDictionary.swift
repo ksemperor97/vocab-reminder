@@ -209,7 +209,9 @@ enum DictionaryResolver {
     static func extractKoreanMeaning(from definition: String) -> String? {
         let stripped = definition
             .replacingOccurrences(of: #"\[[^\]]+\]|\([^)]*\)|/[^\n/]+/"#, with: " ", options: .regularExpression)
-        let separators = CharacterSet(charactersIn: "\n\r•·")
+        // A middle dot can join words inside one Korean meaning (for example,
+        // "장점·입장"), so only actual line and bullet separators split entries.
+        let separators = CharacterSet(charactersIn: "\n\r•")
         for rawPart in stripped.components(separatedBy: separators) {
             var part = rawPart
                 .replacingOccurrences(of: #"▸.*$"#, with: "", options: .regularExpression)

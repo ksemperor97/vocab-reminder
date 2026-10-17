@@ -100,6 +100,7 @@
         "source_sentence_primary": { "type": ["string", "null"] },
         "source_url_primary": { "type": ["string", "null"], "format": "uri" },
         "source_app_primary": { "type": ["string", "null"] },
+        "primary_definition_candidate_id": { "type": ["string", "null"], "minLength": 1 },
         "definition_source_primary": { "$ref": "#/$defs/definitionSource" },
         "status": { "$ref": "#/$defs/cardStatus" },
         "due_at": { "$ref": "#/$defs/timestamp" },

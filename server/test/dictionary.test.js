@@ -184,6 +184,104 @@ test("configured offline JSON catalog is local-only and skips malformed rows", a
   assert.equal(miss.errorCode, "not_found");
 });
 
+test("English-only informal variants derive a canonical negative form from the definition", async () => {
+  const calls = [];
+  const resolver = createDictionaryResolver({
+    providers: [{
+      async lookup(lemma) {
+        calls.push(lemma);
+        if (lemma === "uncomfy") {
+          return {
+            definitionEn: "informal: not comfortable",
+            partOfSpeech: "adjective",
+            sourceType: "mac_dictionary",
+            confidence: 0.68
+          };
+        }
+        if (lemma === "uncomfortable") {
+          return {
+            meaningKo: "불편한, 편하지 않은",
+            partOfSpeech: "adjective",
+            sourceType: "mac_dictionary",
+            confidence: 0.78
+          };
+        }
+        return null;
+      }
+    }],
+    now: () => new Date("2026-07-28T14:00:00.000Z")
+  });
+
+  const result = await resolver.lookup("uncomfy");
+
+  assert.deepEqual(calls, ["uncomfy", "uncomfortable"]);
+  assert.equal(result.status, "resolved");
+  assert.equal(result.lemma, "uncomfy");
+  assert.equal(result.meaningKo, "불편한, 편하지 않은");
+  assert.equal(result.definitionEn, "informal: not comfortable");
+  assert.equal(result.partOfSpeech, "adjective");
+  assert.equal(result.sourceType, "definition_variant");
+  assert.equal(result.confidence, 0.72);
+});
+
+test("definition relations resolve variants without a per-word alias list", async () => {
+  const calls = [];
+  const resolver = createDictionaryResolver({
+    providers: [{
+      async lookup(lemma) {
+        calls.push(lemma);
+        if (lemma === "awks") {
+          return {
+            definitionEn: "informal. Origin: abbreviation of awkward.",
+            partOfSpeech: "adjective",
+            sourceType: "mac_dictionary",
+            confidence: 0.68
+          };
+        }
+        if (lemma === "awkward") {
+          return {
+            meaningKo: "어색한, 곤란한",
+            partOfSpeech: "adjective",
+            sourceType: "mac_dictionary",
+            confidence: 0.78
+          };
+        }
+        return null;
+      }
+    }]
+  });
+
+  const result = await resolver.lookup("awks");
+
+  assert.deepEqual(calls, ["awks", "awkward"]);
+  assert.equal(result.lemma, "awks");
+  assert.equal(result.meaningKo, "어색한, 곤란한");
+  assert.equal(result.sourceType, "definition_variant");
+});
+
+test("descriptive definitions do not guess an unrelated canonical word", async () => {
+  const calls = [];
+  const resolver = createDictionaryResolver({
+    providers: [{
+      async lookup(lemma) {
+        calls.push(lemma);
+        return {
+          definitionEn: "informal causing feelings of acute embarrassment or awkwardness",
+          partOfSpeech: "adjective",
+          sourceType: "mac_dictionary",
+          confidence: 0.68
+        };
+      }
+    }]
+  });
+
+  const result = await resolver.lookup("cringey");
+
+  assert.deepEqual(calls, ["cringey"]);
+  assert.equal(result.meaningKo, "");
+  assert.equal(result.sourceType, "mac_dictionary");
+});
+
 test("resolver cache coalesces concurrent work and does not expose mutable entries", async () => {
   let calls = 0;
   const resolver = createDictionaryResolver({
@@ -248,3 +346,13 @@ async function fetchJson(url, options) {
   const response = await fetch(url, options);
   return { status: response.status, headers: response.headers, body: await response.json() };
 }
+
+test("structured alternative senses survive normalization without replacing the primary", async () => {
+  const { normalizeDictionaryResult } = await import("../src/dictionary.js");
+  const result = normalizeDictionaryResult("bank", {
+    meaningKo: "은행", definitionEn: "a financial institution", sourceType: "offline_catalog",
+    senses: [{ meaning_ko: "강둑", definition_en: "land beside a river", part_of_speech: "noun", example_sentence: "We stood on the bank." }]
+  });
+  assert.equal(result.meaningKo, "은행");
+  assert.deepEqual(result.senses, [{ meaningKo: "강둑", definitionEn: "land beside a river", partOfSpeech: "noun", exampleSentence: "We stood on the bank." }]);
+});

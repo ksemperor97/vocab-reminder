@@ -148,8 +148,7 @@ object Scheduler {
         val remainingSlots = activeLimit - selectedDue.size
         val recommendationCards = if (
             remainingSlots > 0 &&
-            settings.enableWordRecommendations &&
-            userWordCount >= 50
+            settings.enableWordRecommendations
         ) {
             cards
                 .filter {

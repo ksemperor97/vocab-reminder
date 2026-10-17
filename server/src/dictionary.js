@@ -7,6 +7,7 @@ const defaultMissCacheTtlMs = 5 * 60 * 1_000;
 const defaultFailureCacheTtlMs = 15 * 1_000;
 const defaultHelperTimeoutMs = 2_500;
 const maxLemmaLength = 80;
+const negativePrefixes = ["non", "dis", "un", "in", "im", "ir", "il"];
 
 export function createDictionaryResolver(options = {}) {
   const providers = options.providers ?? configuredProviders(options);
@@ -28,7 +29,7 @@ export function createDictionaryResolver(options = {}) {
     if (cached) return cached;
     if (inFlight.has(lemma)) return cloneResult(await inFlight.get(lemma));
 
-    const operation = resolveFromProviders(lemma, providers, attemptedAt)
+    const operation = resolveWithCanonicalVariant(lemma, providers, attemptedAt)
       .then((result) => {
         const ttl = result.status === "resolved"
           ? hitCacheTtlMs
@@ -49,6 +50,67 @@ export function createDictionaryResolver(options = {}) {
       cache.clear();
     }
   };
+}
+
+async function resolveWithCanonicalVariant(lemma, providers, now) {
+  const direct = await resolveFromProviders(lemma, providers, now);
+  if (direct.meaningKo !== "") return direct;
+
+  for (const candidate of canonicalCandidatesFromDefinition(lemma, direct.definitionEn)) {
+    const canonical = await resolveFromProviders(candidate, providers, now);
+    if (canonical.meaningKo === "") continue;
+    return {
+      ...canonical,
+      lemma,
+      definitionEn: direct.definitionEn || canonical.definitionEn,
+      partOfSpeech: direct.partOfSpeech || canonical.partOfSpeech,
+      sourceType: "definition_variant",
+      confidence: Math.min(canonical.confidence, 0.72)
+    };
+  }
+  return direct;
+}
+
+function canonicalCandidatesFromDefinition(lemma, definitionEn) {
+  const candidates = [];
+  const definition = definitionEn.toLocaleLowerCase("en-US");
+
+  for (const match of definition.matchAll(/\binformal\s*[:,;-]?\s+not\s+([a-z][a-z'-]*)/gu)) {
+    const base = match[1];
+    const prefix = matchingNegativePrefix(lemma, base);
+    if (prefix) candidates.push(`${prefix}${base}`);
+  }
+
+  const relationPatterns = [
+    /\babbreviation of\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/gu,
+    /\b(?:variant spelling|nonstandard spelling|contraction) of\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/gu,
+    /\b(?:short|informal term|informal word|another term) for\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/gu,
+    /[=＝]\s*([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})/gu
+  ];
+  for (const pattern of relationPatterns) {
+    for (const match of definition.matchAll(pattern)) candidates.push(match[1]);
+  }
+
+  return [...new Set(candidates.map((candidate) => candidate.trim()))]
+    .filter((candidate) => candidate !== lemma);
+}
+
+function matchingNegativePrefix(lemma, base) {
+  for (const prefix of negativePrefixes) {
+    if (!lemma.startsWith(prefix) || base.startsWith(prefix)) continue;
+    const informalStem = lemma.slice(prefix.length);
+    const sharedLength = commonPrefixLength(informalStem, base);
+    if (sharedLength >= Math.min(3, informalStem.length)) return prefix;
+  }
+  return null;
+}
+
+function commonPrefixLength(left, right) {
+  let length = 0;
+  while (length < left.length && length < right.length && left[length] === right[length]) {
+    length += 1;
+  }
+  return length;
 }
 
 export function createOfflineCatalogProvider({ catalogPath }) {
@@ -119,7 +181,16 @@ export function normalizeDictionaryResult(lemmaInput, value, fallbackAttemptedAt
     ? normalizedSourceType(source.sourceType ?? source.source_type)
     : "none";
 
+  const senses = (Array.isArray(source.senses) ? source.senses : []).slice(0, 20)
+    .filter(sense => sense && typeof sense === "object")
+    .map(sense => ({
+      meaningKo: trimmedString(sense.meaningKo ?? sense.meaning_ko, 2_000),
+      definitionEn: trimmedString(sense.definitionEn ?? sense.definition_en, 4_000),
+      partOfSpeech: trimmedString(sense.partOfSpeech ?? sense.part_of_speech, 120),
+      exampleSentence: trimmedString(sense.exampleSentence ?? sense.example_sentence, 2_000)
+    })).filter(sense => sense.meaningKo || sense.definitionEn);
   return {
+    ...(senses.length ? { senses } : {}),
     status: hasDefinition ? "resolved" : "pending",
     lemma,
     meaningKo,
@@ -214,7 +285,8 @@ function indexCatalog(payload) {
           partOfSpeech: normalized.partOfSpeech,
           exampleSentence: normalized.exampleSentence,
           sourceType: normalized.sourceType,
-          confidence: normalized.confidence
+          confidence: normalized.confidence,
+          ...(normalized.senses ? { senses: normalized.senses } : {})
         });
       }
     } catch {
