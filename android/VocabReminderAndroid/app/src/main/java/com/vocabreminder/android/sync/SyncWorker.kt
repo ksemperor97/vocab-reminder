@@ -31,7 +31,7 @@ class SyncWorker(
         if (serverUrl.isBlank() || token.isBlank()) return Result.success()
 
         return runCatching {
-            val result = store.syncWithCloud(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
+            val result = SyncCoordinator(store).sync(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
             store.recordCloudSyncSuccess(result.skippedSummary, result.requestId)
             val now = Instant.now()
             ReminderScheduler.reconcileAll(applicationContext, store, now)

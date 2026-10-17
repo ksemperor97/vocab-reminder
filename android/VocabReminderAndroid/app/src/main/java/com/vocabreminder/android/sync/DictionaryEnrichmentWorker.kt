@@ -11,6 +11,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.vocabreminder.android.data.DictionaryEnrichmentFailure
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.applyDictionaryDefinitionFallback
+import com.vocabreminder.android.data.applyDictionaryEnrichment
+import com.vocabreminder.android.data.cardsNeedingDictionaryEnrichment
+import com.vocabreminder.android.data.hasCardsNeedingDictionaryEnrichment
+import com.vocabreminder.android.data.markDictionaryEnrichmentPending
+import com.vocabreminder.android.data.recordDictionaryEnrichmentFailure
 import com.vocabreminder.android.dictionary.DictionaryLookupErrorCode
 import com.vocabreminder.android.dictionary.DictionaryLookupStatus
 import com.vocabreminder.android.notifications.ReminderScheduler

@@ -73,8 +73,10 @@ class LocalVocabularyStoreSyncTest {
     }
 
     @Test
-    fun definitionCandidateChangesRefreshTheCardHistoryUi() {
-        assertTrue(store.isUiRefreshKey("definition_candidates"))
+    fun everyCommittedChangeAdvancesTheUiRevision() {
+        val before = StoreChanges.revision.value
+        store.addCard("ui", "갱신", "", Instant.parse("2026-07-03T00:00:00Z"), Instant.parse("2026-07-03T00:00:00Z"))
+        assertTrue(StoreChanges.revision.value > before)
     }
 
     @Test
@@ -356,7 +358,7 @@ class LocalVocabularyStoreSyncTest {
     }
 
     @Test
-    fun eventArchiveKeepsActiveEventsUnderThresholdAndRecentResponsesStable() {
+    fun largeEventHistoryStaysQueryableWithoutArchiving() {
         val cardId = "archive-card"
         store.recordCloudSyncSuccess()
         val payload = syncPayload(settings(goal = 10, updatedAt = "2026-07-03T06:00:00Z"))
@@ -367,17 +369,15 @@ class LocalVocabularyStoreSyncTest {
         payload.put("review_events", events)
 
         store.importSyncBatchJson(payload.toString())
-        // A pulled snapshot can contain events that this device archived previously.
-        // Re-archiving them must not append duplicate IDs forever.
+        // Re-importing the same snapshot must not duplicate history rows.
         store.importSyncBatchJson(payload.toString())
 
-        assertEquals(5_000, store.events().size)
-        assertEquals(1_000, store.archivedEvents().size)
+        assertEquals(6_000, store.events().size)
         assertEquals(
             listOf(ReviewResponse.REMEMBERED, ReviewResponse.FORGOTTEN),
             store.recentResponses(cardId, 2)
         )
-        assertTrue(JSONObject(store.exportSyncBatchJson()).getJSONArray("review_events").length() <= 5_000)
+        assertEquals(6_000, JSONObject(store.exportSyncBatchJson()).getJSONArray("review_events").length())
     }
 
     @Test
@@ -477,7 +477,7 @@ class LocalVocabularyStoreSyncTest {
     }
 
     @Test
-    fun tiedTombstonesPreferLaterDeletedAtInBothImportDirections() {
+    fun tiedTombstonesKeepTheEarliestDeletionInBothImportDirections() {
         val id = "later-tombstone"
         val updatedAt = "2026-07-03T02:00:00Z"
         val earlierDeletedAt = "2026-07-03T02:01:00Z"
@@ -504,7 +504,8 @@ class LocalVocabularyStoreSyncTest {
         import(earlier)
         val reverse = store.allCards(includeDeleted = true).single { it.id == id }.deletedAt
 
-        assertEquals(Instant.parse(laterDeletedAt), forward)
+        // Deletion merges monotonically (shared/test-vectors/card_merge.json).
+        assertEquals(Instant.parse(earlierDeletedAt), forward)
         assertEquals(forward, reverse)
     }
 

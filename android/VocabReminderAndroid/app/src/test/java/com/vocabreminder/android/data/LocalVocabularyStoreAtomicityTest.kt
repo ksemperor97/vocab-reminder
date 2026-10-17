@@ -37,7 +37,7 @@ class LocalVocabularyStoreAtomicityTest {
         val now = Instant.parse("2026-07-14T00:00:00Z")
         val card = pendingCard("atomic-edit", now)
         val originalCandidateIds = store.definitionCandidates().map { it.id }
-        val failingStore = LocalVocabularyStore(context) { false }
+        val failingStore = LocalVocabularyStore(context, beforeCommit = { false })
 
         assertThrows(IllegalStateException::class.java) {
             failingStore.updateCardDetails(
@@ -62,10 +62,7 @@ class LocalVocabularyStoreAtomicityTest {
     fun manualEditKilledAfterCommitReloadsAsOneCompleteTransaction() {
         val now = Instant.parse("2026-07-14T00:00:00Z")
         val card = pendingCard("durable-edit", now)
-        val crashAfterCommit = LocalVocabularyStore(context) { editor ->
-            check(editor.commit())
-            throw SimulatedProcessDeath()
-        }
+        val crashAfterCommit = LocalVocabularyStore(context, afterCommit = { throw SimulatedProcessDeath() })
 
         assertThrows(SimulatedProcessDeath::class.java) {
             crashAfterCommit.updateCardDetails(
@@ -82,7 +79,8 @@ class LocalVocabularyStoreAtomicityTest {
         assertEquals(card.version + 1, updated.version)
         assertEquals(1, reloaded.events().size)
         assertEquals("manual_edit", reloaded.events().single().metadata["action"])
-        assertEquals(2, reloaded.definitionCandidates().size)
+        // A capture saved without a meaning has no empty placeholder candidate.
+        assertEquals(1, reloaded.definitionCandidates().size)
         assertEquals("내구성 있는 뜻", reloaded.definitionCandidates().last().parsedMeaningKo)
         assertEquals(
             DictionaryEnrichmentStatus.USER_LOCKED,
@@ -95,7 +93,7 @@ class LocalVocabularyStoreAtomicityTest {
         val now = Instant.parse("2026-07-14T00:00:00Z")
         val card = pendingCard("atomic-lookup", now)
         val originalCandidateIds = store.definitionCandidates().map { it.id }
-        val failingStore = LocalVocabularyStore(context) { false }
+        val failingStore = LocalVocabularyStore(context, beforeCommit = { false })
 
         assertThrows(IllegalStateException::class.java) {
             failingStore.applyDictionaryEnrichment(
@@ -142,7 +140,7 @@ class LocalVocabularyStoreAtomicityTest {
             previousIntervalDays = card.intervalDays,
             nextIntervalDays = updated.intervalDays
         )
-        val failingStore = LocalVocabularyStore(context) { false }
+        val failingStore = LocalVocabularyStore(context, beforeCommit = { false })
 
         assertThrows(IllegalStateException::class.java) {
             failingStore.updateCardAndAppendEvent(updated, event, now.plusSeconds(1))
@@ -157,10 +155,7 @@ class LocalVocabularyStoreAtomicityTest {
     fun englishFallbackKilledAfterCommitReloadsWithCandidateAndFailureState() {
         val now = Instant.parse("2026-07-14T00:00:00Z")
         val card = pendingCard("atomic-fallback", now)
-        val crashAfterCommit = LocalVocabularyStore(context) { editor ->
-            check(editor.commit())
-            throw SimulatedProcessDeath()
-        }
+        val crashAfterCommit = LocalVocabularyStore(context, afterCommit = { throw SimulatedProcessDeath() })
         val result = DictionaryLookupResult(
             status = DictionaryLookupStatus.RESOLVED,
             lemma = card.lemma,
@@ -178,7 +173,8 @@ class LocalVocabularyStoreAtomicityTest {
 
         val reloaded = LocalVocabularyStore(context)
         assertEquals("an English-only fallback", reloaded.findCard(card.id)?.definitionEn)
-        assertEquals(2, reloaded.definitionCandidates().size)
+        // A capture saved without a meaning has no empty placeholder candidate.
+        assertEquals(1, reloaded.definitionCandidates().size)
         assertFalse(reloaded.definitionCandidates().last().selectedAsPrimary)
         val state = reloaded.dictionaryEnrichmentState(card.id)!!
         assertEquals(DictionaryEnrichmentStatus.FAILED, state.status)
@@ -238,7 +234,7 @@ class LocalVocabularyStoreAtomicityTest {
             .put("daily_word_goal", 77)
             .put("settings_updated_at", "2030-01-01T00:00:00Z")
 
-        val failingStore = LocalVocabularyStore(context) { false }
+        val failingStore = LocalVocabularyStore(context, beforeCommit = { false })
         assertThrows(IllegalStateException::class.java) {
             failingStore.importSyncBatchJson(payload.toString())
         }
@@ -252,32 +248,31 @@ class LocalVocabularyStoreAtomicityTest {
     }
 
     @Test
-    fun duplicateCardImportRemapsDeviceLocalEnrichmentStateWithItsCanonicalCard() {
+    fun serverDuplicateFoldIsAppliedAsAnOrdinaryTombstone() {
         val now = Instant.parse("2026-07-14T00:00:00Z")
         val local = pendingCard("duplicate-state", now)
-        store.recordDictionaryEnrichmentFailure(
-            listOf(local.id),
-            DictionaryEnrichmentFailure.NETWORK,
-            now.plusSeconds(5),
-            "request-before-dedup"
-        )
         val payload = JSONObject(store.exportSyncBatchJson())
-        val canonicalId = "canonical-duplicate-state"
-        val canonical = JSONObject(payload.getJSONArray("cards").getJSONObject(0).toString())
-            .put("id", canonicalId)
+        val survivorId = "survivor-duplicate-state"
+        val localJson = payload.getJSONArray("cards").getJSONObject(0)
+        val survivor = JSONObject(localJson.toString())
+            .put("id", survivorId)
+            .put("meaning_ko", "서버가 남긴 카드")
             .put("version", local.version + 1)
             .put("updated_at", now.plusSeconds(10).toString())
-            .put("notification_id", 9912)
-        payload.getJSONArray("cards").put(canonical)
-
-        store.importSyncBatchJson(payload.toString())
+        // The server folds same-lemma cards; the device just applies the result.
+        val tombstone = JSONObject(localJson.toString())
+            .put("deleted_at", now.plusSeconds(10).toString())
+            .put("merged_into", survivorId)
+            .put("version", local.version + 1)
+            .put("updated_at", now.plusSeconds(10).toString())
+        store.importSyncBatchJson(
+            JSONObject().put("cards", org.json.JSONArray().put(survivor).put(tombstone)).toString()
+        )
 
         assertEquals(null, store.findCard(local.id))
-        assertEquals(canonicalId, store.findCard(canonicalId)?.id)
-        val state = store.dictionaryEnrichmentState(canonicalId)!!
-        assertEquals(DictionaryEnrichmentStatus.FAILED, state.status)
-        assertEquals(DictionaryEnrichmentFailure.NETWORK, state.failure)
-        assertEquals("request-before-dedup", state.requestId)
+        assertEquals(survivorId, store.storedCard(local.id)?.mergedInto)
+        assertEquals("서버가 남긴 카드", store.findCard(survivorId)?.meaningKo)
+        assertEquals(listOf(survivorId), store.cards().map { it.id })
     }
 
     private fun pendingCard(word: String, now: Instant): VocabularyCard {

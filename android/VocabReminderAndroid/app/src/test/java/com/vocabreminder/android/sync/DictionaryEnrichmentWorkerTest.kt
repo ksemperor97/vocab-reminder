@@ -12,6 +12,9 @@ import com.vocabreminder.android.data.CloudSyncCredentials
 import com.vocabreminder.android.data.DictionaryEnrichmentFailure
 import com.vocabreminder.android.data.DictionaryEnrichmentStatus
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.cardsNeedingDictionaryEnrichment
+import com.vocabreminder.android.data.dictionaryEnrichmentState
+import com.vocabreminder.android.data.hasCardsNeedingDictionaryEnrichment
 import com.vocabreminder.android.dictionary.DictionaryLookupErrorCode
 import com.vocabreminder.android.dictionary.DictionaryLookupResult
 import com.vocabreminder.android.dictionary.DictionaryLookupStatus

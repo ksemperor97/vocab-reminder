@@ -152,7 +152,7 @@ class CloudSyncClient(
         splitIntoBatches(localBatch).forEach { batch ->
             val response = postJson(config.endpoint("sync/batch"), batch)
             val result = response.body.throwIfError(response.requestId)
-            supportsChanges = supportsChanges || result.optInt("sync_protocol") == 2
+            supportsChanges = supportsChanges || result.optInt("sync_protocol") >= 2
             mergePushResult(aggregate, result)
         }
         return aggregate

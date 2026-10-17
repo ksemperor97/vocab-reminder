@@ -1,0 +1,294 @@
+package com.vocabreminder.android
+
+import android.app.Activity
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vocabreminder.android.capture.CaptureMethod
+import com.vocabreminder.android.scheduler.Wordbook
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = viewModel()) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val capture = model.capture
+    val library = model.library
+    val needsNotificationPermission = !model.notificationsAreAllowed
+    val firstRunGuide = initial.text.isBlank() && model.onboarding.captureGuideCompletedAt == null
+
+    var selectedTab by remember { mutableStateOf(AppTab.USER) }
+    var showSyncSettings by remember { mutableStateOf(false) }
+    var showCaptureGuide by remember { mutableStateOf(firstRunGuide) }
+    var showNotificationPermissionDialog by remember {
+        mutableStateOf(initial.text.isBlank() && !firstRunGuide && needsNotificationPermission)
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        model.onNotificationPermissionResult(granted)
+        showNotificationPermissionDialog = false
+    }
+
+    fun requestOrOpenNotificationSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission(context)) {
+            notificationPermissionLauncher.launch(POST_NOTIFICATIONS_PERMISSION)
+        } else {
+            showNotificationPermissionDialog = false
+            openNotificationSettings(context)
+        }
+    }
+
+    LaunchedEffect(Unit) { model.onStart(initial) }
+    LaunchedEffect(model.finishRequested) {
+        if (model.finishRequested) (context as? Activity)?.finish()
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                model.reload()
+                model.refreshDeviceReadiness()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (showCaptureGuide) {
+        AlertDialog(
+            onDismissRequest = {
+                showCaptureGuide = false
+                showNotificationPermissionDialog = needsNotificationPermission
+            },
+            title = { Text("30초 선택·공유 캡처 안내") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("1. 브라우저나 문서에서 단어를 길게 눌러 선택하고, 더보기의 ‘Vocabulary Reminder’ 또는 ‘텍스트 처리’를 누르세요.")
+                    Text("2. 문장이나 링크는 공유 메뉴에서 Vocabulary Reminder를 선택한 뒤 저장할 단어를 고르면 됩니다.")
+                    Text("3. 뜻을 바로 못 찾아도 캡처는 즉시 저장됩니다. 뜻은 백그라운드에서 보강되고, 캡처 출처도 함께 남습니다.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("complete_capture_guide"),
+                    onClick = {
+                        model.completeCaptureGuide()
+                        showCaptureGuide = false
+                        showNotificationPermissionDialog = needsNotificationPermission
+                    }
+                ) { Text("안내 완료") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCaptureGuide = false
+                    showNotificationPermissionDialog = needsNotificationPermission
+                }) { Text("나중에") }
+            }
+        )
+    } else if (showNotificationPermissionDialog && needsNotificationPermission) {
+        AlertDialog(
+            onDismissRequest = { showNotificationPermissionDialog = false },
+            title = { Text("복습 알림 권한이 필요합니다") },
+            text = {
+                Text("Vocabulary Reminder는 저장한 단어를 알림으로 다시 묻는 앱입니다. 알림을 허용해야 10분 뒤 복습, 못외웠다 재확인, 나중에 하기 흐름을 받을 수 있습니다.")
+            },
+            confirmButton = {
+                TextButton(onClick = { requestOrOpenNotificationSettings() }) {
+                    Text(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission(context)) "권한 요청"
+                        else "알림 설정 열기"
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationPermissionDialog = false }) { Text("나중에") }
+            }
+        )
+    }
+
+    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                AppNavigationBar(selectedTab = selectedTab, onTabSelected = { tab ->
+                    selectedTab = tab
+                    if (tab == AppTab.RECOMMENDED) model.onRecommendedTabSelected()
+                    if (tab != AppTab.SETTINGS) showSyncSettings = false
+                })
+            },
+            floatingActionButton = {
+                if (selectedTab == AppTab.USER) {
+                    FloatingActionButton(
+                        modifier = Modifier.testTag("add_word_fab"),
+                        onClick = { model.openManualCapture() }
+                    ) { Text("+") }
+                }
+            }
+        ) { innerPadding ->
+            Surface(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                when (selectedTab) {
+                    AppTab.USER -> UserWordbookScreen(
+                        cards = library.cards.filter { it.wordbook == Wordbook.USER },
+                        contexts = library.contexts,
+                        definitionCandidates = library.definitionCandidates,
+                        events = library.events,
+                        enrichmentStates = library.enrichmentStates,
+                        message = model.message,
+                        weakWordIds = library.weakWordIds,
+                        timezone = model.settings.timezone,
+                        needsNotificationPermission = needsNotificationPermission,
+                        onRequestNotificationPermission = { showNotificationPermissionDialog = true },
+                        onEditSave = model::saveCardEdit,
+                        onRetryEnrichment = model::retryDictionaryEnrichment,
+                        onSelectDefinitionCandidate = model::selectDefinitionCandidate,
+                        onReview = model::reviewCard,
+                        onDelete = model::deleteCard
+                    )
+                    AppTab.RECOMMENDED -> RecommendationWordbookScreen(
+                        cards = library.cards.filter { it.wordbook == Wordbook.RECOMMENDED },
+                        recommendationStatus = library.recommendationStatus,
+                        contexts = library.contexts,
+                        definitionCandidates = library.definitionCandidates,
+                        events = library.events,
+                        enrichmentStates = library.enrichmentStates,
+                        message = model.message,
+                        weakWordIds = library.weakWordIds,
+                        timezone = model.settings.timezone,
+                        onEditSave = model::saveCardEdit,
+                        onRetryEnrichment = model::retryDictionaryEnrichment,
+                        onSelectDefinitionCandidate = model::selectDefinitionCandidate,
+                        onReview = model::reviewCard,
+                        onRecommendationAction = model::handleRecommendation,
+                        onDelete = model::deleteCard
+                    )
+                    AppTab.SETTINGS -> SettingsScreen(
+                        settings = model.settings,
+                        readinessItems = model.readinessItems,
+                        showSyncSettings = showSyncSettings,
+                        message = model.message,
+                        onSettingsChange = { model.settings = it },
+                        onSaveSettings = model::saveSettings,
+                        onPlan = model::planToday,
+                        onRebalance = model::rebalance,
+                        onOpenNotificationSettings = { openNotificationSettings(context) },
+                        onOpenBatterySettings = { openBatterySettings(context) },
+                        onRefreshReadiness = model::refreshDeviceReadiness,
+                        onRepairBackgroundWork = model::repairBackgroundWork,
+                        onShowCaptureGuide = {
+                            showNotificationPermissionDialog = false
+                            showCaptureGuide = true
+                        },
+                        onOpenSync = {
+                            model.refreshSyncStatus()
+                            showSyncSettings = true
+                        },
+                        onBackFromSync = { showSyncSettings = false },
+                        syncContent = {
+                            CloudSyncPanel(
+                                serverUrl = model.syncServerUrl,
+                                authToken = model.syncBearerToken,
+                                status = model.syncStatus,
+                                connectionTestRunning = model.syncConnectionTestRunning,
+                                running = model.cloudSyncRunning,
+                                onServerUrlChange = { model.syncServerUrl = it },
+                                onAuthTokenChange = { model.syncBearerToken = it },
+                                onTestConnection = model::testSyncConnection,
+                                onSync = model::runCloudSync,
+                                onLocalExport = model::exportLocalSync,
+                                onLocalImport = model::importLocalSync
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
+        if (capture.showSheet) {
+            ModalBottomSheet(onDismissRequest = { capture.showSheet = false }) {
+                AddWordSheetContent(
+                    word = capture.word,
+                    meaning = capture.meaning,
+                    example = capture.example,
+                    message = model.message,
+                    manualFieldsVisible = capture.manualFieldsVisible,
+                    pendingAnalysis = capture.pendingAnalysis,
+                    preview = capture.preview,
+                    previewMeaning = capture.previewMeaning,
+                    previewExample = capture.previewExample,
+                    onWordChange = { capture.word = it },
+                    onMeaningChange = { capture.meaning = it },
+                    onExampleChange = { capture.example = it },
+                    onPreview = { model.showPreview(capture.word, CaptureMethod.MANUAL, "manual") },
+                    onShowManualFields = { capture.manualFieldsVisible = true },
+                    onDirectInputFromPreview = model::startDirectInputFromPreview,
+                    onClipboard = model::previewFromClipboard,
+                    onSaveManual = model::saveManual,
+                    onCandidateSelected = model::selectCandidateWord,
+                    onPreviewMeaningChange = { capture.previewMeaning = it },
+                    onPreviewExampleChange = { capture.previewExample = it },
+                    onSavePreview = model::savePreview,
+                    onCancelPreview = model::cancelPreview
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AppNavigationBar(selectedTab: AppTab, onTabSelected: (AppTab) -> Unit) {
+    NavigationBar {
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_user_words"),
+            selected = selectedTab == AppTab.USER,
+            onClick = { onTabSelected(AppTab.USER) },
+            label = { Text(stringResource(R.string.tab_user_words)) },
+            icon = { Text("내") }
+        )
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_recommendations"),
+            selected = selectedTab == AppTab.RECOMMENDED,
+            onClick = { onTabSelected(AppTab.RECOMMENDED) },
+            label = { Text(stringResource(R.string.tab_recommendations)) },
+            icon = { Text("추") }
+        )
+        NavigationBarItem(
+            modifier = Modifier.testTag("tab_settings"),
+            selected = selectedTab == AppTab.SETTINGS,
+            onClick = { onTabSelected(AppTab.SETTINGS) },
+            label = { Text(stringResource(R.string.tab_settings)) },
+            icon = { Text("설") }
+        )
+    }
+}

@@ -60,7 +60,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun VocabularyCard.toSyncJson(deviceId: String): JSONObject {
+    internal fun VocabularyCard.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("lemma", lemma)
@@ -87,13 +87,18 @@ object SyncPayloadFactory {
             .put("interval_before_lapse", intervalBeforeLapse ?: JSONObject.NULL)
             .put("recommendation_started_at", recommendationStartedAt?.toString() ?: JSONObject.NULL)
             .put("deleted_at", deletedAt?.toString() ?: JSONObject.NULL)
-            .put("created_device_id", deviceId)
+            .put("merged_into", mergedInto ?: JSONObject.NULL)
+            .put("created_device_id", createdDeviceId.ifBlank { deviceId })
             .put("created_at", createdAt.toString())
             .put("updated_at", updatedAt.toString())
             .put("version", version)
+            .put("content_version", contentVersion)
+            .put("content_updated_at", contentUpdatedAt.toString())
+            .put("schedule_version", scheduleVersion)
+            .put("schedule_updated_at", scheduleUpdatedAt.toString())
     }
 
-    private fun StoredContext.toSyncJson(deviceId: String): JSONObject {
+    internal fun StoredContext.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
@@ -107,7 +112,7 @@ object SyncPayloadFactory {
             .put("created_at", createdAt.toString())
     }
 
-    private fun StoredDefinitionCandidate.toSyncJson(): JSONObject {
+    internal fun StoredDefinitionCandidate.toSyncJson(): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
@@ -125,7 +130,7 @@ object SyncPayloadFactory {
             .put("created_at", createdAt.toString())
     }
 
-    private fun StoredReviewEvent.toSyncJson(deviceId: String): JSONObject {
+    internal fun StoredReviewEvent.toSyncJson(deviceId: String): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
@@ -141,7 +146,7 @@ object SyncPayloadFactory {
             .put("metadata", JSONObject(metadata))
     }
 
-    private fun RecommendationFeedback.toSyncJson(): JSONObject {
+    internal fun RecommendationFeedback.toSyncJson(): JSONObject {
         return JSONObject()
             .put("id", id)
             .put("card_id", cardId)
@@ -150,7 +155,7 @@ object SyncPayloadFactory {
             .put("created_at", createdAt.toString())
     }
 
-    private fun UserSettingsData.toSyncJson(): JSONObject {
+    internal fun UserSettingsData.toSyncJson(): JSONObject {
         return JSONObject()
             .put("max_queue_size", maxQueueSize)
             .put("snooze_duration_minutes", snoozeDurationMinutes)
@@ -170,10 +175,12 @@ object SyncPayloadFactory {
             .put("settings_updated_at", updatedAt.toString())
     }
 
-    private fun JSONObject.toCard(): VocabularyCard {
+    internal fun JSONObject.toCard(): VocabularyCard {
         val id = string("id")
         val lemma = string("lemma")
         val dueAt = instant("due_at")
+        val version = optInt("version", 1)
+        val updatedAt = nullableInstant("updated_at") ?: dueAt
         return VocabularyCard(
             id = id,
             lemma = lemma,
@@ -197,12 +204,19 @@ object SyncPayloadFactory {
             deletedAt = nullableInstant("deleted_at"),
             notificationId = optInt("notification_id", id.hashCode() and 0x7fffffff),
             createdAt = nullableInstant("created_at") ?: dueAt,
-            updatedAt = nullableInstant("updated_at") ?: dueAt,
-            version = optInt("version", 1)
+            updatedAt = updatedAt,
+            version = version,
+            // Payloads from before protocol 3 carry only the whole-card clock.
+            contentVersion = optInt("content_version", version).takeIf { it >= 1 } ?: version,
+            contentUpdatedAt = nullableInstant("content_updated_at") ?: updatedAt,
+            scheduleVersion = optInt("schedule_version", version).takeIf { it >= 1 } ?: version,
+            scheduleUpdatedAt = nullableInstant("schedule_updated_at") ?: updatedAt,
+            mergedInto = string("merged_into").takeIf { it.isNotBlank() },
+            createdDeviceId = string("created_device_id")
         )
     }
 
-    private fun JSONObject.toContext(): StoredContext {
+    internal fun JSONObject.toContext(): StoredContext {
         return StoredContext(
             id = string("id"),
             cardId = string("card_id"),
@@ -215,7 +229,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun JSONObject.toDefinitionCandidate(): StoredDefinitionCandidate {
+    internal fun JSONObject.toDefinitionCandidate(): StoredDefinitionCandidate {
         return StoredDefinitionCandidate(
             id = string("id"),
             cardId = string("card_id"),
@@ -234,7 +248,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun JSONObject.toReviewEvent(): StoredReviewEvent {
+    internal fun JSONObject.toReviewEvent(): StoredReviewEvent {
         val metadataJson = optJSONObject("metadata")
         val metadata = metadataJson?.keys()?.asSequence()?.associateWith { metadataJson.optString(it) } ?: emptyMap()
         return StoredReviewEvent(
@@ -252,7 +266,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun JSONObject.toRecommendationFeedback(): RecommendationFeedback {
+    internal fun JSONObject.toRecommendationFeedback(): RecommendationFeedback {
         return RecommendationFeedback(
             id = string("id"),
             cardId = string("card_id"),
@@ -262,7 +276,7 @@ object SyncPayloadFactory {
         )
     }
 
-    private fun JSONObject.toSettings(): UserSettingsData {
+    internal fun JSONObject.toSettings(): UserSettingsData {
         return UserSettingsData(
             dailyWordGoal = optInt("daily_word_goal", 10),
             maxQueueSize = optInt("max_queue_size", 20),

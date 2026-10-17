@@ -344,8 +344,10 @@ function validateCard(value) {
 function validateContext(value) {
   const entity = objectEntity(value);
   if (!entity.ok) return entity;
-  const missing = missingString(entity.entity, ["id", "card_id", "source_sentence", "capture_method", "created_at"]);
+  const missing = missingString(entity.entity, ["id", "card_id", "capture_method", "created_at"]);
   if (missing) return bad(`${missing} is required.`);
+  // A capture can carry provenance (app, URL) without a sentence.
+  if (typeof entity.entity.source_sentence !== "string") return bad("source_sentence must be a string.");
   if (!captureMethods.has(entity.entity.capture_method)) return bad("capture_method is invalid.");
   if (!validDate(entity.entity.created_at)) return bad("created_at must be an ISO timestamp.");
   return entity;

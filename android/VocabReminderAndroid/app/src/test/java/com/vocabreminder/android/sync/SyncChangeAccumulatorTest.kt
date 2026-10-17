@@ -29,21 +29,3 @@ class SyncChangeAccumulatorTest {
         }
     }
 }
-
-@RunWith(RobolectricTestRunner::class)
-class SyncUploadStateTest {
-    @Test fun acknowledgementsSendOnlyChangedRecordsIncludingDeletion() {
-        val initial = JSONObject("""{"cards":[{"id":"a","version":1},{"id":"b","version":1}],"settings":{"daily_word_goal":10}}""")
-        val acknowledged = SyncUploadState.fingerprints(initial)
-        val unchanged = SyncUploadState.pending(initial, acknowledged)
-        assertEquals(0, unchanged.getJSONArray("cards").length())
-        assertTrue(unchanged.isNull("settings"))
-        val changed = JSONObject(initial.toString())
-        changed.getJSONArray("cards").getJSONObject(0).put("version", 2).put("deleted_at", "2026-09-08T00:00:00Z")
-        val pending = SyncUploadState.pending(changed, acknowledged).getJSONArray("cards")
-        assertEquals(1, pending.length())
-        assertEquals("a", pending.getJSONObject(0).getString("id"))
-        assertTrue(pending.getJSONObject(0).has("deleted_at"))
-        assertEquals(2, SyncUploadState.pending(changed, JSONObject()).getJSONArray("cards").length())
-    }
-}
