@@ -85,7 +85,15 @@ export function createSyncServer({
     }
   });
 
-  return { server, store };
+  // Reads never write. Recommendations are topped up after each upload and by
+  // this hook, which the process runs on a timer so a new day's budget appears
+  // even when no device has uploaded yet.
+  function maintain() {
+    if (!recommendationCatalog) return { generated: 0, retired: 0 };
+    return maintainRecommendations(store, recommendationCatalog(), new Date(now()));
+  }
+
+  return { server, store, maintain };
 }
 
 async function route(context) {
@@ -133,20 +141,18 @@ async function route(context) {
       return applied;
     })();
     await maybeBackup(context);
-    sendJson(response, 200, { ...result, sync_protocol: 2 });
+    sendJson(response, 200, { ...result, sync_protocol: 3 });
     return;
   }
 
   if (url.pathname === "/sync/changes" && request.method === "GET") {
     requireBearer(request, context.token);
-    if (context.recommendationCatalog) maintainRecommendations(store, context.recommendationCatalog(), new Date(context.now()));
     sendJson(response, 200, readChanges(context.db, url.searchParams.get("cursor") ?? "", Number(url.searchParams.get("limit") ?? 400)));
     return;
   }
 
   if (url.pathname === "/sync/snapshot" && request.method === "GET") {
     requireBearer(request, context.token);
-    if (context.recommendationCatalog) maintainRecommendations(store, context.recommendationCatalog(), new Date(context.now()));
     sendJson(response, 200, store.snapshot());
     return;
   }
@@ -321,7 +327,7 @@ function safeRouteLabel(rawUrl) {
     return "invalid-url";
   }
   if (pathname.startsWith("/dict/") && pathname !== "/dict/batch") return "/dict/:lemma";
-  if (["/health", "/dict/batch", "/sync/batch", "/sync/snapshot"].includes(pathname)) {
+  if (["/health", "/dict/batch", "/sync/batch", "/sync/changes", "/sync/snapshot"].includes(pathname)) {
     return pathname;
   }
   return "unmatched";

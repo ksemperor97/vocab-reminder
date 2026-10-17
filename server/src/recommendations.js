@@ -77,38 +77,41 @@ export function chooseRecommendations(catalog, snapshot, limit) {
 // The transaction makes repeated/concurrent device pulls share one recommendation queue.
 export function maintainRecommendations(store, catalog, now = new Date()) {
   return store.db.transaction(() => {
-    let snapshot = store.snapshot();
-    const blocked = new Set(snapshot.recommendation_feedback.filter(item => ["known", "dismissed"].includes(item.action))
+    let cards = store.allEntities("cards");
+    const feedback = store.allEntities("recommendation_feedback");
+    const settings = store.settings();
+    const blocked = new Set(feedback.filter(item => ["known", "dismissed"].includes(item.action))
       .map(item => normalizeLemma(item.lemma)));
-    const started = new Set(snapshot.recommendation_feedback.filter(item => item.action === "started").map(item => item.card_id));
-    const reviewed = new Set(snapshot.review_events.filter(item => countedResponses.has(item.response)).map(item => item.card_id));
+    const started = new Set(feedback.filter(item => item.action === "started").map(item => item.card_id));
+    const reviewed = store.reviewedCardIds([...countedResponses]);
     const stamp = now.toISOString();
-    const retired = snapshot.cards.filter(card => !card.deleted_at && card.wordbook === "recommended" &&
+    const retired = cards.filter(card => !card.deleted_at && card.wordbook === "recommended" &&
       (blocked.has(normalizeLemma(card.lemma)) ||
-        (snapshot.settings?.enable_word_recommendations && catalog.length && !card.id.startsWith("server-recommendation-") && !card.recommendation_started_at &&
+        (settings?.enable_word_recommendations && catalog.length && !card.id.startsWith("server-recommendation-") && !card.recommendation_started_at &&
           card.status === "new" && !started.has(card.id) && !reviewed.has(card.id))));
     if (retired.length) {
       store.applyBatch({ cards: retired.map(card => ({ ...card, deleted_at: stamp, updated_at: stamp, version: card.version+1 })) });
-      snapshot = store.snapshot();
+      cards = store.allEntities("cards");
     }
-    const settings = snapshot.settings;
     if (!settings?.enable_word_recommendations) return { generated: 0, retired: retired.length };
     let formatter;
     try { formatter = new Intl.DateTimeFormat("en-CA", { timeZone: settings.timezone, year: "numeric", month: "2-digit", day: "2-digit" }); }
     catch { formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" }); }
     const today = formatter.format(now);
     const onToday = date => Number.isFinite(Date.parse(date)) && formatter.format(new Date(date)) === today;
+    // Anything reviewed "today" in any timezone reached the server within the last two days.
+    const recentEvents = store.reviewEventsReceivedSince(now.getTime() - 2 * 86400000);
     const processed = new Set([
-      ...snapshot.review_events.filter(event => countedResponses.has(event.response) && onToday(event.client_created_at)).map(event => event.card_id),
-      ...snapshot.recommendation_feedback.filter(item => onToday(item.created_at)).map(item => item.card_id)
+      ...recentEvents.filter(event => countedResponses.has(event.response) && onToday(event.client_created_at)).map(event => event.card_id),
+      ...feedback.filter(item => onToday(item.created_at)).map(item => item.card_id)
     ]);
-    const active = snapshot.cards.filter(card => !card.deleted_at && !inactive.has(card.status) && card.meaning_ko?.trim());
+    const active = cards.filter(card => !card.deleted_at && !inactive.has(card.status) && card.meaning_ko?.trim());
     const due = active.filter(card => !processed.has(card.id) && (card.wordbook !== "recommended" || card.recommendation_started_at) && Date.parse(card.due_at) <= now.getTime()).length;
     const waiting = active.filter(card => card.wordbook === "recommended" && !card.recommendation_started_at).length;
     const limit = Math.max(0, Math.min(settings.daily_word_goal-processed.size, settings.max_queue_size)-due-waiting);
-    const selected = chooseRecommendations(catalog, snapshot, limit);
+    const selected = chooseRecommendations(catalog, { cards, recommendation_feedback: feedback }, limit);
     if (selected.length) {
-      const cards = selected.map(seed => ({
+      const generated = selected.map(seed => ({
         id: `server-recommendation-${createHash("sha256").update(normalizeLemma(seed.lemma)).digest("hex")}`,
         lemma: normalizeLemma(seed.lemma), display_word: seed.lemma, meaning_ko: seed.meaningKo,
         definition_en: seed.definitionEn, part_of_speech: seed.partOfSpeech, phonetic: "",
@@ -117,10 +120,10 @@ export function maintainRecommendations(store, catalog, now = new Date()) {
         interval_days: 0, interval_before_lapse: null, lapse_count: 0, created_at: stamp, updated_at: stamp,
         version: 1, deleted_at: null, created_device_id: serverDevice
       }));
-      const contexts = cards.map(card => ({ id: `${card.id}-context`, card_id: card.id,
+      const contexts = generated.map(card => ({ id: `${card.id}-context`, card_id: card.id,
         source_sentence: card.source_sentence_primary, source_app: "Vocabulary Recommendation",
         source_url: null, capture_method: "recommendation", created_at: stamp }));
-      const result = store.applyBatch({ cards, contexts });
+      const result = store.applyBatch({ cards: generated, contexts });
       if (result.skipped.cards || result.skipped.contexts) throw new Error("Server recommendation validation failed.");
     }
     return { generated: selected.length, retired: retired.length };

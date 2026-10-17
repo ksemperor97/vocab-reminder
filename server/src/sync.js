@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mergeCards, withGroupClocks } from "./card_merge.js";
+import { linkedTables, planDuplicateFold } from "./dedupe.js";
 
 const cardStatuses = new Set(["new", "learning", "review", "relearning", "mastered", "suspended"]);
 const wordbooks = new Set(["user", "recommended"]);
@@ -88,6 +90,24 @@ export class SyncStore {
       `));
       this.statements.all.set(table, db.prepare(`SELECT body_json FROM ${table} ORDER BY created_at, id`));
     }
+    this.statements.byCardId = new Map();
+    this.statements.redirect = new Map();
+    for (const table of linkedTables) {
+      this.statements.byCardId.set(table, db.prepare(
+        `SELECT body_json FROM ${table} WHERE json_extract(body_json, '$.card_id') = ?`
+      ));
+      // Arguments are evaluated before json_set applies, so merged_from_card_id
+      // records the original owner the first time a row is re-pointed.
+      this.statements.redirect.set(table, db.prepare(`
+        UPDATE ${table}
+        SET body_json = json_set(
+          body_json,
+          '$.card_id', @to,
+          '$.merged_from_card_id', COALESCE(json_extract(body_json, '$.merged_from_card_id'), json_extract(body_json, '$.card_id'))
+        )
+        WHERE json_extract(body_json, '$.card_id') = @from
+      `));
+    }
   }
 
   health() {
@@ -111,16 +131,12 @@ export class SyncStore {
       // sends both its edited card and candidate does not receive a redundant
       // compatibility candidate for the same meaning.
       this.insertOnly("definition_candidates", payload.definition_candidates, validateDefinitionCandidate, result);
-      const candidateFingerprints = new Set(
-        this.allEntities("definition_candidates")
-          .map(definitionCandidateFingerprint)
-          .filter((fingerprint) => fingerprint != null)
-      );
-      this.applyCards(payload.cards, result, candidateFingerprints);
+      this.applyCards(payload.cards, result);
       this.insertOnly("contexts", payload.contexts, validateContext, result);
       this.insertOnly("review_events", payload.review_events, validateReviewEvent, result, serverReceivedAt);
       this.insertOnly("recommendation_feedback", payload.recommendation_feedback, validateRecommendationFeedback, result);
       this.applySettings(payload.settings, result);
+      result.folded = this.foldDuplicates(serverReceivedAt);
     });
     tx();
     return result;
@@ -137,6 +153,22 @@ export class SyncStore {
     };
   }
 
+  // Card ids that have ever received one of the given review responses, without
+  // materialising the append-only history in JavaScript.
+  reviewedCardIds(responses) {
+    const placeholders = responses.map(() => "?").join(", ");
+    return new Set(this.db.prepare(`
+      SELECT DISTINCT json_extract(body_json, '$.card_id') AS card_id
+      FROM review_events
+      WHERE json_extract(body_json, '$.response') IN (${placeholders})
+    `).all(...responses).map((row) => row.card_id));
+  }
+
+  reviewEventsReceivedSince(milliseconds) {
+    return this.db.prepare("SELECT body_json FROM review_events WHERE updated_at_ms >= ?")
+      .all(milliseconds).map((row) => JSON.parse(row.body_json));
+  }
+
   allEntities(table) {
     return this.statements.all.get(table).all().map((row) => JSON.parse(row.body_json));
   }
@@ -146,42 +178,65 @@ export class SyncStore {
     return row ? JSON.parse(row.body_json) : null;
   }
 
-  applyCards(cards, result, candidateFingerprints = new Set()) {
+  applyCards(cards, result) {
     for (let index = 0; index < cards.length; index += 1) {
       const validation = validateCard(cards[index]);
       if (!validation.ok) {
         skip(result, "cards", index, validation.reason, cards[index]);
         continue;
       }
-      const entity = validation.entity;
-      this.ensureMeaningCandidate(entity, candidateFingerprints, result);
-      const row = rowFromEntity(entity, "cards");
+      const entity = withGroupClocks(validation.entity);
+      this.ensureMeaningCandidate(entity, result);
       const existing = this.statements.get.get("cards").get(entity.id);
       if (!existing) {
-        this.statements.insert.get("cards").run(row);
+        this.statements.insert.get("cards").run(rowFromEntity(entity, "cards"));
         result.applied.cards += 1;
         continue;
       }
-      if (isIncomingCardNewer(row, existing)) {
+      const merged = mergeCards(JSON.parse(existing.body_json), entity);
+      const row = rowFromEntity(merged, "cards");
+      if (row.body_json !== existing.body_json) {
         this.statements.replace.get("cards").run(row);
         result.applied.cards += 1;
       }
     }
   }
 
-  ensureMeaningCandidate(card, candidateFingerprints, result) {
+  ensureMeaningCandidate(card, result) {
     const candidate = synthesizedMeaningCandidate(card);
     if (candidate == null) return;
     const fingerprint = definitionCandidateFingerprint(candidate);
-    if (fingerprint == null || candidateFingerprints.has(fingerprint)) return;
+    if (fingerprint == null) return;
+    const existing = this.statements.byCardId.get("definition_candidates").all(card.id)
+      .map((row) => definitionCandidateFingerprint(JSON.parse(row.body_json)));
+    if (existing.includes(fingerprint)) return;
 
     const info = this.statements.insertIgnore.get("definition_candidates").run(
       rowFromEntity(candidate, "definition_candidates")
     );
-    if (info.changes > 0) {
-      candidateFingerprints.add(fingerprint);
-      result.applied.definition_candidates += 1;
+    if (info.changes > 0) result.applied.definition_candidates += 1;
+  }
+
+  // Follows merged_into so history captured offline for a folded duplicate
+  // lands on the surviving card.
+  resolveCardId(cardId) {
+    let current = cardId;
+    for (let hops = 0; hops < 8; hops += 1) {
+      const row = this.statements.get.get("cards").get(current);
+      const target = row ? JSON.parse(row.body_json).merged_into : null;
+      if (typeof target !== "string" || target === current) return current;
+      current = target;
     }
+    return current;
+  }
+
+  foldDuplicates(now = new Date().toISOString()) {
+    const { updates, redirects } = planDuplicateFold(this.allEntities("cards"), now);
+    for (const card of updates) this.statements.replace.get("cards").run(rowFromEntity(card, "cards"));
+    for (const [from, to] of redirects) {
+      for (const table of linkedTables) this.statements.redirect.get(table).run({ from, to });
+    }
+    return redirects.size;
   }
 
   insertOnly(table, entities, validator, result, serverReceivedAt = null) {
@@ -191,9 +246,11 @@ export class SyncStore {
         skip(result, table, index, validation.reason, entities[index]);
         continue;
       }
-      const entity = table === "review_events"
+      let entity = table === "review_events"
         ? { ...validation.entity, server_created_at: serverReceivedAt }
         : validation.entity;
+      const cardId = this.resolveCardId(entity.card_id);
+      if (cardId !== entity.card_id) entity = { ...entity, card_id: cardId, merged_from_card_id: entity.card_id };
       const info = this.statements.insertIgnore.get(table).run(rowFromEntity(entity, table));
       if (info.changes > 0) result.applied[table] += 1;
     }
@@ -271,6 +328,15 @@ function validateCard(value) {
   }
   if (entity.entity.recommendation_started_at != null && !validDate(entity.entity.recommendation_started_at)) {
     return bad("recommendation_started_at must be an ISO timestamp or null.");
+  }
+  for (const group of ["content", "schedule"]) {
+    const version = entity.entity[`${group}_version`];
+    const updatedAt = entity.entity[`${group}_updated_at`];
+    if (version != null && (!Number.isInteger(version) || version < 1)) return bad(`${group}_version must be a positive integer.`);
+    if (updatedAt != null && !validDate(updatedAt)) return bad(`${group}_updated_at must be an ISO timestamp.`);
+  }
+  if (entity.entity.merged_into != null && nonEmptyTrimmedString(entity.entity.merged_into) == null) {
+    return bad("merged_into must be a nonempty string or null.");
   }
   return entity;
 }
@@ -470,97 +536,8 @@ function rowFromEntity(entity, table) {
   };
 }
 
-function isIncomingCardNewer(incoming, existing) {
-  const existingVersion = Number.isInteger(existing.version) ? existing.version : 0;
-  if (incoming.version !== existingVersion) return incoming.version > existingVersion;
-
-  const updatedAtComparison = compareIsoTimestamps(
-    incoming.updated_at,
-    existing.updated_at,
-    incoming.updated_at_ms,
-    existing.updated_at_ms
-  );
-  if (updatedAtComparison !== 0) return updatedAtComparison > 0;
-
-  const incomingIsTombstone = incoming.deleted_at != null;
-  const existingIsTombstone = existing.deleted_at != null;
-  if (incomingIsTombstone !== existingIsTombstone) {
-    return incomingIsTombstone;
-  }
-  if (incomingIsTombstone && existingIsTombstone) {
-    const deletedAtComparison = compareIsoTimestamps(
-      incoming.deleted_at,
-      existing.deleted_at,
-      incoming.deleted_at_ms,
-      existing.deleted_at_ms
-    );
-    if (deletedAtComparison !== 0) return deletedAtComparison > 0;
-  }
-
-  // A broken clock or imported legacy snapshot can produce the same logical
-  // revision with different contents. Pick a stable final winner so clients do
-  // not permanently retain different active payloads depending on merge order.
-  return stableEntityKey(incoming.body_json) > stableEntityKey(existing.body_json);
-}
-
-function stableEntityKey(bodyJson) {
-  try {
-    const entity = JSON.parse(bodyJson);
-    return [
-      textValue(entity.lemma),
-      textValue(entity.display_word),
-      textValue(entity.meaning_ko),
-      textValue(entity.definition_en),
-      textValue(entity.part_of_speech),
-      textValue(entity.source_sentence_primary),
-      textValue(entity.definition_source_primary),
-      textValue(entity.status),
-      textValue(entity.wordbook, "user"),
-      timestampMilliseconds(entity.due_at),
-      integerValue(entity.interval_days),
-      integerValue(entity.lapse_count),
-      nullableIntegerValue(entity.interval_before_lapse),
-      timestampMilliseconds(entity.recommendation_started_at),
-      timestampMilliseconds(entity.created_at)
-    ].join("\u001f");
-  } catch {
-    return String(bodyJson ?? "");
-  }
-}
-
 function textValue(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
-}
-
-function timestampMilliseconds(value) {
-  return validDate(value) ? String(Date.parse(value)) : "";
-}
-
-function integerValue(value) {
-  return Number.isInteger(value) ? String(value) : "0";
-}
-
-function nullableIntegerValue(value) {
-  return Number.isInteger(value) ? String(value) : "";
-}
-
-function compareIsoTimestamps(left, right, leftMilliseconds, rightMilliseconds) {
-  const leftMs = Number.isInteger(leftMilliseconds) ? leftMilliseconds : Date.parse(left);
-  const rightMs = Number.isInteger(rightMilliseconds) ? rightMilliseconds : Date.parse(right);
-  if (leftMs !== rightMs) return leftMs > rightMs ? 1 : -1;
-
-  const leftFraction = fractionalSecondDigits(left);
-  const rightFraction = fractionalSecondDigits(right);
-  const width = Math.max(leftFraction.length, rightFraction.length);
-  const normalizedLeft = leftFraction.padEnd(width, "0");
-  const normalizedRight = rightFraction.padEnd(width, "0");
-  if (normalizedLeft === normalizedRight) return 0;
-  return normalizedLeft > normalizedRight ? 1 : -1;
-}
-
-function fractionalSecondDigits(value) {
-  const match = /\.(\d+)(?:Z|[+-]\d{2}:?\d{2})$/i.exec(value);
-  return match?.[1] ?? "";
 }
 
 function positiveIntegerOrDefault(value, fallback) {

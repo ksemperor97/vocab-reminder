@@ -188,6 +188,8 @@ test("matches the shared meaning-conflict merge, export, and restore contract", 
         source_sentence_primary: restoreCandidate.example_sentence,
         definition_source_primary: restoreCandidate.source,
         updated_at: fixtureCase.expected.restore.updated_at,
+        content_updated_at: fixtureCase.expected.restore.updated_at,
+        content_version: currentCard.content_version + 1,
         version: currentCard.version + 1
       }]
     }, token);
@@ -710,7 +712,7 @@ test("changes endpoint authenticates, advertises protocol, and exposes increment
   const app = await startTestServer(t);
   assert.equal((await getJson(app.url("/sync/changes"), "wrong")).status, 401);
   const push = await postJson(app.url("/sync/batch"), fullBatch(), token);
-  assert.equal(push.body.sync_protocol, 2);
+  assert.equal(push.body.sync_protocol, 3);
   const first = await getJson(app.url("/sync/changes?limit=400"), token);
   assert.equal(first.status, 200);
   assert.equal(first.body.cards.length, 1);

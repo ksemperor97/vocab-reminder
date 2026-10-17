@@ -63,6 +63,10 @@ export function migrateDatabaseSchema(db) {
     );
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_cards_deleted_at ON cards(deleted_at);");
+  for (const table of ["contexts", "definition_candidates", "review_events", "recommendation_feedback"]) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_card_id ON ${table}(json_extract(body_json, '$.card_id'));`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_review_events_received ON review_events(updated_at_ms);");
   // The Even G2 relay was removed; drop its pairing sessions from older databases.
   db.exec("DROP TABLE IF EXISTS g2_sessions;");
   migrateChangeLog(db);

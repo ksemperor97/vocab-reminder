@@ -23,7 +23,7 @@ const config = readConfig();
 const db = openDatabase(config.dbPath);
 await ensureDailyBackup(db, config.dbPath, config.backupDir, config.backupRetention);
 
-const { server } = createSyncServer({
+const { server, maintain } = createSyncServer({
   db,
   dbPath: config.dbPath,
   backupDir: config.backupDir,
@@ -39,6 +39,17 @@ const { server } = createSyncServer({
 server.listen(config.port, config.host, () => {
   console.log(`vocab-sync listening on http://${config.host}:${config.port}`);
 });
+
+function runMaintenance() {
+  try {
+    const result = maintain();
+    if (result.generated || result.retired) console.log(JSON.stringify({ event: "recommendation_maintenance", ...result }));
+  } catch (error) {
+    console.error("Recommendation maintenance failed", error);
+  }
+}
+runMaintenance();
+setInterval(runMaintenance, 10 * 60 * 1000).unref();
 
 setInterval(() => {
   ensureDailyBackup(db, config.dbPath, config.backupDir, config.backupRetention)

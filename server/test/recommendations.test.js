@@ -51,9 +51,10 @@ test("known feedback alone removes cards, defeats stale resurrection, and exclud
   store.applyBatch({ recommendation_feedback: [feedback] });
   assert.deepEqual(maintainRecommendations(store, catalog, now), { generated: 0, retired: 1 });
   assert.equal(waiting(store).length, 2);
+  // A stale active copy cannot resurrect the tombstone: deletion is permanent.
   store.applyBatch({ cards: [{ ...original, version: 100 }] });
-  maintainRecommendations(store, catalog, now);
-  assert.equal(store.snapshot().cards.find(card => card.id === original.id).version, 101);
+  assert.ok(store.snapshot().cards.find(card => card.id === original.id).deleted_at);
+  assert.equal(maintainRecommendations(store, catalog, now).retired, 0);
   const tomorrow = new Date(now.getTime() + 86400000);
   assert.equal(maintainRecommendations(store, catalog, tomorrow).generated, 1);
   assert.ok(waiting(store).every(card => card.lemma !== original.lemma));
@@ -120,7 +121,7 @@ test("production catalogue diversifies single-slot refills and permanently exclu
 test("legacy snapshot and incremental clients receive the same server-only word without a new endpoint", async t => {
   const store = fixture(t, { daily_word_goal: 1 });
   let entries = [seed("word-absent-from-bundled-clients")];
-  const { server } = createSyncServer({ db: store.db, token: "test-token", recommendationCatalog: () => entries, now: () => now.getTime() });
+  const { server, maintain } = createSyncServer({ db: store.db, token: "test-token", recommendationCatalog: () => entries, now: () => now.getTime() });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const url = `http://127.0.0.1:${server.address().port}`;
@@ -128,6 +129,10 @@ test("legacy snapshot and incremental clients receive the same server-only word 
   const unauthorized = await fetch(`${url}/sync/snapshot`);
   assert.equal(unauthorized.status, 401);
   assert.equal(waiting(store).length, 0);
+  // Reads are side-effect free; the maintenance hook (timer or upload) adds the word.
+  await fetch(`${url}/sync/snapshot`, { headers });
+  assert.equal(waiting(store).length, 0);
+  assert.equal(maintain().generated, 1);
   const [legacy, incremental] = await Promise.all([
     fetch(`${url}/sync/snapshot`, { headers }).then(r => r.json()),
     fetch(`${url}/sync/changes`, { headers }).then(r => r.json())
