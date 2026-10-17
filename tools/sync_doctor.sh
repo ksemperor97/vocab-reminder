@@ -436,7 +436,18 @@ if [[ -f "$TUNNEL_ENV" ]]; then
     tunnel_provider="cloudflare_quick_worker"
   fi
 
+  public_url="$(env_value "$TUNNEL_ENV" VOCAB_SYNC_PUBLIC_URL)"
   case "$tunnel_provider" in
+    tailscale_funnel)
+      pass "tunnel provider is tailscale_funnel"
+      if [[ -z "$public_url" ]]; then
+        fail "tunnel env must define VOCAB_SYNC_PUBLIC_URL (run npm run sync:setup-funnel)"
+      elif [[ "$public_url" != https://*.ts.net ]]; then
+        fail "VOCAB_SYNC_PUBLIC_URL must be an https://*.ts.net Funnel address: $public_url"
+      else
+        pass "VOCAB_SYNC_PUBLIC_URL is $public_url"
+      fi
+      ;;
     cloudflare_quick_worker|cloudflare-worker|quick-worker)
       pass "tunnel provider is cloudflare_quick_worker"
       if [[ -z "$worker_url" || "$worker_url" == "https://vocab-sync.your-workers-subdomain.workers.dev" ]]; then
@@ -476,78 +487,107 @@ else
   fail "active tunnel env is missing: $TUNNEL_ENV"
 fi
 
-if command -v cloudflared >/dev/null 2>&1; then
-  pass "cloudflared is installed"
-else
-  fail "cloudflared is not installed"
-fi
-
-if [[ -n "${tunnel_provider:-}" && "$tunnel_provider" == cloudflare_quick_worker* ]]; then
-  if command -v node >/dev/null 2>&1; then
-    pass "node is available for quick tunnel updater"
-  else
-    fail "node is required for cloudflare_quick_worker"
+if [[ "${tunnel_provider:-}" == "tailscale_funnel" ]]; then
+  tailscale_bin="${TAILSCALE_BIN:-}"
+  if [[ -z "$tailscale_bin" && -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
+    tailscale_bin=/Applications/Tailscale.app/Contents/MacOS/Tailscale
   fi
-fi
-
-if command -v launchctl >/dev/null 2>&1; then
-  tunnel_snapshot="$(launchd_snapshot com.vocabreminder.tunnel)"
-  tunnel_state="$(launchd_field "$tunnel_snapshot" state)"
-  tunnel_pid="$(launchd_field "$tunnel_snapshot" pid)"
-  if [[ "$tunnel_state" == "running" && "$tunnel_pid" =~ ^[0-9]+$ ]]; then
-    pass "com.vocabreminder.tunnel is running with pid $tunnel_pid"
-  elif [[ -n "$tunnel_snapshot" ]]; then
-    fail "com.vocabreminder.tunnel is loaded but not running"
+  [[ -n "$tailscale_bin" ]] || tailscale_bin="$(command -v tailscale 2>/dev/null || true)"
+  if [[ -z "$tailscale_bin" ]]; then
+    fail "Tailscale is not installed"
   else
-    fail "com.vocabreminder.tunnel launchd agent is not loaded"
+    pass "Tailscale CLI is available"
+    tailscale_state="$("$tailscale_bin" status --json 2>/dev/null | plutil -extract BackendState raw -o - - 2>/dev/null || true)"
+    if [[ "$tailscale_state" == "Running" ]]; then
+      pass "Tailscale is connected"
+    else
+      fail "Tailscale is not connected (state: ${tailscale_state:-unknown})"
+    fi
+    funnel_status="$("$tailscale_bin" funnel status 2>/dev/null || true)"
+    server_port="$(env_value "$SERVER_ENV" VOCAB_SYNC_PORT)"
+    if [[ "$funnel_status" == *"Funnel on"* && "$funnel_status" == *"127.0.0.1:${server_port:-8787}"* ]]; then
+      pass "Funnel forwards public HTTPS to 127.0.0.1:${server_port:-8787}"
+    else
+      fail "Funnel is not forwarding to the sync server (run npm run sync:setup-funnel)"
+    fi
   fi
-fi
-
-if [[ -f "$tunnel_plist" ]]; then
-  if grep -qi 'Dropbox\|Mobile Documents\|iCloud Drive' "$tunnel_plist"; then
-    fail "tunnel launchd plist still executes or logs inside a cloud-synced checkout"
-  else
-    pass "tunnel launchd paths are outside cloud-synced folders"
+  if [[ -f "$HOME/Library/LaunchAgents/com.vocabreminder.tunnel.plist" ]]; then
+    warn "the legacy Cloudflare tunnel agent is still installed; retire it with npm run sync:retire-cloudflare once every app uses the Funnel URL"
   fi
 else
-  fail "tunnel launchd plist is missing"
-fi
+  if command -v cloudflared >/dev/null 2>&1; then
+    pass "cloudflared is installed"
+  else
+    fail "cloudflared is not installed"
+  fi
 
-tunnel_state_file="${TUNNEL_STATE_FILE:-$RUNTIME_STATE_DIR/tunnel-supervisor.json}"
-if [[ -f "$tunnel_state_file" ]]; then
-  supervisor_status="$(json_value "$tunnel_state_file" supervisor_status "${node_bin:-node}")"
-  child_status="$(json_value "$tunnel_state_file" child_status "${node_bin:-node}")"
-  local_health_at="$(json_value "$tunnel_state_file" last_local_health_at "${node_bin:-node}")"
-  stable_health_at="$(json_value "$tunnel_state_file" last_stable_health_at "${node_bin:-node}")"
-  stable_failures="$(json_value "$tunnel_state_file" consecutive_failures.stable "${node_bin:-node}")"
-  tunnel_state_age="$(file_age_seconds "$tunnel_state_file")"
-  if [[ "$supervisor_status" == "healthy" && "$child_status" == "running" ]]; then
-    pass "tunnel supervisor reports a healthy connection"
-  else
-    fail "tunnel supervisor is not healthy (supervisor=${supervisor_status:-unknown}, child=${child_status:-unknown})"
+  if [[ -n "${tunnel_provider:-}" && "$tunnel_provider" == cloudflare_quick_worker* ]]; then
+    if command -v node >/dev/null 2>&1; then
+      pass "node is available for quick tunnel updater"
+    else
+      fail "node is required for cloudflare_quick_worker"
+    fi
   fi
-  if (( tunnel_state_age >= 0 && tunnel_state_age <= 180 )); then
-    pass "tunnel supervisor state is fresh"
-  else
-    fail "tunnel supervisor state is stale"
+
+  if command -v launchctl >/dev/null 2>&1; then
+    tunnel_snapshot="$(launchd_snapshot com.vocabreminder.tunnel)"
+    tunnel_state="$(launchd_field "$tunnel_snapshot" state)"
+    tunnel_pid="$(launchd_field "$tunnel_snapshot" pid)"
+    if [[ "$tunnel_state" == "running" && "$tunnel_pid" =~ ^[0-9]+$ ]]; then
+      pass "com.vocabreminder.tunnel is running with pid $tunnel_pid"
+    elif [[ -n "$tunnel_snapshot" ]]; then
+      fail "com.vocabreminder.tunnel is loaded but not running"
+    else
+      fail "com.vocabreminder.tunnel launchd agent is not loaded"
+    fi
   fi
-  if [[ -n "$local_health_at" ]]; then
-    pass "tunnel supervisor recorded local health at $local_health_at"
+
+  if [[ -f "$tunnel_plist" ]]; then
+    if grep -qi 'Dropbox\|Mobile Documents\|iCloud Drive' "$tunnel_plist"; then
+      fail "tunnel launchd plist still executes or logs inside a cloud-synced checkout"
+    else
+      pass "tunnel launchd paths are outside cloud-synced folders"
+    fi
   else
-    fail "tunnel supervisor has no local health success"
+    fail "tunnel launchd plist is missing"
   fi
-  if [[ -n "$stable_health_at" && "${stable_failures:-0}" == "0" ]]; then
-    pass "tunnel supervisor recorded stable health at $stable_health_at"
+
+  tunnel_state_file="${TUNNEL_STATE_FILE:-$RUNTIME_STATE_DIR/tunnel-supervisor.json}"
+  if [[ -f "$tunnel_state_file" ]]; then
+    supervisor_status="$(json_value "$tunnel_state_file" supervisor_status "${node_bin:-node}")"
+    child_status="$(json_value "$tunnel_state_file" child_status "${node_bin:-node}")"
+    local_health_at="$(json_value "$tunnel_state_file" last_local_health_at "${node_bin:-node}")"
+    stable_health_at="$(json_value "$tunnel_state_file" last_stable_health_at "${node_bin:-node}")"
+    stable_failures="$(json_value "$tunnel_state_file" consecutive_failures.stable "${node_bin:-node}")"
+    tunnel_state_age="$(file_age_seconds "$tunnel_state_file")"
+    if [[ "$supervisor_status" == "healthy" && "$child_status" == "running" ]]; then
+      pass "tunnel supervisor reports a healthy connection"
+    else
+      fail "tunnel supervisor is not healthy (supervisor=${supervisor_status:-unknown}, child=${child_status:-unknown})"
+    fi
+    if (( tunnel_state_age >= 0 && tunnel_state_age <= 180 )); then
+      pass "tunnel supervisor state is fresh"
+    else
+      fail "tunnel supervisor state is stale"
+    fi
+    if [[ -n "$local_health_at" ]]; then
+      pass "tunnel supervisor recorded local health at $local_health_at"
+    else
+      fail "tunnel supervisor has no local health success"
+    fi
+    if [[ -n "$stable_health_at" && "${stable_failures:-0}" == "0" ]]; then
+      pass "tunnel supervisor recorded stable health at $stable_health_at"
+    else
+      fail "tunnel supervisor stable health is missing or failing"
+    fi
   else
-    fail "tunnel supervisor stable health is missing or failing"
+    fail "tunnel supervisor state is missing: $tunnel_state_file"
   fi
-else
-  fail "tunnel supervisor state is missing: $tunnel_state_file"
 fi
 
 print_section "Stable HTTPS endpoint"
 
-stable_url="${VOCAB_SYNC_DEFAULT_URL:-${worker_url:-}}"
+stable_url="${VOCAB_SYNC_DEFAULT_URL:-${public_url:-${worker_url:-}}}"
 if [[ -n "$stable_url" ]]; then
   if [[ "$stable_url" != https://* ]]; then
     fail "VOCAB_SYNC_DEFAULT_URL must be HTTPS: $stable_url"

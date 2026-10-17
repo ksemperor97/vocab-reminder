@@ -138,50 +138,47 @@ cd mac/VocabReminderMac
 
 ## Mac Mini Sync Server
 
-This app is single-user and does not use Firebase or an external cloud database. Data lives on the Mac mini SQLite server. Cloudflare is used only as a free HTTPS relay/front door; no purchased domain, router setting, Android VPN, DDNS, server URL input, or token input is required for the Android user.
+This app is single-user and does not use Firebase or an external cloud database. Data lives on the Mac mini SQLite server. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the Mac mini, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
 
-1. Deploy the Cloudflare Worker front door in `server/tunnel/cloudflare_worker`.
-   It gives a stable free `workers.dev` URL.
-   Current deployment: `https://vocab-sync.vocab-reminder-sjk.workers.dev`
-2. On the always-on Mac mini, start the setup:
+One-time account steps on the Mac mini:
 
-```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:setup-mac-mini
-```
+1. Install Tailscale and sign in: `brew install --cask tailscale && open -a Tailscale`.
+2. In the Tailscale admin console, enable MagicDNS and HTTPS certificates, and allow Funnel for the machine. The setup prints the exact approval link if Funnel is not allowed yet.
 
-If `server/tunnel/.env` is missing, the command creates the template and pauses. Put the Worker URL/admin token in that file, then rerun the same command. The Mac mini will keep a Cloudflare quick tunnel alive and automatically publish the current quick tunnel URL to the Worker.
-
-3. Keep the generated `VOCAB_SYNC_TOKEN` in `server/.env`; release scripts read it automatically unless `VOCAB_SYNC_DEFAULT_TOKEN` is set.
-4. Release Android/MacBook clients use the fixed tunnel endpoint automatically; server URL/token fields are debug-only.
-
-Release client configuration is injected at build/package time, not typed by the Android or MacBook user:
+Then install the server and publish it:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev
-VOCAB_SYNC_DEFAULT_TOKEN=<server .env VOCAB_SYNC_TOKEN>
+npm run sync:setup-mac-mini      # server under launchd, then Funnel
+npm run sync:setup-funnel        # Funnel only (re-run any time)
 ```
 
-Build both user-facing clients with:
+`sync:setup-funnel` records `TUNNEL_PROVIDER=tailscale_funnel` and `VOCAB_SYNC_PUBLIC_URL` in the runtime `tunnel.env`, then checks `/health` through the public address: it must return 200 with the token and 401 without it. Release, preflight, doctor and QC scripts read that URL automatically. Keep the generated `VOCAB_SYNC_TOKEN` in the runtime `.env`; release scripts read it unless `VOCAB_SYNC_DEFAULT_TOKEN` is set.
+
+Build both user-facing clients against the Funnel address:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:release
+npm run sync:release             # uses VOCAB_SYNC_PUBLIC_URL from tunnel.env
+VOCAB_SYNC_DEFAULT_URL=https://<machine>.<tailnet>.ts.net npm run sync:release   # or explicitly
 ```
 
-The script reads `VOCAB_SYNC_TOKEN` from `server/.env` unless `VOCAB_SYNC_DEFAULT_TOKEN` is already set, then writes artifacts to `dist/sync-release/`.
-Direct Android/Mac release builds also require an HTTPS sync URL and token, so empty-config release artifacts fail early instead of producing an app that asks the user to configure sync.
-Placeholder endpoints such as `example.invalid` require `ALLOW_SYNC_RELEASE_DRY_RUN=1`, so a dry-run artifact is harder to mistake for a real release.
+Artifacts go to `dist/sync-release/`. Release builds require an HTTPS sync URL and token, so empty-config release artifacts fail early. Placeholder endpoints such as `example.invalid` require `ALLOW_SYNC_RELEASE_DRY_RUN=1`.
 
-Verify endpoint health and release artifacts with:
+Check the setup, Funnel, endpoint and artifacts:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:preflight
+npm run sync:doctor
+npm run sync:preflight
 ```
 
-Check the Mac mini setup, tunnel, release endpoint, artifacts, and connected Android device readiness with:
+### Switching from the Cloudflare Worker
 
-```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
-```
+Apps built before the switch have the `workers.dev` address baked in, so the old Cloudflare Worker and quick tunnel keep running until every installed app is rebuilt:
+
+1. On the Mac mini, run `npm run sync:setup-funnel`. The Cloudflare tunnel keeps running alongside, and both addresses reach the same server.
+2. Rebuild with `npm run sync:release`, then install the new Android and Mac apps.
+3. When both apps sync through the Funnel address, run `npm run sync:retire-cloudflare`.
+
+Token rotation (`npm run sync:rotate-tokens`) still rotates the Worker admin token while the Cloudflare keys are present in `tunnel.env`, and builds the rotated apps against the Funnel address.
 
 ## Real end-to-end run
 
@@ -199,11 +196,11 @@ The Mac app steps need Xcode and macOS Automation Mode (macOS asks for authentic
 The component checks are also available separately:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:check-endpoint
+npm run sync:check-endpoint
 npm run sync:check-artifacts
 ```
 
-The old WireGuard helper is no longer shipped because it conflicts with Android devices that already use an always-on VPN such as AdGuard.
+Phone VPN-based options (WireGuard, a Tailscale client on the phone) are not used because they conflict with an always-on VPN such as AdGuard; Funnel needs nothing on the phone.
 
 ## Milestone Notes
 

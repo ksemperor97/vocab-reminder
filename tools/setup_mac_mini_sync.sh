@@ -65,17 +65,12 @@ if [[ "$tunnel_status" -eq 78 ]]; then
 
 Tunnel setup paused.
 
-Cloudflare free path, no purchased domain.
+Default path: Tailscale Funnel (free, stable https://<machine>.<tailnet>.ts.net,
+nothing to install on the phone). Do this once on this Mac:
 
-Edit $TUNNEL_ENV with:
-
-  TUNNEL_PROVIDER=cloudflare_quick_worker
-  CF_WORKER_PUBLIC_URL=https://vocab-sync.<your-workers-subdomain>.workers.dev
-  CF_WORKER_ADMIN_TOKEN=<worker admin token>
-
-To create that Worker URL/admin token, follow:
-
-  server/tunnel/cloudflare_worker/README.md
+  1. brew install --cask tailscale && open -a Tailscale   # sign in
+  2. In the Tailscale admin console, enable MagicDNS and HTTPS certificates,
+     and allow Funnel for this machine (the setup prints the link if needed).
 
 Then rerun:
 
@@ -88,13 +83,11 @@ fi
 
 section "Readiness check"
 
+if [[ -z "${VOCAB_SYNC_DEFAULT_URL:-}" && -f "$TUNNEL_ENV" ]]; then
+  VOCAB_SYNC_DEFAULT_URL="$(sed -n 's/^VOCAB_SYNC_PUBLIC_URL=//p' "$TUNNEL_ENV" | tail -n 1)"
+fi
 if [[ -z "${VOCAB_SYNC_DEFAULT_URL:-}" ]]; then
-  cat <<EOF
-Set VOCAB_SYNC_DEFAULT_URL to the stable HTTPS tunnel URL, then run:
-
-  VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.<your-workers-subdomain>.workers.dev npm run sync:doctor
-  VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.<your-workers-subdomain>.workers.dev npm run sync:preflight
-EOF
+  echo "No public sync URL recorded yet; rerun npm run sync:setup-funnel." >&2
   exit 78
 fi
 

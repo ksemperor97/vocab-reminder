@@ -206,7 +206,7 @@ export function prepare(options) {
     runtimeRoot: path.resolve(options.runtimeRoot),
     serverEnv: path.resolve(options.serverEnv),
     tunnelEnv: path.resolve(options.tunnelEnv),
-    workerUrl: active.tunnel.get("CF_WORKER_PUBLIC_URL") || "",
+    workerUrl: active.tunnel.get("VOCAB_SYNC_PUBLIC_URL") || active.tunnel.get("CF_WORKER_PUBLIC_URL") || "",
     activeFileDigests: {
       server: sha256File(options.serverEnv),
       tunnel: sha256File(options.tunnelEnv),
@@ -281,8 +281,9 @@ export function buildArtifacts(options) {
   const stagedServer = parseEnv(fs.readFileSync(state.files.stagedServer, "utf8"));
   const stagedTunnel = parseEnv(fs.readFileSync(state.files.stagedTunnel, "utf8"));
   const syncToken = validateSecret(stagedServer.get("VOCAB_SYNC_TOKEN"), "staged VOCAB_SYNC_TOKEN");
-  const workerUrl = stagedTunnel.get("CF_WORKER_PUBLIC_URL") || state.manifest.workerUrl;
-  if (!workerUrl.startsWith("https://")) throw new Error("Rotation bundle has no HTTPS Worker URL.");
+  // Apps are built against the Tailscale Funnel address once it exists.
+  const workerUrl = stagedTunnel.get("VOCAB_SYNC_PUBLIC_URL") || stagedTunnel.get("CF_WORKER_PUBLIC_URL") || state.manifest.workerUrl;
+  if (!workerUrl.startsWith("https://")) throw new Error("Rotation bundle has no HTTPS sync URL.");
   fs.rmSync(state.files.artifacts, { recursive: true, force: true });
   ensurePrivateDirectory(state.files.artifacts);
   const childEnvironment = buildEnvironment({
@@ -346,7 +347,12 @@ function restartServices() {
   if (process.platform !== "darwin") throw new Error("Token activation requires macOS launchd.");
   const domain = `gui/${process.getuid()}`;
   execFileSync("launchctl", ["kickstart", "-k", `${domain}/com.vocabreminder.sync`], { stdio: "ignore" });
-  execFileSync("launchctl", ["kickstart", "-k", `${domain}/com.vocabreminder.tunnel`], { stdio: "ignore" });
+  // The Cloudflare tunnel agent is gone once Tailscale Funnel has replaced it.
+  try {
+    execFileSync("launchctl", ["kickstart", "-k", `${domain}/com.vocabreminder.tunnel`], { stdio: "ignore" });
+  } catch {
+    // Funnel is kept by tailscaled; nothing to restart.
+  }
 }
 
 async function status(url, headers) {

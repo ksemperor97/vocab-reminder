@@ -15,7 +15,9 @@ if [[ -z "$SYNC_TOKEN" && -f "$SERVER_ENV" ]]; then
   SYNC_TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$SERVER_ENV" | head -n 1)"
 fi
 if [[ -z "$SYNC_URL" && -f "$TUNNEL_ENV" ]]; then
-  SYNC_URL="$(sed -n 's/^CF_WORKER_PUBLIC_URL=//p' "$TUNNEL_ENV" | head -n 1)"
+  # Tailscale Funnel address first; the Cloudflare Worker address only during the transition.
+  SYNC_URL="$(sed -n 's/^VOCAB_SYNC_PUBLIC_URL=//p' "$TUNNEL_ENV" | tail -n 1)"
+  [[ -n "$SYNC_URL" ]] || SYNC_URL="$(sed -n 's/^CF_WORKER_PUBLIC_URL=//p' "$TUNNEL_ENV" | head -n 1)"
 fi
 
 if [[ -z "$SYNC_URL" ]]; then
