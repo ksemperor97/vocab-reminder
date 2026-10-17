@@ -38,8 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// End-to-end runs point the app at a scratch data directory; they must not
     /// register login items, grab the global hotkey or prompt for notifications.
+    /// VocabReminder-E2E.app is always treated as one, however it was started:
+    /// opened without the scratch directory (Finder, `open`) it once registered
+    /// itself as a login item.
     private var isIsolatedRun: Bool {
         ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"] != nil
+            || Bundle.main.bundleIdentifier == "com.vocabreminder.mac.e2e"
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

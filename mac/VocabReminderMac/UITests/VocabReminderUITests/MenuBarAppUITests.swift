@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import XCTest
 
 /// Drives the packaged menu bar app (VocabReminder-E2E.app) the way a person
@@ -16,13 +17,16 @@ import XCTest
 final class MenuBarAppUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
     private var app: XCUIApplication!
+    private var savedInputSource: TISInputSource?
 
     override func setUp() {
         continueAfterFailure = false
+        savedInputSource = selectASCIIKeyboardLayout()
     }
 
     override func tearDown() {
         app?.terminate()
+        if let savedInputSource { TISSelectInputSource(savedInputSource) }
     }
 
     // MARK: Steps
@@ -36,14 +40,13 @@ final class MenuBarAppUITests: XCTestCase {
 
         let field = app.textFields["capture_text_field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "capture field missing")
-        focus(field)
-        app.typeText(word)
-        press(app.buttons["capture_preview_button"])
+        type(word, into: field)
+        pressAfterTyping(app.buttons["capture_preview_button"])
 
         let meaningField = app.textFields["preview_meaning_field"]
         XCTAssertTrue(meaningField.waitForExistence(timeout: 10), "preview did not appear")
-        replaceText(in: meaningField, with: meaning)
-        press(app.buttons["preview_save_button"])
+        type(meaning, into: meaningField)
+        pressAfterTyping(app.buttons["preview_save_button"])
 
         XCTAssertTrue(element("card_word_\(lemma(word))").waitForExistence(timeout: 10), "saved card is not listed")
         try syncNow()
@@ -79,8 +82,8 @@ final class MenuBarAppUITests: XCTestCase {
         press(row)
         let editorField = app.textFields["editor_meaning_field"]
         XCTAssertTrue(editorField.waitForExistence(timeout: 10), "card editor did not open")
-        replaceText(in: editorField, with: meaning)
-        press(app.buttons["editor_save_button"])
+        type(meaning, into: editorField)
+        pressAfterTyping(app.buttons["editor_save_button"])
         try screenshot()
         press(app.buttons["editor_close_button"])
 
@@ -107,8 +110,14 @@ final class MenuBarAppUITests: XCTestCase {
         app.launchArguments = ["-syncServerURL", server, "-syncBearerToken", token]
         app.launch()
 
-        if !app.textFields["capture_text_field"].waitForExistence(timeout: 4) {
-            // Not opened at launch: use the menu bar item like a person would.
+        let captureField = app.textFields["capture_text_field"]
+        var attempt = 0
+        while !captureField.waitForExistence(timeout: attempt == 0 ? 4 : 8) && attempt < 3 {
+            // Not open: use the menu bar item like a person would. Another app
+            // coming to the front closes the menu before the click lands, so
+            // close whatever is left open and try again.
+            attempt += 1
+            app.typeKey(.escape, modifierFlags: [])
             let statusItem = app.statusItems.firstMatch
             XCTAssertTrue(statusItem.waitForExistence(timeout: 10), "menu bar item missing")
             statusItem.click()
@@ -116,9 +125,9 @@ final class MenuBarAppUITests: XCTestCase {
             XCTAssertTrue(open.waitForExistence(timeout: 5), "menu bar menu did not open")
             open.click()
         }
-        XCTAssertTrue(app.textFields["capture_text_field"].waitForExistence(timeout: 10), "main window did not open")
+        XCTAssertTrue(captureField.exists, "main window did not open")
         app.activate()
-        waitUntilSettled(app.textFields["capture_text_field"])
+        waitUntilSettled(captureField)
     }
 
     /// Waits until an element stops moving (window placement, Stage Manager
@@ -150,12 +159,47 @@ final class MenuBarAppUITests: XCTestCase {
         XCTAssertTrue(message.waitForExistence(timeout: 30), "sync did not finish: \(statusText())")
     }
 
+    /// Types `text` into `field` so that the field ends up holding exactly
+    /// `text`: focus, clear (checked), type, then read the value back. A
+    /// keystroke that went astray (focus moved, a key arrived with the wrong
+    /// modifier) shows up as a wrong value, so refocus and start over.
     @MainActor
-    private func replaceText(in field: XCUIElement, with text: String) {
-        focus(field)
+    private func type(_ text: String, into field: XCUIElement, attempts: Int = 3) {
+        var actual = ""
+        for attempt in 1...attempts {
+            focus(field)
+            clear(field)
+            app.typeText(text)
+            actual = currentValue(of: field)
+            if actual == text { return }
+            print("typing into \(field.identifier), attempt \(attempt): expected '\(text)', field holds '\(actual)'")
+        }
+        XCTFail("\(field.identifier) holds '\(actual)' after \(attempts) attempts to type '\(text)'")
+    }
+
+    /// Select-all and delete; if the field is still not empty (Cmd+A did not
+    /// select everything), delete backwards and forwards character by character.
+    @MainActor
+    private func clear(_ field: XCUIElement) {
         app.typeKey("a", modifierFlags: .command)
         app.typeKey(.delete, modifierFlags: [])
-        app.typeText(text)
+        var remaining = currentValue(of: field)
+        var rounds = 0
+        while !remaining.isEmpty && rounds < 3 {
+            let count = remaining.count + 2
+            app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count))
+            app.typeText(String(repeating: XCUIKeyboardKey.forwardDelete.rawValue, count: count))
+            remaining = currentValue(of: field)
+            rounds += 1
+        }
+        if !remaining.isEmpty {
+            print("could not clear \(field.identifier); it still holds '\(remaining)'")
+        }
+    }
+
+    @MainActor
+    private func currentValue(of field: XCUIElement) -> String {
+        field.value as? String ?? ""
     }
 
     /// Keyboard input goes to the frontmost app, so take focus right before typing.
@@ -163,7 +207,40 @@ final class MenuBarAppUITests: XCTestCase {
     private func focus(_ field: XCUIElement) {
         app.activate()
         press(field)
+        assertFrontmost()
+    }
+
+    /// Typing can end with the window behind another app (or minimised, as a
+    /// stray Cmd+M once did); make sure ours is in front before the click.
+    @MainActor
+    private func pressAfterTyping(_ button: XCUIElement) {
+        assertFrontmost()
+        press(button)
+    }
+
+    @MainActor
+    private func assertFrontmost() {
+        if app.state != .runningForeground { app.activate() }
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5), "app did not come to the front")
+    }
+
+    /// XCUITest turns characters into key codes through the current keyboard
+    /// layout. With an input method such as Korean 2-Set selected, "ephemeral"
+    /// stopped after "ephe" because "m" went out as Cmd+M and minimised the
+    /// window, and Cmd+A did not select all. Use an ASCII layout while the test
+    /// runs; tearDown puts the person's input source back.
+    private func selectASCIIKeyboardLayout() -> TISInputSource? {
+        let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
+        guard let ascii = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() else { return nil }
+        if inputSourceID(current) == inputSourceID(ascii) { return nil }
+        let status = TISSelectInputSource(ascii)
+        print("keyboard input source \(inputSourceID(current)) -> \(inputSourceID(ascii)) (status \(status))")
+        return status == noErr ? current : nil
+    }
+
+    private func inputSourceID(_ source: TISInputSource) -> String {
+        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return "?" }
+        return Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String
     }
 
     /// Clicks at the element's centre on screen. XCTest's own click() refuses

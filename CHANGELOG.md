@@ -1,3 +1,10 @@
+# Mac UI test typing — 2026-10-18
+
+- The XCUITest steps select an ASCII keyboard layout while they run and restore the previous input source. With Korean 2-Set selected, XCUITest sent the "m" of "ephemeral" as Cmd+M (the window minimised) and Cmd+A did not select all.
+- Typing is verified: focus, clear (checked, with a character-by-character fallback), type, read the value back, retry up to three times, and fail with the field's actual value. The app must be frontmost before a button is pressed after typing.
+- Opening the main window from the menu bar retries when another app closes the menu first.
+- `VocabReminder-E2E.app` is always an isolated run (no login item, global hotkey or notification prompt), even when started without `VOCAB_REMINDER_DATA_DIR`.
+
 # Mac app UI in the real end-to-end run — 2026-10-17
 
 - Add `mac/VocabReminderMac/UITests`, an XCUITest project that drives the packaged menu bar app: open it from the menu bar, type and preview a word, save, press "지금 동기화", edit a meaning in the card editor.
