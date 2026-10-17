@@ -1,65 +1,149 @@
 import Foundation
 
-struct SchedulerCard: Equatable {
-    var id: String
-    var status: CardStatus
-    var intervalDays: Int
-    var dueAt: Date
-    var lapseCount: Int = 0
-    var intervalBeforeLapse: Int?
-    var meaningKo: String = "meaning"
-    var wordbook: Wordbook = .user
-    var deletedAt: Date?
-    var recommendationStartedAt: Date? = nil
+package struct SchedulerCard: Equatable {
+    package init(
+        id: String,
+        status: CardStatus,
+        intervalDays: Int,
+        dueAt: Date,
+        lapseCount: Int = 0,
+        intervalBeforeLapse: Int? = nil,
+        meaningKo: String = "",
+        wordbook: Wordbook = .user,
+        deletedAt: Date? = nil,
+        recommendationStartedAt: Date? = nil
+    ) {
+        self.id = id
+        self.status = status
+        self.intervalDays = intervalDays
+        self.dueAt = dueAt
+        self.lapseCount = lapseCount
+        self.intervalBeforeLapse = intervalBeforeLapse
+        self.meaningKo = meaningKo
+        self.wordbook = wordbook
+        self.deletedAt = deletedAt
+        self.recommendationStartedAt = recommendationStartedAt
+    }
+
+    package var id: String
+    package var status: CardStatus
+    package var intervalDays: Int
+    package var dueAt: Date
+    package var lapseCount: Int = 0
+    package var intervalBeforeLapse: Int?
+    package var meaningKo: String = "meaning"
+    package var wordbook: Wordbook = .user
+    package var deletedAt: Date?
+    package var recommendationStartedAt: Date? = nil
 }
 
-struct SchedulerSettings: Equatable {
-    var dailyWordGoal: Int = 10
-    var maxQueueSize: Int = 20
-    var snoozeDurationMinutes: Int = 60
-    var quietHoursStart: String = "23:00"
-    var quietHoursEnd: String = "09:00"
-    var timezone: String = "Asia/Seoul"
-    var maxUnavailablePerCardPerDay: Int = 2
-    var enableWordRecommendations: Bool = true
+package struct SchedulerSettings: Equatable {
+    package init(
+        dailyWordGoal: Int = 10,
+        maxQueueSize: Int = 20,
+        snoozeDurationMinutes: Int = 60,
+        quietHoursStart: String = "",
+        quietHoursEnd: String = "",
+        timezone: String = "",
+        maxUnavailablePerCardPerDay: Int = 2,
+        enableWordRecommendations: Bool = true
+    ) {
+        self.dailyWordGoal = dailyWordGoal
+        self.maxQueueSize = maxQueueSize
+        self.snoozeDurationMinutes = snoozeDurationMinutes
+        self.quietHoursStart = quietHoursStart
+        self.quietHoursEnd = quietHoursEnd
+        self.timezone = timezone
+        self.maxUnavailablePerCardPerDay = maxUnavailablePerCardPerDay
+        self.enableWordRecommendations = enableWordRecommendations
+    }
+
+    package var dailyWordGoal: Int = 10
+    package var maxQueueSize: Int = 20
+    package var snoozeDurationMinutes: Int = 60
+    package var quietHoursStart: String = "23:00"
+    package var quietHoursEnd: String = "09:00"
+    package var timezone: String = "Asia/Seoul"
+    package var maxUnavailablePerCardPerDay: Int = 2
+    package var enableWordRecommendations: Bool = true
 }
 
-struct ReviewEventDraft: Equatable {
-    var cardId: String
-    var response: ReviewResponse
-    var previousStatus: CardStatus
-    var nextStatus: CardStatus
-    var previousDueAt: Date
-    var nextDueAt: Date
-    var previousIntervalDays: Int
-    var nextIntervalDays: Int
-    var metadata: [String: String] = [:]
+package struct ReviewEventDraft: Equatable {
+    package init(
+        cardId: String,
+        response: ReviewResponse,
+        previousStatus: CardStatus,
+        nextStatus: CardStatus,
+        previousDueAt: Date,
+        nextDueAt: Date,
+        previousIntervalDays: Int,
+        nextIntervalDays: Int,
+        metadata: [String: String] = [:]
+    ) {
+        self.cardId = cardId
+        self.response = response
+        self.previousStatus = previousStatus
+        self.nextStatus = nextStatus
+        self.previousDueAt = previousDueAt
+        self.nextDueAt = nextDueAt
+        self.previousIntervalDays = previousIntervalDays
+        self.nextIntervalDays = nextIntervalDays
+        self.metadata = metadata
+    }
+
+    package var cardId: String
+    package var response: ReviewResponse
+    package var previousStatus: CardStatus
+    package var nextStatus: CardStatus
+    package var previousDueAt: Date
+    package var nextDueAt: Date
+    package var previousIntervalDays: Int
+    package var nextIntervalDays: Int
+    package var metadata: [String: String] = [:]
 }
 
-struct ReviewResult: Equatable {
-    var card: SchedulerCard
-    var event: ReviewEventDraft
+package struct ReviewResult: Equatable {
+    package init(
+        card: SchedulerCard,
+        event: ReviewEventDraft
+    ) {
+        self.card = card
+        self.event = event
+    }
+
+    package var card: SchedulerCard
+    package var event: ReviewEventDraft
 }
 
-struct PlanDayResult: Equatable {
-    var notifications: [SchedulerCard]
-    var rebalancedCards: [SchedulerCard]
-    var rebalanceEvents: [ReviewEventDraft]
+package struct PlanDayResult: Equatable {
+    package init(
+        notifications: [SchedulerCard],
+        rebalancedCards: [SchedulerCard],
+        rebalanceEvents: [ReviewEventDraft]
+    ) {
+        self.notifications = notifications
+        self.rebalancedCards = rebalancedCards
+        self.rebalanceEvents = rebalanceEvents
+    }
+
+    package var notifications: [SchedulerCard]
+    package var rebalancedCards: [SchedulerCard]
+    package var rebalanceEvents: [ReviewEventDraft]
 }
 
-enum Scheduler {
+package enum Scheduler {
     private static let maxReviewIntervalDays = 90
     private static let firstNotificationDelayMinutes: TimeInterval = 10 * 60
     private static let forgottenRecheckMinutes: TimeInterval = 20 * 60
     private static let maxForgottenPerCardPerDay = 3
     private static let quietReleaseOffsetMinutes = 30
 
-    static func initialDueAt(now: Date, settings: SchedulerSettings = SchedulerSettings()) -> Date {
+    package static func initialDueAt(now: Date, settings: SchedulerSettings = SchedulerSettings()) -> Date {
         // guide 6.3: new card first notification is save time + 10 minutes.
         avoidQuietHours(now.addingTimeInterval(firstNotificationDelayMinutes), settings: settings)
     }
 
-    static func applyReview(
+    package static func applyReview(
         card: SchedulerCard,
         response: ReviewResponse,
         settings: SchedulerSettings = SchedulerSettings(),
@@ -101,7 +185,7 @@ enum Scheduler {
         )
     }
 
-    static func planDay(cards: [SchedulerCard], settings: SchedulerSettings = SchedulerSettings(), now: Date, userWordCount: Int = 0) -> PlanDayResult {
+    package static func planDay(cards: [SchedulerCard], settings: SchedulerSettings = SchedulerSettings(), now: Date, userWordCount: Int = 0) -> PlanDayResult {
         // guide 6.4, 6.7, 6.9: user due cards fill the goal first; overflow is rebalanced.
         let dueUserCards = cards
             .filter { ($0.wordbook == .user || $0.recommendationStartedAt != nil) && isNotificationEligible($0) && $0.dueAt <= now }
@@ -130,7 +214,7 @@ enum Scheduler {
         )
     }
 
-    static func autoRebalance(cards: [SchedulerCard], settings: SchedulerSettings = SchedulerSettings(), now: Date, trigger: String = "auto") -> [ReviewResult] {
+    package static func autoRebalance(cards: [SchedulerCard], settings: SchedulerSettings = SchedulerSettings(), now: Date, trigger: String = "auto") -> [ReviewResult] {
         if cards.isEmpty { return [] }
         let lowPriorityFirst = cards.sorted { isHigherPriority($1, than: $0, now: now) }
         return lowPriorityFirst.enumerated().map { index, card in
@@ -153,7 +237,7 @@ enum Scheduler {
         }
     }
 
-    static func avoidQuietHours(_ candidate: Date, settings: SchedulerSettings) -> Date {
+    package static func avoidQuietHours(_ candidate: Date, settings: SchedulerSettings) -> Date {
         guard let timeZone = TimeZone(identifier: settings.timezone),
               let start = minutes(settings.quietHoursStart),
               let end = minutes(settings.quietHoursEnd) else {
@@ -269,7 +353,7 @@ enum Scheduler {
         card.status != .mastered && card.status != .suspended && card.deletedAt == nil && !card.meaningKo.isEmpty
     }
 
-    static func isHigherPriority(_ left: SchedulerCard, than right: SchedulerCard, now: Date) -> Bool {
+    package static func isHigherPriority(_ left: SchedulerCard, than right: SchedulerCard, now: Date) -> Bool {
         let leftRank = priorityRank(left)
         let rightRank = priorityRank(right)
         if leftRank != rightRank { return leftRank > rightRank }

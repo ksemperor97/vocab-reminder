@@ -1,3 +1,4 @@
+import VocabCore
 import AppKit
 import Carbon
 import Foundation

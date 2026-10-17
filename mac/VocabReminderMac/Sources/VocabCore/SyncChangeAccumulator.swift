@@ -1,13 +1,13 @@
 import Foundation
 
-struct SyncChangeAccumulator {
+package struct SyncChangeAccumulator {
     private static let keys = ["cards", "contexts", "definition_candidates", "review_events", "recommendation_feedback"]
     private var collections: [String: [String: [String: Any]]] = [:]
     private var settings: [String: Any]?
-    private(set) var cursor = ""
+    package private(set) var cursor = ""
     private var reset = false
 
-    mutating func append(_ page: [String: Any], previousCursor: String) throws {
+    package mutating func append(_ page: [String: Any], previousCursor: String) throws {
         guard let next = page["sync_cursor"] as? String, !next.isEmpty,
               let more = page["has_more"] as? Bool,
               !more || next != previousCursor else {
@@ -25,7 +25,7 @@ struct SyncChangeAccumulator {
         cursor = next
     }
 
-    func data() throws -> Data {
+    package func data() throws -> Data {
         var payload: [String: Any] = ["sync_cursor": cursor, "sync_reset": reset, "settings": settings as Any? ?? NSNull()]
         for key in Self.keys { payload[key] = Array(collections[key, default: [:]].values) }
         return try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])

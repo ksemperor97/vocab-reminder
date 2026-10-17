@@ -1,7 +1,7 @@
 import Foundation
 
-enum DueTimeJitter {
-    static func apply(
+package enum DueTimeJitter {
+    package static func apply(
         to dueAt: Date,
         now: Date,
         settings: SchedulerSettings,
@@ -23,7 +23,7 @@ enum DueTimeJitter {
         return Scheduler.avoidQuietHours(candidate, settings: settings)
     }
 
-    static func apply(
+    package static func apply(
         to result: ReviewResult,
         now: Date,
         settings: SchedulerSettings,
@@ -45,7 +45,7 @@ enum DueTimeJitter {
         return ReviewResult(card: card, event: event)
     }
 
-    static func jitterWindow(for horizon: TimeInterval) -> TimeInterval {
+    package static func jitterWindow(for horizon: TimeInterval) -> TimeInterval {
         if horizon <= 30 * 60 {
             return min(max(horizon * 0.5, 2 * 60), 10 * 60)
         }

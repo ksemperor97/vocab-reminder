@@ -1,18 +1,19 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class MeaningConflictFixtureTests: XCTestCase {
-    func testSharedMeaningConflictFixtureMatchesMergeExportAndRestoreContract() throws {
+final class MeaningConflictFixtureTests {
+    @Test func testSharedMeaningConflictFixtureMatchesMergeExportAndRestoreContract() throws {
         let fixture = try loadFixture()
-        let cases = try XCTUnwrap(fixture["cases"] as? [[String: Any]])
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
 
         for fixtureCase in cases {
-            let name = try XCTUnwrap(fixtureCase["name"] as? String)
-            let androidPayload = try XCTUnwrap(fixtureCase["android_offline"] as? [String: Any])
-            let macPayload = try XCTUnwrap(fixtureCase["mac_offline"] as? [String: Any])
-            let expected = try XCTUnwrap(fixtureCase["expected"] as? [String: Any])
+            let name = try #require(fixtureCase["name"] as? String)
+            let androidPayload = try #require(fixtureCase["android_offline"] as? [String: Any])
+            let macPayload = try #require(fixtureCase["mac_offline"] as? [String: Any])
+            let expected = try #require(fixtureCase["expected"] as? [String: Any])
             let androidSnapshot = try snapshot(from: androidPayload)
             let macSnapshot = try snapshot(from: macPayload)
 
@@ -65,12 +66,12 @@ final class MeaningConflictFixtureTests: XCTestCase {
             name: name
         )
 
-        let restore = try XCTUnwrap(expected["restore"] as? [String: Any])
-        let cardID = try XCTUnwrap(expected["card_id"] as? String)
-        let restoreCandidateID = try XCTUnwrap(restore["candidate_id"] as? String)
-        let restoredMeaning = try XCTUnwrap(restore["meaning_ko"] as? String)
+        let restore = try #require(expected["restore"] as? [String: Any])
+        let cardID = try #require(expected["card_id"] as? String)
+        let restoreCandidateID = try #require(restore["candidate_id"] as? String)
+        let restoredMeaning = try #require(restore["meaning_ko"] as? String)
         sourceStore.restoreDefinitionCandidate(cardId: cardID, candidateId: restoreCandidateID)
-        XCTAssertEqual(sourceStore.cards.first(where: { $0.id == cardID })?.meaningKo, restoredMeaning, name)
+        #expect(sourceStore.cards.first(where: { $0.id == cardID })?.meaningKo == restoredMeaning, Comment(rawValue: name))
 
         sourceStore.exportSyncSnapshot()
         try FileManager.default.copyItem(
@@ -83,14 +84,14 @@ final class MeaningConflictFixtureTests: XCTestCase {
         )
         importedStore.importSyncSnapshot()
 
-        let preservedIDs = Set(try XCTUnwrap(expected["preserved_candidate_ids"] as? [String]))
+        let preservedIDs = Set(try #require(expected["preserved_candidate_ids"] as? [String]))
         let importedIDs = Set(
             importedStore.definitionCandidates
                 .filter { $0.cardId == cardID }
                 .map(\.id)
         )
-        XCTAssertEqual(importedStore.cards.first(where: { $0.id == cardID })?.meaningKo, restoredMeaning, name)
-        XCTAssertTrue(preservedIDs.isSubset(of: importedIDs), name)
+        #expect(importedStore.cards.first(where: { $0.id == cardID })?.meaningKo == restoredMeaning, Comment(rawValue: name))
+        #expect(preservedIDs.isSubset(of: importedIDs), Comment(rawValue: name))
     }
 
     private func assertMeaningConflictState(
@@ -112,29 +113,21 @@ final class MeaningConflictFixtureTests: XCTestCase {
         expected: [String: Any],
         name: String
     ) throws {
-        let cardID = try XCTUnwrap(expected["card_id"] as? String)
-        let primary = try XCTUnwrap(expected["primary"] as? [String: Any])
-        let primaryCandidateID = try XCTUnwrap(primary["candidate_id"] as? String)
-        let primaryMeaning = try XCTUnwrap(primary["meaning_ko"] as? String)
-        let preservedIDs = Set(try XCTUnwrap(expected["preserved_candidate_ids"] as? [String]))
+        let cardID = try #require(expected["card_id"] as? String)
+        let primary = try #require(expected["primary"] as? [String: Any])
+        let primaryCandidateID = try #require(primary["candidate_id"] as? String)
+        let primaryMeaning = try #require(primary["meaning_ko"] as? String)
+        let preservedIDs = Set(try #require(expected["preserved_candidate_ids"] as? [String]))
         let cardCandidates = candidates.filter { $0.cardId == cardID }
 
-        XCTAssertEqual(cards.first(where: { $0.id == cardID })?.meaningKo, primaryMeaning, name)
-        XCTAssertEqual(Set(cardCandidates.map(\.id)), preservedIDs, name)
-        XCTAssertEqual(
-            cardCandidates.first(where: { $0.id == primaryCandidateID })?.parsedMeaningKo,
-            primaryMeaning,
-            name
-        )
-        let expectedConflictIDs = Set(try XCTUnwrap(expected["conflict_candidate_ids"] as? [String]))
-        XCTAssertEqual(
-            CardBiographyBuilder.preservedAlternativeCandidateIDs(
-                card: try XCTUnwrap(cards.first(where: { $0.id == cardID })),
+        #expect(cards.first(where: { $0.id == cardID })?.meaningKo == primaryMeaning, Comment(rawValue: name))
+        #expect(Set(cardCandidates.map(\.id)) == preservedIDs, Comment(rawValue: name))
+        #expect(cardCandidates.first(where: { $0.id == primaryCandidateID })?.parsedMeaningKo == primaryMeaning, Comment(rawValue: name))
+        let expectedConflictIDs = Set(try #require(expected["conflict_candidate_ids"] as? [String]))
+        #expect(CardBiographyBuilder.preservedAlternativeCandidateIDs(
+                card: try #require(cards.first(where: { $0.id == cardID })),
                 candidates: cardCandidates
-            ),
-            expectedConflictIDs,
-            name
-        )
+            ) == expectedConflictIDs, Comment(rawValue: name))
     }
 
     private func snapshot(from payload: [String: Any]) throws -> StoreSnapshot {
@@ -151,9 +144,7 @@ final class MeaningConflictFixtureTests: XCTestCase {
                 .appendingPathComponent("meaning_conflicts.json")
             if FileManager.default.fileExists(atPath: candidate.path) {
                 let data = try Data(contentsOf: candidate)
-                return try XCTUnwrap(
-                    JSONSerialization.jsonObject(with: data) as? [String: Any]
-                )
+                return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             }
             directory.deleteLastPathComponent()
         }

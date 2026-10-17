@@ -1,15 +1,15 @@
 import Foundation
 
-enum SyncDefaults {
-    static var serverURL: String {
+package enum SyncDefaults {
+    package static var serverURL: String {
         configuredValue(infoKey: "VocabSyncDefaultURL", environmentKey: "VOCAB_SYNC_DEFAULT_URL")
     }
 
-    static var bearerToken: String {
+    package static var bearerToken: String {
         configuredValue(infoKey: "VocabSyncDefaultToken", environmentKey: "VOCAB_SYNC_DEFAULT_TOKEN")
     }
 
-    static func effectiveServerURL(stored: String) -> String {
+    package static func effectiveServerURL(stored: String) -> String {
 #if DEBUG
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? serverURL : trimmed
@@ -18,7 +18,7 @@ enum SyncDefaults {
 #endif
     }
 
-    static func effectiveBearerToken(stored: String) -> String {
+    package static func effectiveBearerToken(stored: String) -> String {
 #if DEBUG
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? bearerToken : trimmed
@@ -27,7 +27,7 @@ enum SyncDefaults {
 #endif
     }
 
-    static func effectiveCredentials() -> (serverURL: String, bearerToken: String)? {
+    package static func effectiveCredentials() -> (serverURL: String, bearerToken: String)? {
         let defaults = UserDefaults.standard
         let serverURL = effectiveServerURL(stored: defaults.string(forKey: "syncServerURL") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)

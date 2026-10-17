@@ -1,4 +1,6 @@
+import AppKit
 import Carbon.HIToolbox
+import VocabCore
 import ServiceManagement
 import SwiftUI
 
@@ -9,7 +11,7 @@ struct VocabReminderMacApp: App {
     @StateObject private var store = LocalVocabularyStore.shared
 
     init() {
-        SchedulerVectorCommand.runAndExitIfRequested()
+        AppDiagnosticsCommand.runAndExitIfRequested()
     }
 
     var body: some Scene {
@@ -45,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         NSUpdateDynamicServices()
         GlobalHotKeyController.shared.onPressed = { [weak self] in
-            LocalVocabularyStore.shared.captureClipboard()
+            LocalVocabularyStore.shared.captureClipboard(NSPasteboard.general.string(forType: .string))
             self?.showMainWindow()
         }
         MacNotificationScheduler.shared.requestAuthorization()
@@ -277,7 +279,7 @@ struct ContentView: View {
                                 )
                             }
                             Button("클립보드") {
-                                store.captureClipboard()
+                                store.captureClipboard(NSPasteboard.general.string(forType: .string))
                             }
                             .keyboardShortcut("v", modifiers: [.command, .option])
                         }

@@ -2,8 +2,8 @@ import Foundation
 
 /// Persist the selected candidate alongside the legacy text projection.
 /// Missing/invalid pointers from old clients are repaired deterministically.
-enum DefinitionSelection {
-    static func primaryID(card: VocabularyCard, candidates: [StoredDefinitionCandidate]) -> String? {
+package enum DefinitionSelection {
+    package static func primaryID(card: VocabularyCard, candidates: [StoredDefinitionCandidate]) -> String? {
         let matching = candidates.filter {
             $0.cardId == card.id && !$0.parsedMeaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             $0.parsedMeaningKo.trimmingCharacters(in: .whitespacesAndNewlines) == card.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines) &&

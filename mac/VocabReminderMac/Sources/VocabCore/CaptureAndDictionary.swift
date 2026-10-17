@@ -15,7 +15,7 @@ private func DCSDictionaryGetName(_ dictionary: CFTypeRef) -> Unmanaged<CFString
 private func DCSDictionaryGetShortName(_ dictionary: CFTypeRef) -> Unmanaged<CFString>?
 #endif
 
-enum CaptureNormalizer {
+package enum CaptureNormalizer {
     private static let urlLikeSpanPattern = #"\b(?:https?://|www\.)\S+|\b[A-Za-z0-9.-]+\.(?:com|net|org|edu|gov|io|dev|app|co|kr|jp|cn|uk|de|fr|php|html?)\S*"#
     private static let stopWords: Set<String> = [
         "the", "a", "an", "and", "or", "but", "if", "then", "than", "to", "of", "in", "on",
@@ -23,7 +23,7 @@ enum CaptureNormalizer {
         "this", "that", "these", "those", "it", "its", "their", "there", "we", "you", "they"
     ]
 
-    static func analyze(_ rawText: String) -> CaptureAnalysis {
+    package static func analyze(_ rawText: String) -> CaptureAnalysis {
         let normalized = normalize(rawText)
         let tokenSource = normalized.replacingOccurrences(of: urlLikeSpanPattern, with: " ", options: [.regularExpression, .caseInsensitive])
         let tokens = tokenSource.matches(of: /[A-Za-z][A-Za-z'-]*/).map { normalize(String($0.output)) }
@@ -50,14 +50,14 @@ enum CaptureNormalizer {
         )
     }
 
-    static func analyzeSelection(rawText: String, selectedWord: String) -> CaptureAnalysis {
+    package static func analyzeSelection(rawText: String, selectedWord: String) -> CaptureAnalysis {
         var analysis = analyze(selectedWord)
         analysis.rawText = rawText
         analysis.sourceSentence = normalizeSentence(rawText)
         return analysis
     }
 
-    static func normalize(_ value: String) -> String {
+    package static func normalize(_ value: String) -> String {
         stripNonASCIISymbols(value)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -70,7 +70,7 @@ enum CaptureNormalizer {
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
     }
 
-    static func lemma(_ displayWord: String) -> String {
+    package static func lemma(_ displayWord: String) -> String {
         let normalized = normalize(displayWord).lowercased()
         if normalized.contains(" ") { return normalized }
 
@@ -127,13 +127,23 @@ private struct LocalEntry {
     var exampleSentence: String
 }
 
-struct ParsedMacDefinition {
-    var definitionEn: String
-    var exampleSentence: String
-    var partOfSpeech: String
+package struct ParsedMacDefinition {
+    package init(
+        definitionEn: String,
+        exampleSentence: String,
+        partOfSpeech: String
+    ) {
+        self.definitionEn = definitionEn
+        self.exampleSentence = exampleSentence
+        self.partOfSpeech = partOfSpeech
+    }
+
+    package var definitionEn: String
+    package var exampleSentence: String
+    package var partOfSpeech: String
 }
 
-enum DictionaryResolver {
+package enum DictionaryResolver {
     private static let localEntries: [String: LocalEntry] = [
         "tentative": LocalEntry(meaningKo: "잠정적인, 임시의", definitionEn: "not certain or fixed", partOfSpeech: "adjective", exampleSentence: "The results are tentative."),
         "robust": LocalEntry(meaningKo: "견고한, 안정적인", definitionEn: "strong and unlikely to fail", partOfSpeech: "adjective", exampleSentence: "The model showed robust decoding performance."),
@@ -146,15 +156,15 @@ enum DictionaryResolver {
         "mitigate": LocalEntry(meaningKo: "완화하다, 줄이다", definitionEn: "to make something less harmful or serious", partOfSpeech: "verb", exampleSentence: "The protocol mitigated measurement noise.")
     ]
 
-    static func resolve(_ rawText: String, sourceApp: String = "Mac") -> DictionaryResult {
+    package static func resolve(_ rawText: String, sourceApp: String = "Mac") -> DictionaryResult {
         resolve(CaptureNormalizer.analyze(rawText), sourceApp: sourceApp)
     }
 
-    static func resolve(_ analysis: CaptureAnalysis, sourceApp: String = "Mac") -> DictionaryResult {
+    package static func resolve(_ analysis: CaptureAnalysis, sourceApp: String = "Mac") -> DictionaryResult {
         resolve(analysis, sourceApp: sourceApp, lookup: MacDictionary.lookup)
     }
 
-    static func resolve(_ analysis: CaptureAnalysis, sourceApp: String = "Mac", lookup: (String) -> String?) -> DictionaryResult {
+    package static func resolve(_ analysis: CaptureAnalysis, sourceApp: String = "Mac", lookup: (String) -> String?) -> DictionaryResult {
         if let macDefinition = lookup(analysis.displayWord), !macDefinition.isEmpty {
             let entry = localEntries[analysis.lemma]
             let parsed = parseEnglishDefinition(from: macDefinition)
@@ -206,7 +216,7 @@ enum DictionaryResolver {
         )
     }
 
-    static func extractKoreanMeaning(from definition: String) -> String? {
+    package static func extractKoreanMeaning(from definition: String) -> String? {
         let stripped = definition
             .replacingOccurrences(of: #"\[[^\]]+\]|\([^)]*\)|/[^\n/]+/"#, with: " ", options: .regularExpression)
         // A middle dot can join words inside one Korean meaning (for example,
@@ -247,7 +257,7 @@ enum DictionaryResolver {
         return nil
     }
 
-    static func parseEnglishDefinition(from definition: String) -> ParsedMacDefinition {
+    package static func parseEnglishDefinition(from definition: String) -> ParsedMacDefinition {
         let collapsed = definition
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -304,8 +314,8 @@ enum DictionaryResolver {
     }
 }
 
-enum MacDictionary {
-    static func koreanEnglishDictionaryIsAvailable() -> Bool {
+package enum MacDictionary {
+    package static func koreanEnglishDictionaryIsAvailable() -> Bool {
         #if canImport(CoreServices)
         return koreanEnglishDictionary() != nil
         #else
@@ -313,7 +323,7 @@ enum MacDictionary {
         #endif
     }
 
-    static func lookup(_ text: String) -> String? {
+    package static func lookup(_ text: String) -> String? {
         #if canImport(CoreServices)
         let nsText = text as NSString
         let range = CFRange(location: 0, length: nsText.length)

@@ -1,10 +1,11 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class CardBiographyAndCandidateTests: XCTestCase {
-    func testBiographyIsChronologicalAndMarksOnlyNewestMatchingCandidateCurrent() {
+final class CardBiographyAndCandidateTests {
+    @Test func testBiographyIsChronologicalAndMarksOnlyNewestMatchingCandidateCurrent() {
         let base = Date(timeIntervalSince1970: 1_784_000_000)
         let card = makeCard(meaning: "두 번째 뜻", updatedAt: base.addingTimeInterval(40))
         let first = makeCandidate(
@@ -51,31 +52,22 @@ final class CardBiographyAndCandidateTests: XCTestCase {
             syncEvents: []
         )
 
-        XCTAssertEqual(items.map(\.occurredAt), items.map(\.occurredAt).sorted(by: >))
-        XCTAssertEqual(
-            items.compactMap { item -> StoredContext? in
+        #expect(items.map(\.occurredAt) == items.map(\.occurredAt).sorted(by: >))
+        #expect(items.compactMap { item -> StoredContext? in
                 guard case .context(let context) = item.kind else { return nil }
                 return context
-            }.first?.pageTitle,
-            "Research Article"
-        )
-        XCTAssertEqual(
-            CardBiographyBuilder.currentPrimaryCandidateID(
+            }.first?.pageTitle == "Research Article")
+        #expect(CardBiographyBuilder.currentPrimaryCandidateID(
                 card: card,
                 candidates: [first, matchingOlder, matchingNewer]
-            ),
-            matchingNewer.id
-        )
+            ) == matchingNewer.id)
         let candidates = [first, matchingOlder, matchingNewer]
-        XCTAssertEqual(
-            CardBiographyBuilder.preservedAlternativeCandidateIDs(card: card, candidates: candidates),
-            Set(candidates.map(\.id))
-        )
-        XCTAssertTrue(CardBiographyBuilder.candidateConflicts(first, card: card, candidates: candidates))
-        XCTAssertTrue(CardBiographyBuilder.candidateConflicts(matchingNewer, card: card, candidates: candidates))
+        #expect(CardBiographyBuilder.preservedAlternativeCandidateIDs(card: card, candidates: candidates) == Set(candidates.map(\.id)))
+        #expect(CardBiographyBuilder.candidateConflicts(first, card: card, candidates: candidates))
+        #expect(CardBiographyBuilder.candidateConflicts(matchingNewer, card: card, candidates: candidates))
     }
 
-    func testRepeatedSelectedCandidatesWithSameNormalizedProjectionAreNotAlternatives() {
+    @Test func testRepeatedSelectedCandidatesWithSameNormalizedProjectionAreNotAlternatives() {
         let base = Date(timeIntervalSince1970: 1_784_000_000)
         let card = makeCard(meaning: "뜻", updatedAt: base)
         let first = makeCandidate(
@@ -96,19 +88,14 @@ final class CardBiographyAndCandidateTests: XCTestCase {
             baseCardVersion: 1
         )
 
-        XCTAssertEqual(
-            CardBiographyBuilder.currentPrimaryCandidateID(card: card, candidates: [first, duplicate]),
-            duplicate.id
-        )
-        XCTAssertTrue(
-            CardBiographyBuilder.preservedAlternativeCandidateIDs(
+        #expect(CardBiographyBuilder.currentPrimaryCandidateID(card: card, candidates: [first, duplicate]) == duplicate.id)
+        #expect(CardBiographyBuilder.preservedAlternativeCandidateIDs(
                 card: card,
                 candidates: [first, duplicate]
-            ).isEmpty
-        )
+            ).isEmpty)
     }
 
-    func testSequentialEditsAreNotMarkedAsConflicts() {
+    @Test func testSequentialEditsAreNotMarkedAsConflicts() {
         let base = Date(timeIntervalSince1970: 1_784_000_000)
         var card = makeCard(meaning: "세 번째 뜻", updatedAt: base.addingTimeInterval(2))
         card.version = 3
@@ -127,31 +114,27 @@ final class CardBiographyAndCandidateTests: XCTestCase {
             baseCardVersion: 2
         )
 
-        XCTAssertTrue(
-            CardBiographyBuilder.preservedAlternativeCandidateIDs(
+        #expect(CardBiographyBuilder.preservedAlternativeCandidateIDs(
                 card: card,
                 candidates: [firstEdit, secondEdit]
-            ).isEmpty
-        )
-        XCTAssertFalse(CardBiographyBuilder.candidateConflicts(firstEdit, card: card, candidates: [firstEdit, secondEdit]))
-        XCTAssertFalse(CardBiographyBuilder.candidateConflicts(secondEdit, card: card, candidates: [firstEdit, secondEdit]))
+            ).isEmpty)
+        #expect(!(CardBiographyBuilder.candidateConflicts(firstEdit, card: card, candidates: [firstEdit, secondEdit])))
+        #expect(!(CardBiographyBuilder.candidateConflicts(secondEdit, card: card, candidates: [firstEdit, secondEdit])))
     }
 
-    func testLegacyCandidatesWithoutLineageAreNotMarkedAsConflicts() {
+    @Test func testLegacyCandidatesWithoutLineageAreNotMarkedAsConflicts() {
         let base = Date(timeIntervalSince1970: 1_784_000_000)
         let card = makeCard(meaning: "새 뜻", updatedAt: base)
         let old = makeCandidate(id: "old", meaning: "옛 뜻", at: base)
         let current = makeCandidate(id: "current", meaning: "새 뜻", at: base.addingTimeInterval(1))
 
-        XCTAssertTrue(
-            CardBiographyBuilder.preservedAlternativeCandidateIDs(
+        #expect(CardBiographyBuilder.preservedAlternativeCandidateIDs(
                 card: card,
                 candidates: [old, current]
-            ).isEmpty
-        )
+            ).isEmpty)
     }
 
-    func testAndroidPageTitleSurvivesSyncImportAndMacExport() throws {
+    @Test func testAndroidPageTitleSurvivesSyncImportAndMacExport() throws {
         let payload: [String: Any] = [
             "cards": [],
             "contexts": [[
@@ -173,9 +156,9 @@ final class CardBiographyAndCandidateTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: payload)
         )
 
-        let context = try XCTUnwrap(imported.contexts.first)
-        XCTAssertEqual(context.pageTitle, "Android Research Article")
-        XCTAssertEqual(context.sourceURL, "https://example.com/article")
+        let context = try #require(imported.contexts.first)
+        #expect(context.pageTitle == "Android Research Article")
+        #expect(context.sourceURL == "https://example.com/article")
 
         let exportedData = try SyncBatchFactory.jsonData(
             cards: [],
@@ -185,15 +168,15 @@ final class CardBiographyAndCandidateTests: XCTestCase {
             settings: imported.settings,
             deviceId: "mac-test0000"
         )
-        let exported = try XCTUnwrap(JSONSerialization.jsonObject(with: exportedData) as? [String: Any])
-        let exportedContexts = try XCTUnwrap(exported["contexts"] as? [[String: Any]])
-        XCTAssertEqual(exportedContexts.first?["page_title"] as? String, "Android Research Article")
+        let exported = try #require(JSONSerialization.jsonObject(with: exportedData) as? [String: Any])
+        let exportedContexts = try #require(exported["contexts"] as? [[String: Any]])
+        #expect(exportedContexts.first?["page_title"] as? String == "Android Research Article")
 
         let reimported = try SyncBatchFactory.localSnapshot(from: exportedData)
-        XCTAssertEqual(reimported.contexts.first?.pageTitle, "Android Research Article")
+        #expect(reimported.contexts.first?.pageTitle == "Android Research Article")
     }
 
-    func testTwoOfflineMeaningsSurviveRestoreThenExportAndReimport() throws {
+    @Test func testTwoOfflineMeaningsSurviveRestoreThenExportAndReimport() throws {
         let sourceDirectory = try makeDirectory(prefix: "CandidateSource")
         let importedDirectory = try makeDirectory(prefix: "CandidateImported")
         defer {
@@ -228,21 +211,15 @@ final class CardBiographyAndCandidateTests: XCTestCase {
         let sourceStore = LocalVocabularyStore(appSupportURL: sourceDirectory, scheduleNotifications: false)
         sourceStore.restoreDefinitionCandidate(cardId: originalCard.id, candidateId: second.id)
 
-        XCTAssertEqual(sourceStore.cards.first?.meaningKo, "두 번째 오프라인 뜻")
-        XCTAssertEqual(
-            Set(sourceStore.definitionCandidates.map(\.parsedMeaningKo)),
-            Set(["첫 번째 오프라인 뜻", "두 번째 오프라인 뜻"])
-        )
-        XCTAssertEqual(sourceStore.definitionCandidates.count, 3)
-        XCTAssertTrue(sourceStore.definitionCandidates.contains { $0.id == first.id })
-        XCTAssertTrue(sourceStore.definitionCandidates.contains { $0.id == second.id && $0.selectedAsPrimary == false })
-        XCTAssertTrue(sourceStore.definitionCandidates.last?.selectedAsPrimary == true)
-        XCTAssertEqual(sourceStore.definitionCandidates.last?.baseCardVersion, originalCard.version)
-        XCTAssertNotNil(sourceStore.definitionCandidates.last?.originDeviceId)
-        XCTAssertEqual(
-            sourceStore.reviewEvents.last?.metadata["action"],
-            "definition_candidate_restored"
-        )
+        #expect(sourceStore.cards.first?.meaningKo == "두 번째 오프라인 뜻")
+        #expect(Set(sourceStore.definitionCandidates.map(\.parsedMeaningKo)) == Set(["첫 번째 오프라인 뜻", "두 번째 오프라인 뜻"]))
+        #expect(sourceStore.definitionCandidates.count == 3)
+        #expect(sourceStore.definitionCandidates.contains { $0.id == first.id })
+        #expect(sourceStore.definitionCandidates.contains { $0.id == second.id && $0.selectedAsPrimary == false })
+        #expect(sourceStore.definitionCandidates.last?.selectedAsPrimary == true)
+        #expect(sourceStore.definitionCandidates.last?.baseCardVersion == originalCard.version)
+        #expect(sourceStore.definitionCandidates.last?.originDeviceId != nil)
+        #expect(sourceStore.reviewEvents.last?.metadata["action"] == "definition_candidate_restored")
 
         sourceStore.exportSyncSnapshot()
         try FileManager.default.copyItem(
@@ -252,16 +229,13 @@ final class CardBiographyAndCandidateTests: XCTestCase {
         let importedStore = LocalVocabularyStore(appSupportURL: importedDirectory, scheduleNotifications: false)
         importedStore.importSyncSnapshot()
 
-        XCTAssertEqual(importedStore.cards.first?.meaningKo, "두 번째 오프라인 뜻")
-        XCTAssertEqual(
-            Set(importedStore.definitionCandidates.map(\.parsedMeaningKo)),
-            Set(["첫 번째 오프라인 뜻", "두 번째 오프라인 뜻"])
-        )
-        XCTAssertEqual(importedStore.definitionCandidates.count, 3)
-        XCTAssertTrue(importedStore.definitionCandidates.contains { candidate in
+        #expect(importedStore.cards.first?.meaningKo == "두 번째 오프라인 뜻")
+        #expect(Set(importedStore.definitionCandidates.map(\.parsedMeaningKo)) == Set(["첫 번째 오프라인 뜻", "두 번째 오프라인 뜻"]))
+        #expect(importedStore.definitionCandidates.count == 3)
+        #expect(importedStore.definitionCandidates.contains { candidate in
             candidate.id == first.id && candidate.source == "offline_catalog"
         })
-        XCTAssertTrue(importedStore.definitionCandidates.contains { candidate in
+        #expect(importedStore.definitionCandidates.contains { candidate in
             candidate.id == second.id && candidate.source == "offline_catalog"
         })
     }

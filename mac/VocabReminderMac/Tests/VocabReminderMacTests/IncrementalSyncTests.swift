@@ -1,10 +1,11 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class IncrementalSyncTests: XCTestCase {
-    func testNegotiatedChangesPersistCursorAndNextPullUsesIt() async throws {
+final class IncrementalSyncTests {
+    @Test func testNegotiatedChangesPersistCursorAndNextPullUsesIt() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory); DictionaryURLProtocolStub.handler = nil }
         let store = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
@@ -16,18 +17,18 @@ final class IncrementalSyncTests: XCTestCase {
         _ = try await store.syncWithServer(serverBaseURL: "https://example.invalid", authToken: "test", session: session)
         let reloaded = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
         _ = try await reloaded.syncWithServer(serverBaseURL: "https://example.invalid", authToken: "test", session: session)
-        XCTAssertEqual(pulls.value, 2)
+        #expect(pulls.value == 2)
     }
 
     nonisolated private static func installHandler(cursor: String) -> LockedRequestCounter {
         let pulls = LockedRequestCounter()
         DictionaryURLProtocolStub.handler = { request in
             if request.url?.path == "/sync/batch" {
-                return (200, [:], try DictionaryURLProtocolStub.jsonData(["applied": [:], "skipped": [:], "sync_protocol": 2]))
+                return (200, [:], try DictionaryURLProtocolStub.jsonData(["applied": [:], "skipped": [:], "sync_protocol": 3]))
             }
-            XCTAssertEqual(request.url?.path, "/sync/changes")
+            #expect(request.url?.path == "/sync/changes")
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
-            XCTAssertEqual(query?.first { $0.name == "cursor" }?.value, pulls.value == 0 ? "" : cursor)
+            #expect(query?.first { $0.name == "cursor" }?.value == (pulls.value == 0 ? "" : cursor))
             pulls.increment()
             return (200, [:], try DictionaryURLProtocolStub.jsonData([
                 "cards": [], "contexts": [], "definition_candidates": [], "review_events": [], "recommendation_feedback": [],
@@ -37,31 +38,56 @@ final class IncrementalSyncTests: XCTestCase {
         return pulls
     }
 
-    func testMalformedPageAndNonAdvancingCursorAreRejected() {
+    @Test func testMalformedPageAndNonAdvancingCursorAreRejected() {
         var accumulator = SyncChangeAccumulator()
-        XCTAssertThrowsError(try accumulator.append(["sync_cursor": "same", "has_more": true], previousCursor: "same"))
-        XCTAssertThrowsError(try accumulator.append(["sync_cursor": "next", "has_more": false], previousCursor: ""))
+        #expect(throws: (any Error).self) { try accumulator.append(["sync_cursor": "same", "has_more": true], previousCursor: "same") }
+        #expect(throws: (any Error).self) { try accumulator.append(["sync_cursor": "next", "has_more": false], previousCursor: "") }
     }
 
-    func testRecommendationIdentityNormalizesAcrossDevices() {
-        XCTAssertEqual(RecommendationEngine.normalizedLemma("  ＳＵＢＴＬＥ  "), "subtle")
+    @Test func testRecommendationIdentityNormalizesAcrossDevices() {
+        #expect(RecommendationEngine.normalizedLemma("  ＳＵＢＴＬＥ  ") == "subtle")
     }
 
 }
 
 extension IncrementalSyncTests {
-    func testUploadAcknowledgementsSendOnlyChangedRecordsIncludingDeletion() throws {
-        let initial: [String: Any] = ["cards": [["id": "a", "version": 1], ["id": "b", "version": 1]], "settings": ["daily_word_goal": 10]]
-        let acknowledged = try SyncUploadState.fingerprints(initial)
-        let unchanged = try SyncUploadState.pending(initial, acknowledged: acknowledged)
-        XCTAssertEqual((unchanged["cards"] as? [[String: Any]])?.count, 0)
-        XCTAssertTrue(unchanged["settings"] is NSNull)
-        let changed: [String: Any] = ["cards": [["id": "a", "version": 2, "deleted_at": "2026-09-08T00:00:00Z"], ["id": "b", "version": 1]], "settings": ["daily_word_goal": 10]]
-        let pending = try SyncUploadState.pending(changed, acknowledged: acknowledged)
-        let cards = try XCTUnwrap(pending["cards"] as? [[String: Any]])
-        XCTAssertEqual(cards.count, 1)
-        XCTAssertEqual(cards[0]["id"] as? String, "a")
-        XCTAssertNotNil(cards[0]["deleted_at"])
-        XCTAssertEqual((try SyncUploadState.pending(changed, acknowledged: [:])["cards"] as? [[String: Any]])?.count, 2)
+    @Test func testOnlyUnacknowledgedLocalChangesAreUploaded() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false, previewDictionaryLookup: { _ in nil })
+        store.capture(text: "outbox", method: .manual, sourceApp: "test")
+        store.savePreview(meaningOverride: "보낼 편지함", exampleOverride: "")
+        let card = try #require(store.activeCards.first)
+
+        let first = try store.pendingUpload()
+        let firstCards = try #require(try first.payload()["cards"] as? [[String: Any]])
+        #expect(firstCards.map { $0["id"] as? String } == [card.id])
+        try store.acknowledgeUpload(first.digests)
+        #expect(try store.pendingUpload().digests.isEmpty)
+
+        store.softDeleteCard(card)
+        let second = try #require(try store.pendingUpload().payload()["cards"] as? [[String: Any]])
+        #expect(second.count == 1)
+        #expect(second[0]["deleted_at"] is String)
+    }
+
+    @Test func testReloadReadsBackEveryRowFromSQLite() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false, previewDictionaryLookup: { _ in nil })
+        store.capture(text: "durable", method: .manual, sourceApp: "test")
+        store.savePreview(meaningOverride: "오래가는", exampleOverride: "A durable record.")
+        let card = try #require(store.activeCards.first)
+        store.review(card: card, response: .remembered)
+
+        let reloaded = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
+        #expect(reloaded.cards.map(\.id) == store.cards.map(\.id))
+        #expect(reloaded.cards.map(\.meaningKo) == store.cards.map(\.meaningKo))
+        #expect(reloaded.cards.map(\.status) == store.cards.map(\.status))
+        #expect(reloaded.reviewEvents.count == store.reviewEvents.count)
+        #expect(reloaded.contexts.count == store.contexts.count)
+        let reloadedCard = try #require(reloaded.activeCards.first)
+        #expect(reloadedCard.scheduleVersion == card.scheduleVersion + 1)
+        #expect(reloadedCard.contentVersion == card.contentVersion)
     }
 }

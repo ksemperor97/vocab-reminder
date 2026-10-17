@@ -1,3 +1,4 @@
+import VocabCore
 import SwiftUI
 
 struct MacSetupDiagnosticsView: View {

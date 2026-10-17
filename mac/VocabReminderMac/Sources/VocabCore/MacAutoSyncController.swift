@@ -2,12 +2,12 @@ import Foundation
 import Network
 
 @MainActor
-final class MacAutoSyncController {
-    static let shared = MacAutoSyncController(monitorNetwork: true, scheduleRetryTasks: true)
+package final class MacAutoSyncController {
+    package static let shared = MacAutoSyncController(monitorNetwork: true, scheduleRetryTasks: true)
 
     private static let afterChangeDelayNanoseconds: UInt64 = 1_000_000_000
-    static let timerIntervalNanoseconds: UInt64 = 15 * 60 * 1_000_000_000
-    static let endpointUnavailableRetryDelay: TimeInterval = 60 * 60
+    package static let timerIntervalNanoseconds: UInt64 = 15 * 60 * 1_000_000_000
+    package static let endpointUnavailableRetryDelay: TimeInterval = 60 * 60
 
     private weak var store: LocalVocabularyStore?
     private var syncTask: Task<Void, Never>?
@@ -21,7 +21,7 @@ final class MacAutoSyncController {
     private let scheduleRetryTasks: Bool
     private var networkMonitor: NWPathMonitor?
 
-    init(
+    package init(
         defaults: UserDefaults = .standard,
         retryDefaultsKey: String = "dictionaryEnrichmentRetryLedgerV1",
         session: URLSession = .shared,
@@ -38,7 +38,7 @@ final class MacAutoSyncController {
         }
     }
 
-    func start(store: LocalVocabularyStore) {
+    package func start(store: LocalVocabularyStore) {
         self.store = store
         syncNow(reason: "startup")
         guard timerTask == nil else { return }
@@ -50,7 +50,7 @@ final class MacAutoSyncController {
         }
     }
 
-    func enqueueAfterLocalChange() {
+    package func enqueueAfterLocalChange() {
         guard store != nil else { return }
         debounceTask?.cancel()
         debounceTask = Task { @MainActor [weak self] in
@@ -60,11 +60,11 @@ final class MacAutoSyncController {
         }
     }
 
-    func clearDictionaryEnrichmentRetry(cardId: String) {
+    package func clearDictionaryEnrichmentRetry(cardId: String) {
         retryLedger.clear(cardId: cardId)
     }
 
-    func syncNow(reason: String) {
+    package func syncNow(reason: String) {
         guard let store else { return }
         guard let credentials = SyncDefaults.effectiveCredentials() else {
             return
@@ -118,7 +118,7 @@ final class MacAutoSyncController {
     }
 
     @discardableResult
-    func performDictionaryEnrichment(
+    package func performDictionaryEnrichment(
         store: LocalVocabularyStore,
         config: CloudSyncConfig
     ) async -> DictionaryEnrichmentRunSummary {
@@ -279,12 +279,22 @@ final class MacAutoSyncController {
     }
 }
 
-struct DictionaryEnrichmentRunSummary: Equatable, Sendable {
-    var appliedCount: Int = 0
-    var hasMoreEligibleTargets = false
-    var nextRetryAt: Date?
+package struct DictionaryEnrichmentRunSummary: Equatable, Sendable {
+    package init(
+        appliedCount: Int = 0,
+        hasMoreEligibleTargets: Bool = false,
+        nextRetryAt: Date? = nil
+    ) {
+        self.appliedCount = appliedCount
+        self.hasMoreEligibleTargets = hasMoreEligibleTargets
+        self.nextRetryAt = nextRetryAt
+    }
 
-    static let idle = DictionaryEnrichmentRunSummary()
+    package var appliedCount: Int = 0
+    package var hasMoreEligibleTargets = false
+    package var nextRetryAt: Date?
+
+    package static let idle = DictionaryEnrichmentRunSummary()
 }
 
 private struct DictionaryEnrichmentOutcomeTally {
@@ -301,12 +311,12 @@ private struct DictionaryEnrichmentRetryEntry: Codable, Equatable {
 }
 
 @MainActor
-final class DictionaryEnrichmentRetryLedger {
+package final class DictionaryEnrichmentRetryLedger {
     private let defaults: UserDefaults
     private let key: String
     private var entries: [String: DictionaryEnrichmentRetryEntry]
 
-    init(defaults: UserDefaults, key: String) {
+    package init(defaults: UserDefaults, key: String) {
         self.defaults = defaults
         self.key = key
         if let data = defaults.data(forKey: key),
@@ -320,12 +330,12 @@ final class DictionaryEnrichmentRetryLedger {
         }
     }
 
-    func isEligible(cardId: String, at now: Date) -> Bool {
+    package func isEligible(cardId: String, at now: Date) -> Bool {
         guard let entry = entries[cardId] else { return true }
         return entry.nextRetryAt <= now
     }
 
-    func record(
+    package func record(
         cardId: String,
         outcome: CloudDictionaryOutcome,
         at now: Date,
@@ -343,25 +353,25 @@ final class DictionaryEnrichmentRetryLedger {
         persist()
     }
 
-    func clear(cardId: String) {
+    package func clear(cardId: String) {
         guard entries.removeValue(forKey: cardId) != nil else { return }
         persist()
     }
 
-    func prune(validCardIds: Set<String>) {
+    package func prune(validCardIds: Set<String>) {
         let oldCount = entries.count
         entries = entries.filter { validCardIds.contains($0.key) }
         if entries.count != oldCount { persist() }
     }
 
-    func nextRetryDate(cardIds: Set<String>) -> Date? {
+    package func nextRetryDate(cardIds: Set<String>) -> Date? {
         entries
             .filter { cardIds.contains($0.key) }
             .map(\.value.nextRetryAt)
             .min()
     }
 
-    func tally(cardIds: Set<String>) -> (pending: Int, notFound: Int, providerFailure: Int) {
+    package func tally(cardIds: Set<String>) -> (pending: Int, notFound: Int, providerFailure: Int) {
         var pending = 0
         var notFound = 0
         var providerFailure = 0
@@ -380,7 +390,7 @@ final class DictionaryEnrichmentRetryLedger {
         return (pending, notFound, providerFailure)
     }
 
-    static func retryDelay(outcome: CloudDictionaryOutcome, attemptCount: Int) -> TimeInterval {
+    package static func retryDelay(outcome: CloudDictionaryOutcome, attemptCount: Int) -> TimeInterval {
         let index = max(0, attemptCount - 1)
         let delays: [TimeInterval]
         switch outcome {
@@ -402,15 +412,15 @@ final class DictionaryEnrichmentRetryLedger {
     }
 }
 
-enum MacSyncStatusStore {
-    static func recordSuccess(skippedSummary: String = "") {
+package enum MacSyncStatusStore {
+    package static func recordSuccess(skippedSummary: String = "") {
         let defaults = UserDefaults.standard
         defaults.set(Date().formatted(date: .abbreviated, time: .shortened), forKey: "lastLocalSyncSummary")
         defaults.set("", forKey: "lastLocalSyncError")
         defaults.set(skippedSummary, forKey: "lastLocalSyncSkipped")
     }
 
-    static func recordFailure(_ error: String) {
+    package static func recordFailure(_ error: String) {
         UserDefaults.standard.set(error, forKey: "lastLocalSyncError")
     }
 }

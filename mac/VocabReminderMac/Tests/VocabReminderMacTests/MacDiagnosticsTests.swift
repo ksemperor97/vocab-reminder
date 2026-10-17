@@ -1,10 +1,11 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class MacDiagnosticsTests: XCTestCase {
-    func testURLCaptureDistinguishesMechanismAndRemovesSensitiveURLParts() throws {
+final class MacDiagnosticsTests {
+    @Test func testURLCaptureDistinguishesMechanismAndRemovesSensitiveURLParts() throws {
         var outer = URLComponents()
         outer.scheme = "vocabreminder"
         outer.host = "capture"
@@ -16,10 +17,11 @@ final class MacDiagnosticsTests: XCTestCase {
             )
         ]
 
-        let payload = try XCTUnwrap(MacCaptureURLParser.parse(try XCTUnwrap(outer.url)))
-        XCTAssertEqual(payload.text, "Resilient systems recover.")
-        XCTAssertEqual(payload.sourceURL, "https://example.com/docs/page")
-        XCTAssertEqual(payload.sourceApp, MacCaptureSource.urlScheme)
+        let outerURL = try #require(outer.url)
+        let payload = try #require(MacCaptureURLParser.parse(outerURL))
+        #expect(payload.text == "Resilient systems recover.")
+        #expect(payload.sourceURL == "https://example.com/docs/page")
+        #expect(payload.sourceApp == MacCaptureSource.urlScheme)
 
         let context = StoredContext(
             id: "context-1",
@@ -30,28 +32,26 @@ final class MacDiagnosticsTests: XCTestCase {
             captureMethod: .macService,
             createdAt: Date()
         )
-        XCTAssertEqual(MacCaptureSource.mechanismLabel(for: context), "URL scheme")
-        XCTAssertNil(MacCaptureSource.originalApplicationLabel(for: context))
+        #expect(MacCaptureSource.mechanismLabel(for: context) == "URL scheme")
+        #expect(MacCaptureSource.originalApplicationLabel(for: context) == nil)
 
         outer.queryItems?.append(URLQueryItem(name: "capture_source", value: "mac_service"))
-        let servicePayload = try XCTUnwrap(MacCaptureURLParser.parse(try XCTUnwrap(outer.url)))
-        XCTAssertEqual(servicePayload.sourceApp, MacCaptureSource.service)
+        let serviceURL = try #require(outer.url)
+        let servicePayload = try #require(MacCaptureURLParser.parse(serviceURL))
+        #expect(servicePayload.sourceApp == MacCaptureSource.service)
         var serviceContext = context
         serviceContext.sourceApp = servicePayload.sourceApp
-        XCTAssertEqual(MacCaptureSource.mechanismLabel(for: serviceContext), "macOS Service")
+        #expect(MacCaptureSource.mechanismLabel(for: serviceContext) == "macOS Service")
     }
 
-    func testSourceURLSanitizerRejectsNonWebAndMalformedOrigins() {
-        XCTAssertNil(SourceURLSanitizer.sanitize("file:///Users/private/secret.txt"))
-        XCTAssertNil(SourceURLSanitizer.sanitize("javascript:alert(1)"))
-        XCTAssertNil(SourceURLSanitizer.sanitize("https:///missing-host"))
-        XCTAssertEqual(
-            SourceURLSanitizer.sanitize("http://EXAMPLE.com:80/path?q=private#fragment"),
-            "http://example.com/path"
-        )
+    @Test func testSourceURLSanitizerRejectsNonWebAndMalformedOrigins() {
+        #expect(SourceURLSanitizer.sanitize("file:///Users/private/secret.txt") == nil)
+        #expect(SourceURLSanitizer.sanitize("javascript:alert(1)") == nil)
+        #expect(SourceURLSanitizer.sanitize("https:///missing-host") == nil)
+        #expect(SourceURLSanitizer.sanitize("http://EXAMPLE.com:80/path?q=private#fragment") == "http://example.com/path")
     }
 
-    func testCapturePersistsCanonicalURLMechanismAndOnlySanitizedOrigin() throws {
+    @Test func testCapturePersistsCanonicalURLMechanismAndOnlySanitizedOrigin() throws {
         let fixture = try makeBlankDirectory(prefix: "MacCaptureOriginTests")
         defer { try? FileManager.default.removeItem(at: fixture) }
         let store = LocalVocabularyStore(appSupportURL: fixture, scheduleNotifications: false)
@@ -64,17 +64,17 @@ final class MacDiagnosticsTests: XCTestCase {
         )
         store.savePreview(meaningOverride: "뜻", exampleOverride: "문맥", method: .macService)
 
-        let context = try XCTUnwrap(store.contexts.first { $0.captureMethod == .macService })
-        XCTAssertEqual(context.sourceApp, MacCaptureSource.urlScheme)
-        XCTAssertEqual(context.sourceURL, "https://example.test/source")
-        XCTAssertEqual(MacCaptureSource.mechanismLabel(for: context), "URL scheme")
-        XCTAssertNil(MacCaptureSource.originalApplicationLabel(for: context))
+        let context = try #require(store.contexts.first { $0.captureMethod == .macService })
+        #expect(context.sourceApp == MacCaptureSource.urlScheme)
+        #expect(context.sourceURL == "https://example.test/source")
+        #expect(MacCaptureSource.mechanismLabel(for: context) == "URL scheme")
+        #expect(MacCaptureSource.originalApplicationLabel(for: context) == nil)
     }
 
-    func testServiceInspectionChecksBundleFilesAndPBSState() throws {
+    @Test func testServiceInspectionChecksBundleFilesAndPBSState() throws {
         let home = try makeBlankDirectory(prefix: "MacServiceInspectionTests")
         defer { try? FileManager.default.removeItem(at: home) }
-        XCTAssertEqual(MacCaptureServiceManager.inspect(homeDirectory: home), .missing)
+        #expect(MacCaptureServiceManager.inspect(homeDirectory: home) == .missing)
 
         let service = MacCaptureServiceManager.serviceDirectory(homeDirectory: home)
         let resources = service.appendingPathComponent("Contents/Resources", isDirectory: true)
@@ -101,11 +101,11 @@ final class MacDiagnosticsTests: XCTestCase {
             homeDirectory: home,
             preferencesURL: preferencesURL
         )
-        XCTAssertTrue(status.installed)
-        XCTAssertTrue(status.enabled)
+        #expect(status.installed)
+        #expect(status.enabled)
     }
 
-    func testLegacySnapshotWithoutSourceURLOrSyncEventsStillDecodes() throws {
+    @Test func testLegacySnapshotWithoutSourceURLOrSyncEventsStillDecodes() throws {
         let now = Date(timeIntervalSince1970: 1_784_000_000)
         let card = VocabularyCard(
             id: "legacy-card",
@@ -143,9 +143,9 @@ final class MacDiagnosticsTests: XCTestCase {
             settings: UserSettingsData()
         )
         let encoded = try JSONEncoder.vocab.encode(snapshot)
-        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var payload = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         payload.removeValue(forKey: "syncEvents")
-        var contexts = try XCTUnwrap(payload["contexts"] as? [[String: Any]])
+        var contexts = try #require(payload["contexts"] as? [[String: Any]])
         contexts[0].removeValue(forKey: "sourceURL")
         contexts[0].removeValue(forKey: "pageTitle")
         payload["contexts"] = contexts
@@ -154,9 +154,9 @@ final class MacDiagnosticsTests: XCTestCase {
             StoreSnapshot.self,
             from: JSONSerialization.data(withJSONObject: payload)
         )
-        XCTAssertNil(decoded.contexts.first?.sourceURL)
-        XCTAssertEqual(decoded.contexts.first?.pageTitle, "")
-        XCTAssertTrue(decoded.syncEvents.isEmpty)
+        #expect(decoded.contexts.first?.sourceURL == nil)
+        #expect(decoded.contexts.first?.pageTitle == "")
+        #expect(decoded.syncEvents.isEmpty)
     }
 
     private func makeBlankDirectory(prefix: String) throws -> URL {

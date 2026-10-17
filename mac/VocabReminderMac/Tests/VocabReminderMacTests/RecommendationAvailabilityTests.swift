@@ -1,9 +1,10 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class RecommendationAvailabilityTests: XCTestCase {
+final class RecommendationAvailabilityTests {
     private func serverStore(at directory: URL) throws -> LocalVocabularyStore {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let payload: [String: Any] = ["cards": [[
@@ -16,43 +17,47 @@ final class RecommendationAvailabilityTests: XCTestCase {
         return LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
     }
 
-    func testKnownFeedbackSurvivesReloadAndResurrectedServerCard() throws {
+    @Test func testKnownFeedbackSurvivesReloadAndResurrectedServerCard() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try serverStore(at: directory)
-        let card = try XCTUnwrap(store.activeCards.first)
+        let card = try #require(store.activeCards.first)
         store.softDeleteRecommendation(card, action: "known")
-        let url = directory.appendingPathComponent("vocab-data.json")
-        var snapshot = try SyncBatchFactory.localSnapshot(from: Data(contentsOf: url))
-        snapshot.cards[0].deletedAt = nil
-        snapshot.cards[0].lemma = "  " + card.lemma.uppercased() + "  "
-        try JSONEncoder.vocab.encode(snapshot).write(to: url, options: .atomic)
+        // The legacy vocab-data.json was migrated into SQLite on first open.
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("vocab-data.json.migrated").path))
+        // A stale active copy arriving from elsewhere must not bring the word back.
+        var stale = SyncBatchFactory.card(card, deviceId: "mac-test")
+        stale["deleted_at"] = NSNull()
+        stale["lemma"] = "  " + card.lemma.uppercased() + "  "
+        try JSONSerialization.data(withJSONObject: ["cards": [stale]])
+            .write(to: directory.appendingPathComponent("vocab-reminder-sync.json"), options: .atomic)
+        store.importSyncSnapshot()
         let reloaded = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
-        XCTAssertTrue(reloaded.activeCards.isEmpty)
-        XCTAssertEqual(reloaded.ensureRecommendations(now: Date().addingTimeInterval(86400)), 0)
+        #expect(reloaded.activeCards.isEmpty)
+        #expect(reloaded.ensureRecommendations(now: Date().addingTimeInterval(86400)) == 0)
     }
 
-    func testColdStartAndNewDayNeverGenerateLocalWords() throws {
+    @Test func testColdStartAndNewDayNeverGenerateLocalWords() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LocalVocabularyStore(appSupportURL: directory, scheduleNotifications: false)
-        XCTAssertEqual(store.ensureRecommendations(), 0)
-        XCTAssertEqual(store.ensureRecommendations(now: Date().addingTimeInterval(86400)), 0)
-        XCTAssertTrue(store.activeCards.isEmpty)
-        XCTAssertTrue(store.recommendationStatusMessage.contains("동기화"))
+        #expect(store.ensureRecommendations() == 0)
+        #expect(store.ensureRecommendations(now: Date().addingTimeInterval(86400)) == 0)
+        #expect(store.activeCards.isEmpty)
+        #expect(store.recommendationStatusMessage.contains("동기화"))
         store.settings.enableWordRecommendations = false
         store.persistSettings()
-        XCTAssertTrue(store.recommendationStatusMessage.contains("꺼져"))
+        #expect(store.recommendationStatusMessage.contains("꺼져"))
     }
 
-    func testServerOnlyWordIsAvailableOfflineWithoutBundledCatalogue() throws {
+    @Test func testServerOnlyWordIsAvailableOfflineWithoutBundledCatalogue() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try serverStore(at: directory)
-        XCTAssertEqual(store.activeCards.first?.meaningKo, "서버에서 내려온 뜻")
-        XCTAssertEqual(store.ensureRecommendations(), 0)
-        XCTAssertEqual(store.activeCards.count, 1)
-        store.markRecommendationStarted(try XCTUnwrap(store.activeCards.first))
-        XCTAssertNotNil(store.activeCards.first?.recommendationStartedAt)
+        #expect(store.activeCards.first?.meaningKo == "서버에서 내려온 뜻")
+        #expect(store.ensureRecommendations() == 0)
+        #expect(store.activeCards.count == 1)
+        store.markRecommendationStarted(try #require(store.activeCards.first))
+        #expect(store.activeCards.first?.recommendationStartedAt != nil)
     }
 }

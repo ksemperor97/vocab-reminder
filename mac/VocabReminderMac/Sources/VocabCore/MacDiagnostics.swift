@@ -1,12 +1,12 @@
 import Foundation
 
-enum MacCaptureSource {
-    static let service = "macOS Service"
-    static let clipboard = "macOS clipboard capture"
-    static let urlScheme = "vocabreminder URL scheme"
-    static let manual = "Manual entry"
+package enum MacCaptureSource {
+    package static let service = "macOS Service"
+    package static let clipboard = "macOS clipboard capture"
+    package static let urlScheme = "vocabreminder URL scheme"
+    package static let manual = "Manual entry"
 
-    static func canonicalSourceApp(method: CaptureMethod, declaredSourceApp: String) -> String {
+    package static func canonicalSourceApp(method: CaptureMethod, declaredSourceApp: String) -> String {
         let lowered = declaredSourceApp
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -28,7 +28,7 @@ enum MacCaptureSource {
         }
     }
 
-    static func mechanismLabel(for context: StoredContext) -> String {
+    package static func mechanismLabel(for context: StoredContext) -> String {
         let source = context.sourceApp.lowercased()
         switch context.captureMethod {
         case .macClipboardHotkey:
@@ -48,7 +48,7 @@ enum MacCaptureSource {
         }
     }
 
-    static func originalApplicationLabel(for context: StoredContext) -> String? {
+    package static func originalApplicationLabel(for context: StoredContext) -> String? {
         // The current capture paths reliably identify the mechanism, not the
         // application that originally produced clipboard/Services text.
         // Do not turn mechanism labels from legacy data into fake provenance.
@@ -74,14 +74,24 @@ enum MacCaptureSource {
     }
 }
 
-struct MacURLCapturePayload: Equatable, Sendable {
-    var text: String
-    var sourceURL: String?
-    var sourceApp: String
+package struct MacURLCapturePayload: Equatable, Sendable {
+    package init(
+        text: String,
+        sourceURL: String? = nil,
+        sourceApp: String
+    ) {
+        self.text = text
+        self.sourceURL = sourceURL
+        self.sourceApp = sourceApp
+    }
+
+    package var text: String
+    package var sourceURL: String?
+    package var sourceApp: String
 }
 
-enum MacCaptureURLParser {
-    static func parse(_ url: URL) -> MacURLCapturePayload? {
+package enum MacCaptureURLParser {
+    package static func parse(_ url: URL) -> MacURLCapturePayload? {
         guard url.scheme?.lowercased() == "vocabreminder",
               url.host?.lowercased() == "capture",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -112,8 +122,8 @@ enum MacCaptureURLParser {
     }
 }
 
-enum SourceURLSanitizer {
-    static func sanitize(_ rawValue: String?) -> String? {
+package enum SourceURLSanitizer {
+    package static func sanitize(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false,
@@ -142,59 +152,81 @@ enum SourceURLSanitizer {
     }
 }
 
-enum CaptureDiagnosticOutcome: String, Codable, Sendable {
+package enum CaptureDiagnosticOutcome: String, Codable, Sendable {
     case succeeded
     case failed
 }
 
-struct CaptureDiagnosticRecord: Codable, Equatable, Sendable {
-    var outcome: CaptureDiagnosticOutcome
-    var mechanism: String
-    var detailCode: String
-    var occurredAt: Date
+package struct CaptureDiagnosticRecord: Codable, Equatable, Sendable {
+    package init(
+        outcome: CaptureDiagnosticOutcome,
+        mechanism: String,
+        detailCode: String,
+        occurredAt: Date
+    ) {
+        self.outcome = outcome
+        self.mechanism = mechanism
+        self.detailCode = detailCode
+        self.occurredAt = occurredAt
+    }
+
+    package var outcome: CaptureDiagnosticOutcome
+    package var mechanism: String
+    package var detailCode: String
+    package var occurredAt: Date
 }
 
-enum CaptureDiagnosticStore {
-    static let defaultsKey = "lastMacCaptureDiagnosticV1"
+package enum CaptureDiagnosticStore {
+    package static let defaultsKey = "lastMacCaptureDiagnosticV1"
 
-    static func load(defaults: UserDefaults = .standard) -> CaptureDiagnosticRecord? {
+    package static func load(defaults: UserDefaults = .standard) -> CaptureDiagnosticRecord? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
         return try? JSONDecoder.vocab.decode(CaptureDiagnosticRecord.self, from: data)
     }
 
-    static func save(_ record: CaptureDiagnosticRecord, defaults: UserDefaults = .standard) {
+    package static func save(_ record: CaptureDiagnosticRecord, defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder.vocab.encode(record) else { return }
         defaults.set(data, forKey: defaultsKey)
     }
 }
 
-struct MacCaptureServiceStatus: Equatable, Sendable {
-    var installed: Bool
-    var enabled: Bool
-    var detail: String
+package struct MacCaptureServiceStatus: Equatable, Sendable {
+    package init(
+        installed: Bool,
+        enabled: Bool,
+        detail: String
+    ) {
+        self.installed = installed
+        self.enabled = enabled
+        self.detail = detail
+    }
 
-    static let missing = MacCaptureServiceStatus(
+    package var installed: Bool
+    package var enabled: Bool
+    package var detail: String
+
+    package static let missing = MacCaptureServiceStatus(
         installed: false,
         enabled: false,
         detail: "Service가 설치되지 않았습니다."
     )
 }
 
-enum MacCaptureServiceManager {
-    static let workflowName = "Add to Vocabulary Reminder.workflow"
-    static let bundleIdentifier = "com.vocabreminder.capture.workflow"
-    static let englishServiceKey =
+package enum MacCaptureServiceManager {
+    package static let workflowName = "Add to Vocabulary Reminder.workflow"
+    package static let bundleIdentifier = "com.vocabreminder.capture.workflow"
+    package static let englishServiceKey =
         "com.vocabreminder.capture.workflow - Add to Vocabulary Reminder - runWorkflowAsService"
-    static let koreanServiceKey =
+    package static let koreanServiceKey =
         "com.vocabreminder.capture.workflow - Vocabulary Reminder에 추가 - runWorkflowAsService"
 
-    static func serviceDirectory(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    package static func serviceDirectory(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         homeDirectory
             .appendingPathComponent("Library/Services", isDirectory: true)
             .appendingPathComponent(workflowName, isDirectory: true)
     }
 
-    static func inspect(
+    package static func inspect(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         preferencesURL: URL? = nil
     ) -> MacCaptureServiceStatus {
@@ -226,7 +258,7 @@ enum MacCaptureServiceManager {
         )
     }
 
-    static func install(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
+    package static func install(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
         let directory = serviceDirectory(homeDirectory: homeDirectory)
         let contents = directory.appendingPathComponent("Contents", isDirectory: true)
         let resources = contents.appendingPathComponent("Resources", isDirectory: true)

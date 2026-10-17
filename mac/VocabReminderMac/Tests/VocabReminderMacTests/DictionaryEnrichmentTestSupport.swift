@@ -1,5 +1,5 @@
 import Foundation
-@testable import VocabReminderMac
+@testable import VocabCore
 
 final class DictionaryURLProtocolStub: URLProtocol, @unchecked Sendable {
     typealias Handler = (URLRequest) throws -> (status: Int, headers: [String: String], data: Data)

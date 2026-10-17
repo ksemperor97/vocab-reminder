@@ -1,7 +1,7 @@
 import Foundation
 
-enum SyncBatchFactory {
-    static func build(
+package enum SyncBatchFactory {
+    package static func build(
         cards: [VocabularyCard],
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
@@ -20,7 +20,7 @@ enum SyncBatchFactory {
         ]
     }
 
-    static func jsonData(
+    package static func jsonData(
         cards: [VocabularyCard],
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
@@ -41,7 +41,7 @@ enum SyncBatchFactory {
         return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
     }
 
-    static func localSnapshot(from data: Data) throws -> StoreSnapshot {
+    package static func localSnapshot(from data: Data) throws -> StoreSnapshot {
         if let snapshot = try? JSONDecoder.vocab.decode(StoreSnapshot.self, from: data) {
             return normalize(snapshot)
         }
@@ -59,7 +59,7 @@ enum SyncBatchFactory {
         ))
     }
 
-    static func merge(local: StoreSnapshot, incoming: StoreSnapshot) -> StoreSnapshot {
+    package static func merge(local: StoreSnapshot, incoming: StoreSnapshot) -> StoreSnapshot {
         normalize(StoreSnapshot(
             cards: mergeCards(local.cards, incoming.cards),
             contexts: mergeByIdRepairingTimestamp(local.contexts, incoming.contexts, timestamp: \.createdAt),
@@ -76,7 +76,7 @@ enum SyncBatchFactory {
         ))
     }
 
-    static func deviceId(defaults: UserDefaults = .standard) -> String {
+    package static func deviceId(defaults: UserDefaults = .standard) -> String {
         let key = "deviceId"
         if let existing = defaults.string(forKey: key), existing.range(of: #"^mac-[0-9a-fA-F]{8}$"#, options: .regularExpression) != nil {
             return existing
@@ -86,7 +86,7 @@ enum SyncBatchFactory {
         return generated
     }
 
-    private static func card(_ card: VocabularyCard, deviceId: String) -> [String: Any] {
+    package static func card(_ card: VocabularyCard, deviceId: String) -> [String: Any] {
         [
             "id": card.id,
             "lemma": card.lemma,
@@ -96,11 +96,11 @@ enum SyncBatchFactory {
             "meaning_ko": card.meaningKo,
             "definition_en": card.definitionEn,
             "part_of_speech": nullable(card.partOfSpeech),
-            "phonetic": NSNull(),
+            "phonetic": nullable(card.phonetic),
             "audio_url": NSNull(),
             "source_sentence_primary": nullable(card.exampleSentence),
-            "source_url_primary": NSNull(),
-            "source_app_primary": NSNull(),
+            "source_url_primary": nullable(card.sourceUrlPrimary),
+            "source_app_primary": nullable(card.sourceAppPrimary),
             "definition_source_primary": card.definitionSourcePrimary,
             "primary_definition_candidate_id": card.primaryDefinitionCandidateId as Any? ?? NSNull(),
             "status": card.status.rawValue,
@@ -113,14 +113,19 @@ enum SyncBatchFactory {
             "interval_before_lapse": card.intervalBeforeLapse.map { $0 as Any } ?? NSNull(),
             "recommendation_started_at": card.recommendationStartedAt.map { iso($0) as Any } ?? NSNull(),
             "deleted_at": card.deletedAt.map { iso($0) as Any } ?? NSNull(),
-            "created_device_id": deviceId,
+            "merged_into": card.mergedInto as Any? ?? NSNull(),
+            "created_device_id": card.createdDeviceId.isEmpty ? deviceId : card.createdDeviceId,
             "created_at": iso(card.createdAt),
             "updated_at": iso(card.updatedAt),
-            "version": card.version
+            "version": card.version,
+            "content_version": card.contentVersion,
+            "content_updated_at": iso(card.contentUpdatedAt),
+            "schedule_version": card.scheduleVersion,
+            "schedule_updated_at": iso(card.scheduleUpdatedAt)
         ]
     }
 
-    private static func context(_ context: StoredContext, deviceId: String) -> [String: Any] {
+    package static func context(_ context: StoredContext, deviceId: String) -> [String: Any] {
         [
             "id": context.id,
             "card_id": context.cardId,
@@ -135,7 +140,7 @@ enum SyncBatchFactory {
         ]
     }
 
-    private static func candidate(_ candidate: StoredDefinitionCandidate) -> [String: Any] {
+    package static func candidate(_ candidate: StoredDefinitionCandidate) -> [String: Any] {
         [
             "id": candidate.id,
             "card_id": candidate.cardId,
@@ -154,7 +159,7 @@ enum SyncBatchFactory {
         ]
     }
 
-    private static func reviewEvent(_ event: StoredReviewEvent, deviceId: String) -> [String: Any] {
+    package static func reviewEvent(_ event: StoredReviewEvent, deviceId: String) -> [String: Any] {
         [
             "id": event.id,
             "card_id": event.cardId,
@@ -171,7 +176,7 @@ enum SyncBatchFactory {
         ]
     }
 
-    static func epochCreatedCardIds(in data: Data) -> Set<String> {
+    package static func epochCreatedCardIds(in data: Data) -> Set<String> {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         return Set(array(payload["cards"]).compactMap { card in
             guard let id = card["id"] as? String,
@@ -182,7 +187,7 @@ enum SyncBatchFactory {
         })
     }
 
-    private static func feedback(_ feedback: RecommendationFeedback) -> [String: Any] {
+    package static func feedback(_ feedback: RecommendationFeedback) -> [String: Any] {
         [
             "id": feedback.id,
             "card_id": feedback.cardId,
@@ -192,7 +197,7 @@ enum SyncBatchFactory {
         ]
     }
 
-    private static func settingsPayload(_ settings: UserSettingsData) -> [String: Any] {
+    package static func settingsPayload(_ settings: UserSettingsData) -> [String: Any] {
         [
             "max_queue_size": settings.maxQueueSize,
             "snooze_duration_minutes": settings.snoozeDurationMinutes,
@@ -225,11 +230,7 @@ enum SyncBatchFactory {
     private static func mergeCards(_ local: [VocabularyCard], _ incoming: [VocabularyCard]) -> [VocabularyCard] {
         var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
         for card in incoming {
-            guard let existing = byId[card.id] else {
-                byId[card.id] = card
-                continue
-            }
-            byId[card.id] = preferredCard(existing, card)
+            byId[card.id] = byId[card.id].map { CardMerge.merge($0, card) } ?? card
         }
         return byId.values.sorted { $0.id < $1.id }
     }
@@ -242,26 +243,15 @@ enum SyncBatchFactory {
         return byId.values.sorted { $0.id < $1.id }
     }
 
+    /// History rows are immutable except for server re-pointing after it folds
+    /// duplicate cards, so the incoming copy wins.
     private static func mergeByIdRepairingTimestamp<T: Identifiable>(
         _ local: [T],
         _ incoming: [T],
         timestamp: (T) -> Date
     ) -> [T] where T.ID == String {
         var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
-        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
-        for item in incoming {
-            guard let existing = byId[item.id] else {
-                byId[item.id] = item
-                continue
-            }
-            // Earlier Mac imports converted Android fractional timestamps to
-            // epoch. A same-ID server record with its real timestamp repairs
-            // that damage on the next sync instead of being ignored forever.
-            if timestamp(existing) <= epochDamageUpperBound,
-               timestamp(item) > epochDamageUpperBound {
-                byId[item.id] = item
-            }
-        }
+        for item in incoming { byId[item.id] = item }
         return byId.values.sorted { $0.id < $1.id }
     }
 
@@ -269,70 +259,7 @@ enum SyncBatchFactory {
         _ local: [StoredDefinitionCandidate],
         _ incoming: [StoredDefinitionCandidate]
     ) -> [StoredDefinitionCandidate] {
-        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
-        let epochDamageUpperBound = Date(timeIntervalSince1970: 1)
-        for candidate in incoming {
-            guard let existing = byId[candidate.id] else {
-                byId[candidate.id] = candidate
-                continue
-            }
-            // Candidate IDs are append-only event identities. Never mutate a
-            // normal record on collision; retain only the one-time legacy epoch
-            // repair that predates append-only enforcement.
-            if existing.createdAt <= epochDamageUpperBound,
-               candidate.createdAt > epochDamageUpperBound {
-                byId[candidate.id] = candidate
-            }
-        }
-        return byId.values.sorted { $0.id < $1.id }
-    }
-
-    private static func preferredCard(_ first: VocabularyCard, _ second: VocabularyCard) -> VocabularyCard {
-        if first.version != second.version {
-            return first.version > second.version ? first : second
-        }
-        if first.updatedAt != second.updatedAt {
-            return first.updatedAt > second.updatedAt ? first : second
-        }
-
-        // A delete is a state transition, not missing data. If two devices emit
-        // the same version/timestamp, keeping the tombstone prevents resurrection.
-        if (first.deletedAt != nil) != (second.deletedAt != nil) {
-            return first.deletedAt != nil ? first : second
-        }
-        if let firstDeletedAt = first.deletedAt,
-           let secondDeletedAt = second.deletedAt,
-           firstDeletedAt != secondDeletedAt {
-            return firstDeletedAt > secondDeletedAt ? first : second
-        }
-
-        // The remaining exact-version tie must not depend on pull direction.
-        // This stable key makes merge(a, b) and merge(b, a) choose the same value.
-        return deterministicCardKey(first) >= deterministicCardKey(second) ? first : second
-    }
-
-    private static func deterministicCardKey(_ card: VocabularyCard) -> String {
-        [
-            card.lemma,
-            card.displayWord,
-            card.meaningKo,
-            card.definitionEn,
-            card.partOfSpeech,
-            card.exampleSentence,
-            card.definitionSourcePrimary,
-            card.status.rawValue,
-            card.wordbook.rawValue,
-            epochMillis(card.dueAt),
-            String(card.intervalDays),
-            String(card.lapseCount),
-            card.intervalBeforeLapse.map(String.init) ?? "",
-            card.recommendationStartedAt.map(epochMillis) ?? "",
-            epochMillis(card.createdAt)
-        ].joined(separator: "\u{1f}")
-    }
-
-    private static func epochMillis(_ date: Date) -> String {
-        String(Int64((date.timeIntervalSince1970 * 1_000).rounded(.towardZero)))
+        mergeByIdRepairingTimestamp(local, incoming, timestamp: \.createdAt)
     }
 
     private static func reviewEventChronologicalOrder(_ left: StoredReviewEvent, _ right: StoredReviewEvent) -> Bool {
@@ -352,23 +279,31 @@ enum SyncBatchFactory {
         return local
     }
 
-    private static func iso(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+    package static func iso(_ date: Date) -> String {
+        // Keep milliseconds: whole-second timestamps lose clock ties to Android.
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private static func array(_ value: Any?) -> [[String: Any]] {
         value as? [[String: Any]] ?? []
     }
 
-    private static func cardPayload(_ payload: [String: Any]) throws -> VocabularyCard {
-        VocabularyCard(
+    package static func cardPayload(_ payload: [String: Any]) throws -> VocabularyCard {
+        let version = int(payload, "version", fallback: 1)
+        let updatedAt = try requiredDate(payload, "updated_at")
+        return VocabularyCard(
             id: string(payload, "id"),
             lemma: string(payload, "lemma"),
             displayWord: string(payload, "display_word", fallback: string(payload, "lemma")),
             meaningKo: string(payload, "meaning_ko"),
             definitionEn: string(payload, "definition_en"),
             partOfSpeech: string(payload, "part_of_speech"),
+            phonetic: string(payload, "phonetic"),
             exampleSentence: string(payload, "source_sentence_primary"),
+            sourceAppPrimary: string(payload, "source_app_primary"),
+            sourceUrlPrimary: string(payload, "source_url_primary"),
             definitionSourcePrimary: string(payload, "definition_source_primary", fallback: "unknown"),
             primaryDefinitionCandidateId: payload["primary_definition_candidate_id"] as? String,
             status: CardStatus(rawValue: string(payload, "status", fallback: "new")) ?? .new,
@@ -379,13 +314,20 @@ enum SyncBatchFactory {
             intervalBeforeLapse: optionalInt(payload, "interval_before_lapse"),
             recommendationStartedAt: try optionalDate(payload, "recommendation_started_at"),
             deletedAt: try optionalDate(payload, "deleted_at"),
+            mergedInto: optionalString(payload, "merged_into"),
+            createdDeviceId: string(payload, "created_device_id"),
             createdAt: try requiredDate(payload, "created_at"),
-            updatedAt: try requiredDate(payload, "updated_at"),
-            version: int(payload, "version", fallback: 1)
+            updatedAt: updatedAt,
+            version: version,
+            // Payloads from before protocol 3 carry only the whole-card clock.
+            contentVersion: optionalInt(payload, "content_version") ?? version,
+            contentUpdatedAt: try optionalDate(payload, "content_updated_at") ?? updatedAt,
+            scheduleVersion: optionalInt(payload, "schedule_version") ?? version,
+            scheduleUpdatedAt: try optionalDate(payload, "schedule_updated_at") ?? updatedAt
         )
     }
 
-    private static func contextPayload(_ payload: [String: Any]) throws -> StoredContext {
+    package static func contextPayload(_ payload: [String: Any]) throws -> StoredContext {
         StoredContext(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
@@ -398,7 +340,7 @@ enum SyncBatchFactory {
         )
     }
 
-    private static func candidatePayload(_ payload: [String: Any]) throws -> StoredDefinitionCandidate {
+    package static func candidatePayload(_ payload: [String: Any]) throws -> StoredDefinitionCandidate {
         StoredDefinitionCandidate(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
@@ -416,7 +358,7 @@ enum SyncBatchFactory {
         )
     }
 
-    private static func reviewEventPayload(_ payload: [String: Any]) throws -> StoredReviewEvent {
+    package static func reviewEventPayload(_ payload: [String: Any]) throws -> StoredReviewEvent {
         StoredReviewEvent(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
@@ -432,7 +374,7 @@ enum SyncBatchFactory {
         )
     }
 
-    private static func feedbackPayload(_ payload: [String: Any]) throws -> RecommendationFeedback {
+    package static func feedbackPayload(_ payload: [String: Any]) throws -> RecommendationFeedback {
         RecommendationFeedback(
             id: string(payload, "id"),
             cardId: string(payload, "card_id"),
@@ -442,7 +384,7 @@ enum SyncBatchFactory {
         )
     }
 
-    private static func settingsPayload(_ payload: [String: Any]) throws -> UserSettingsData {
+    package static func settingsPayload(_ payload: [String: Any]) throws -> UserSettingsData {
         let quietStart = validHHMM(string(payload, "quiet_hours_start", fallback: "23:00")) ? string(payload, "quiet_hours_start", fallback: "23:00") : "23:00"
         let quietEnd = validHHMM(string(payload, "quiet_hours_end", fallback: "09:00")) ? string(payload, "quiet_hours_end", fallback: "09:00") : "09:00"
         let timezone = TimeZone(identifier: string(payload, "timezone", fallback: "Asia/Seoul")) != nil ? string(payload, "timezone", fallback: "Asia/Seoul") : "Asia/Seoul"
@@ -519,7 +461,7 @@ enum SyncBatchFactory {
         return parsed
     }
 
-    private static func parseISO8601(_ raw: String) -> Date? {
+    package static func parseISO8601(_ raw: String) -> Date? {
         // Android/Java commonly emits 3, 6, or 9 fractional digits while the
         // Foundation default formatter only accepts the non-fractional form.
         if raw.contains(".") {
@@ -533,7 +475,7 @@ enum SyncBatchFactory {
     }
 
     private static func normalize(_ snapshot: StoreSnapshot) -> StoreSnapshot {
-        repairEpochCardCreationDates(canonicalizeDuplicateLemmas(snapshot))
+        repairEpochCardCreationDates(snapshot)
     }
 
     private static func repairEpochCardCreationDates(_ snapshot: StoreSnapshot) -> StoreSnapshot {
@@ -566,156 +508,14 @@ enum SyncBatchFactory {
         }
         return repaired
     }
-
-    private static func canonicalizeDuplicateLemmas(_ snapshot: StoreSnapshot) -> StoreSnapshot {
-        var cardIdMap: [String: String] = [:]
-        var duplicateIds = Set<String>()
-        let activeByLemma = Dictionary(grouping: snapshot.cards.filter { card in
-            card.deletedAt == nil && card.lemma.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        }) { card in
-            card.lemma.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        }
-
-        for duplicates in activeByLemma.values where duplicates.count > 1 {
-            guard let canonical = duplicates.max(by: lowerIdentityPriority) else { continue }
-            for duplicate in duplicates where duplicate.id != canonical.id {
-                cardIdMap[duplicate.id] = canonical.id
-                duplicateIds.insert(duplicate.id)
-            }
-        }
-        guard cardIdMap.isEmpty == false else { return snapshot }
-
-        var normalized = snapshot
-        let mergedById = Dictionary(
-            uniqueKeysWithValues: activeByLemma.values.compactMap { duplicates -> (String, VocabularyCard)? in
-                guard duplicates.count > 1, let canonical = duplicates.max(by: lowerIdentityPriority) else { return nil }
-                return (canonical.id, mergeDuplicateCards(canonical: canonical, duplicates: duplicates))
-            }
-        )
-        normalized.cards = snapshot.cards
-            .filter { duplicateIds.contains($0.id) == false }
-            .map { mergedById[$0.id] ?? $0 }
-        normalized.contexts = snapshot.contexts.map { context in
-            var copy = context
-            copy.cardId = cardIdMap[context.cardId] ?? context.cardId
-            return copy
-        }
-        normalized.definitionCandidates = snapshot.definitionCandidates.map { candidate in
-            var copy = candidate
-            copy.cardId = cardIdMap[candidate.cardId] ?? candidate.cardId
-            return copy
-        }
-        normalized.reviewEvents = snapshot.reviewEvents.map { event in
-            var copy = event
-            copy.cardId = cardIdMap[event.cardId] ?? event.cardId
-            return copy
-        }
-        normalized.recommendationFeedback = snapshot.recommendationFeedback.map { feedback in
-            var copy = feedback
-            copy.cardId = cardIdMap[feedback.cardId] ?? feedback.cardId
-            return copy
-        }
-        return normalized
-    }
-
-    private static func mergeDuplicateCards(canonical: VocabularyCard, duplicates: [VocabularyCard]) -> VocabularyCard {
-        var merged = canonical
-        if let content = duplicates.max(by: lowerContentPriority),
-           merged.meaningKo.isEmpty,
-           content.meaningKo.isEmpty == false {
-            merged.meaningKo = content.meaningKo
-            merged.definitionEn = content.definitionEn
-            merged.partOfSpeech = content.partOfSpeech
-            merged.exampleSentence = merged.exampleSentence.isEmpty ? content.exampleSentence : merged.exampleSentence
-            merged.definitionSourcePrimary = content.definitionSourcePrimary
-        }
-        if let progress = duplicates.max(by: lowerProgressPriority) {
-            merged.status = progress.status
-            merged.dueAt = progress.dueAt
-            merged.intervalDays = progress.intervalDays
-            merged.lapseCount = progress.lapseCount
-            merged.intervalBeforeLapse = progress.intervalBeforeLapse
-            merged.recommendationStartedAt = progress.recommendationStartedAt ?? merged.recommendationStartedAt
-        }
-        if duplicates.contains(where: { $0.wordbook == .user }) {
-            merged.wordbook = .user
-        }
-        merged.updatedAt = duplicates.map(\.updatedAt).max() ?? merged.updatedAt
-        merged.version = duplicates.map(\.version).max() ?? merged.version
-        return merged
-    }
-
-    private static func lowerIdentityPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
-        if lhs.wordbook != rhs.wordbook {
-            return lhs.wordbook != .user && rhs.wordbook == .user
-        }
-        if lhs.meaningKo.isEmpty != rhs.meaningKo.isEmpty {
-            return lhs.meaningKo.isEmpty && rhs.meaningKo.isEmpty == false
-        }
-        if lhs.version != rhs.version {
-            return lhs.version < rhs.version
-        }
-        return lhs.updatedAt < rhs.updatedAt
-    }
-
-    private static func lowerProgressPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
-        if (lhs.recommendationStartedAt != nil) != (rhs.recommendationStartedAt != nil) {
-            return lhs.recommendationStartedAt == nil && rhs.recommendationStartedAt != nil
-        }
-        let lhsStatus = statusProgressRank(lhs.status)
-        let rhsStatus = statusProgressRank(rhs.status)
-        if lhsStatus != rhsStatus {
-            return lhsStatus < rhsStatus
-        }
-        if lhs.intervalDays != rhs.intervalDays {
-            return lhs.intervalDays < rhs.intervalDays
-        }
-        if lhs.version != rhs.version {
-            return lhs.version < rhs.version
-        }
-        return lhs.updatedAt < rhs.updatedAt
-    }
-
-    private static func lowerContentPriority(_ lhs: VocabularyCard, _ rhs: VocabularyCard) -> Bool {
-        if lhs.meaningKo.isEmpty != rhs.meaningKo.isEmpty {
-            return lhs.meaningKo.isEmpty && rhs.meaningKo.isEmpty == false
-        }
-        if (lhs.definitionSourcePrimary == "user") != (rhs.definitionSourcePrimary == "user") {
-            return lhs.definitionSourcePrimary != "user" && rhs.definitionSourcePrimary == "user"
-        }
-        if lhs.wordbook != rhs.wordbook {
-            return lhs.wordbook != .user && rhs.wordbook == .user
-        }
-        if lhs.version != rhs.version {
-            return lhs.version < rhs.version
-        }
-        return lhs.updatedAt < rhs.updatedAt
-    }
-
-    private static func statusProgressRank(_ status: CardStatus) -> Int {
-        switch status {
-        case .new:
-            return 0
-        case .learning:
-            return 1
-        case .relearning:
-            return 2
-        case .review:
-            return 3
-        case .mastered:
-            return 4
-        case .suspended:
-            return 1
-        }
-    }
 }
 
-enum ImportError: LocalizedError {
+package enum ImportError: LocalizedError {
     case invalidPayload
     case missingDate(String)
     case invalidDate(key: String, value: String)
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .invalidPayload:
             return "Invalid sync payload."

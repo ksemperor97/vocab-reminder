@@ -30,11 +30,11 @@ if [ "$CONFIGURATION" = "release" ]; then
     fi
 fi
 if [ "$CONFIGURATION" = "release" ]; then
-    swift build -c release
-    BUILD_DIR=".build/arm64-apple-macosx/release"
+    ./swift.sh build -c release
+    BUILD_DIR="$(./swift.sh build -c release --show-bin-path)"
 else
-    swift build
-    BUILD_DIR=".build/arm64-apple-macosx/debug"
+    ./swift.sh build
+    BUILD_DIR="$(./swift.sh build --show-bin-path)"
 fi
 APP=VocabReminder.app
 rm -rf "$APP"

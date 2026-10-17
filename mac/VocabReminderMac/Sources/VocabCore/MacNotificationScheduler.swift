@@ -2,8 +2,8 @@ import Foundation
 @preconcurrency import UserNotifications
 
 @MainActor
-final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
-    static let shared = MacNotificationScheduler()
+package final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
+    package static let shared = MacNotificationScheduler()
 
     // UNUserNotificationCenter는 앱 번들이 없는 프로세스(`swift run` 직접 실행)에서
     // 접근하는 순간 크래시한다 (bundleProxyForCurrentProcess is nil).
@@ -33,7 +33,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         registerCategories()
     }
 
-    func requestAuthorization() {
+    package func requestAuthorization() {
         registerCategories()
         guard let center else { return }
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
@@ -55,7 +55,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
-    func authorizationDiagnosticLabel() async -> String {
+    package func authorizationDiagnosticLabel() async -> String {
         guard let center else { return "번들 앱 실행에서 확인 가능" }
         let status = await center.notificationSettings().authorizationStatus
         switch status {
@@ -74,7 +74,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
-    func reschedule(
+    package func reschedule(
         cards: [VocabularyCard],
         settings: UserSettingsData,
         processedCardIdsToday: Set<String> = []
@@ -219,7 +219,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
-    func cancel(card: VocabularyCard) {
+    package func cancel(card: VocabularyCard) {
         guard let center else { return }
         removeNotificationFamily(cardId: card.id, center: center)
         if Self.loadPromptReminderState(defaults: defaults)?.cardId == card.id {
@@ -286,7 +286,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
 
     @MainActor
     @discardableResult
-    static func handleAction(_ action: String, cardId: String, store: LocalVocabularyStore = .shared) -> VocabularyCard? {
+    package static func handleAction(_ action: String, cardId: String, store: LocalVocabularyStore = .shared) -> VocabularyCard? {
         switch action {
         case MacNotificationAction.start:
             store.markRecommendationStarted(cardId: cardId)
@@ -308,7 +308,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
-    static func feedbackContent(for action: String, card: VocabularyCard) -> (title: String, body: String)? {
+    package static func feedbackContent(for action: String, card: VocabularyCard) -> (title: String, body: String)? {
         switch action {
         case MacNotificationAction.start:
             return (
@@ -354,7 +354,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         return "\(days)일 뒤"
     }
 
-    static func shouldAcknowledgeFeedback(action: String, category: String) -> Bool {
+    package static func shouldAcknowledgeFeedback(action: String, category: String) -> Bool {
         category == MacNotificationAction.feedbackCategory &&
             (
                 action == MacNotificationAction.feedbackAcknowledge ||
@@ -363,13 +363,13 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
             )
     }
 
-    static func producesFeedback(action: String) -> Bool {
+    package static func producesFeedback(action: String) -> Bool {
         action == MacNotificationAction.start ||
             action == MacNotificationAction.remembered ||
             action == MacNotificationAction.forgotten
     }
 
-    static func resolvedPromptAction(action: String, category: String) -> String {
+    package static func resolvedPromptAction(action: String, category: String) -> String {
         guard action == UNNotificationDismissActionIdentifier else { return action }
         if category == MacNotificationAction.reviewCategory {
             return MacNotificationAction.unavailable
@@ -380,7 +380,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         return action
     }
 
-    static func shouldHandlePromptAction(
+    package static func shouldHandlePromptAction(
         action: String,
         card: VocabularyCard?,
         promptState: PromptReminderState?,
@@ -738,23 +738,23 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         }
     }
 
-    static func allowedDeliveryDate(_ proposed: Date, settings: UserSettingsData) -> Date {
+    package static func allowedDeliveryDate(_ proposed: Date, settings: UserSettingsData) -> Date {
         Scheduler.avoidQuietHours(proposed, settings: settings.schedulerSettings)
     }
 
-    static func notificationIdentifier(cardId: String) -> String {
+    package static func notificationIdentifier(cardId: String) -> String {
         cardIdentifierPrefix + cardId
     }
 
-    static func failsafeIdentifier(cardId: String) -> String {
+    package static func failsafeIdentifier(cardId: String) -> String {
         notificationIdentifier(cardId: cardId) + ".failsafe"
     }
 
-    static func isQuietHours(_ date: Date, settings: UserSettingsData) -> Bool {
+    package static func isQuietHours(_ date: Date, settings: UserSettingsData) -> Bool {
         allowedDeliveryDate(date, settings: settings) > date.addingTimeInterval(1)
     }
 
-    static func nextUnansweredReminderDate(
+    package static func nextUnansweredReminderDate(
         state: PromptReminderState,
         settings: UserSettingsData,
         now: Date
@@ -775,7 +775,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         return candidate
     }
 
-    static func recordingUnansweredReminder(
+    package static func recordingUnansweredReminder(
         in state: PromptReminderState,
         at date: Date,
         settings: UserSettingsData
@@ -794,7 +794,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         return updated
     }
 
-    static func nextQuietBoundary(after now: Date, settings: UserSettingsData) -> Date? {
+    package static func nextQuietBoundary(after now: Date, settings: UserSettingsData) -> Date? {
         guard let timeZone = TimeZone(identifier: settings.timezone),
               let start = minuteOfDay(settings.quietHoursStart),
               let end = minuteOfDay(settings.quietHoursEnd) else { return nil }
@@ -820,12 +820,12 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         return interval <= 1 ? nil : UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
     }
 
-    static func loadFeedbackHold(defaults: UserDefaults) -> FeedbackHoldState? {
+    package static func loadFeedbackHold(defaults: UserDefaults) -> FeedbackHoldState? {
         guard let data = defaults.data(forKey: feedbackHoldDefaultsKey) else { return nil }
         return try? JSONDecoder().decode(FeedbackHoldState.self, from: data)
     }
 
-    static func saveFeedbackHold(_ hold: FeedbackHoldState?, defaults: UserDefaults) {
+    package static func saveFeedbackHold(_ hold: FeedbackHoldState?, defaults: UserDefaults) {
         guard let hold, let data = try? JSONEncoder().encode(hold) else {
             defaults.removeObject(forKey: feedbackHoldDefaultsKey)
             return
@@ -833,12 +833,12 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         defaults.set(data, forKey: feedbackHoldDefaultsKey)
     }
 
-    static func loadPromptReminderState(defaults: UserDefaults) -> PromptReminderState? {
+    package static func loadPromptReminderState(defaults: UserDefaults) -> PromptReminderState? {
         guard let data = defaults.data(forKey: promptReminderDefaultsKey) else { return nil }
         return try? JSONDecoder().decode(PromptReminderState.self, from: data)
     }
 
-    static func savePromptReminderState(_ state: PromptReminderState?, defaults: UserDefaults) {
+    package static func savePromptReminderState(_ state: PromptReminderState?, defaults: UserDefaults) {
         guard let state, let data = try? JSONEncoder().encode(state) else {
             defaults.removeObject(forKey: promptReminderDefaultsKey)
             return
@@ -846,7 +846,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         defaults.set(data, forKey: promptReminderDefaultsKey)
     }
 
-    nonisolated func userNotificationCenter(
+    package nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
@@ -854,7 +854,7 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
         completionHandler([.banner, .list, .sound])
     }
 
-    nonisolated func userNotificationCenter(
+    package nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping @Sendable () -> Void
@@ -936,21 +936,33 @@ final class MacNotificationScheduler: NSObject, UNUserNotificationCenterDelegate
     }
 }
 
-struct FeedbackHoldState: Codable, Equatable {
-    var phase: String
-    var action: String
-    var cardId: String
-    var identifier: String
+package struct FeedbackHoldState: Codable, Equatable {
+    package init(
+        phase: String,
+        action: String,
+        cardId: String,
+        identifier: String
+    ) {
+        self.phase = phase
+        self.action = action
+        self.cardId = cardId
+        self.identifier = identifier
+    }
+
+    package var phase: String
+    package var action: String
+    package var cardId: String
+    package var identifier: String
 }
 
-struct PromptReminderState: Codable, Equatable {
-    var cardId: String
-    var firstPromptAt: Date
-    var lastReminderAt: Date?
-    var reminderDay: Date?
-    var remindersSentOnDay: Int
+package struct PromptReminderState: Codable, Equatable {
+    package var cardId: String
+    package var firstPromptAt: Date
+    package var lastReminderAt: Date?
+    package var reminderDay: Date?
+    package var remindersSentOnDay: Int
 
-    init(
+    package init(
         cardId: String,
         firstPromptAt: Date,
         lastReminderAt: Date? = nil,
@@ -972,7 +984,7 @@ struct PromptReminderState: Codable, Equatable {
         case remindersSentOnDay
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cardId = try container.decode(String.self, forKey: .cardId)
         firstPromptAt = try container.decode(Date.self, forKey: .firstPromptAt)
@@ -982,8 +994,8 @@ struct PromptReminderState: Codable, Equatable {
     }
 }
 
-enum MacNotificationPlan {
-    static func scheduledCards(
+package enum MacNotificationPlan {
+    package static func scheduledCards(
         cards: [VocabularyCard],
         settings: UserSettingsData,
         processedCardIdsToday: Set<String> = [],
@@ -1026,18 +1038,18 @@ enum MacNotificationPlan {
     }
 }
 
-enum MacNotificationAction {
-    static let reviewCategory = "vocab-reminder.review"
-    static let recommendationCategory = "vocab-reminder.recommendation"
-    static let feedbackCategory = "vocab-reminder.feedback"
-    static let remembered = "vocab-reminder.review.remembered"
-    static let forgotten = "vocab-reminder.review.forgotten"
-    static let unavailable = "vocab-reminder.review.unavailable"
-    static let start = "vocab-reminder.recommendation.start"
-    static let known = "vocab-reminder.recommendation.known"
-    static let dismiss = "vocab-reminder.recommendation.dismiss"
-    static let advanceRecommendation = "vocab-reminder.recommendation.advance"
-    static let feedbackAcknowledge = "vocab-reminder.feedback.acknowledge"
+package enum MacNotificationAction {
+    package static let reviewCategory = "vocab-reminder.review"
+    package static let recommendationCategory = "vocab-reminder.recommendation"
+    package static let feedbackCategory = "vocab-reminder.feedback"
+    package static let remembered = "vocab-reminder.review.remembered"
+    package static let forgotten = "vocab-reminder.review.forgotten"
+    package static let unavailable = "vocab-reminder.review.unavailable"
+    package static let start = "vocab-reminder.recommendation.start"
+    package static let known = "vocab-reminder.recommendation.known"
+    package static let dismiss = "vocab-reminder.recommendation.dismiss"
+    package static let advanceRecommendation = "vocab-reminder.recommendation.advance"
+    package static let feedbackAcknowledge = "vocab-reminder.feedback.acknowledge"
 }
 
 private extension VocabularyCard {

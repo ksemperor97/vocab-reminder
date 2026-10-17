@@ -1,18 +1,18 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class MacAutoSyncDictionaryEnrichmentTests: XCTestCase {
-    override func tearDown() {
+final class MacAutoSyncDictionaryEnrichmentTests {
+    deinit {
         DictionaryURLProtocolStub.handler = nil
-        super.tearDown()
     }
 
-    func testControllerAppliesResolvedMeaningAndReportsCompletion() async throws {
+    @Test func testControllerAppliesResolvedMeaningAndReportsCompletion() async throws {
         let fixture = try makeBlankMeaningStore(words: ["codexcontrollerresolved"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let target = try XCTUnwrap(fixture.store.pendingDictionaryEnrichmentTargets().first)
+        let target = try #require(fixture.store.pendingDictionaryEnrichmentTargets().first)
         DictionaryURLProtocolStub.handler = { _ in
             (
                 200,
@@ -44,17 +44,17 @@ final class MacAutoSyncDictionaryEnrichmentTests: XCTestCase {
             config: CloudSyncConfig(serverBaseURL: "https://sync.example.test", bearerToken: "token")
         )
 
-        XCTAssertEqual(summary.appliedCount, 1)
-        XCTAssertEqual(fixture.store.cards.first?.meaningKo, "컨트롤러가 채운 뜻")
-        XCTAssertEqual(fixture.store.dictionaryEnrichmentStatus.resolvedCount, 1)
-        XCTAssertEqual(fixture.store.dictionaryEnrichmentStatus.providerFailureCount, 0)
+        #expect(summary.appliedCount == 1)
+        #expect(fixture.store.cards.first?.meaningKo == "컨트롤러가 채운 뜻")
+        #expect(fixture.store.dictionaryEnrichmentStatus.resolvedCount == 1)
+        #expect(fixture.store.dictionaryEnrichmentStatus.providerFailureCount == 0)
     }
 
-    func testNotFoundAndProviderFailureRemainDistinctWithProviderRetryFirst() async throws {
+    @Test func testNotFoundAndProviderFailureRemainDistinctWithProviderRetryFirst() async throws {
         let fixture = try makeBlankMeaningStore(words: ["codexnotfound", "codexproviderfailure"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let targets = fixture.store.pendingDictionaryEnrichmentTargets()
-        XCTAssertEqual(targets.count, 2)
+        #expect(targets.count == 2)
         DictionaryURLProtocolStub.handler = { _ in
             return (
                 200,
@@ -92,14 +92,14 @@ final class MacAutoSyncDictionaryEnrichmentTests: XCTestCase {
             config: CloudSyncConfig(serverBaseURL: "https://sync.example.test", bearerToken: "token")
         )
 
-        XCTAssertEqual(summary.appliedCount, 0)
-        XCTAssertEqual(fixture.store.dictionaryEnrichmentStatus.notFoundCount, 1)
-        XCTAssertEqual(fixture.store.dictionaryEnrichmentStatus.providerFailureCount, 1)
-        XCTAssertEqual(summary.nextRetryAt, now.addingTimeInterval(60))
-        XCTAssertEqual(fixture.store.pendingDictionaryEnrichmentTargets().count, 2)
+        #expect(summary.appliedCount == 0)
+        #expect(fixture.store.dictionaryEnrichmentStatus.notFoundCount == 1)
+        #expect(fixture.store.dictionaryEnrichmentStatus.providerFailureCount == 1)
+        #expect(summary.nextRetryAt == now.addingTimeInterval(60))
+        #expect(fixture.store.pendingDictionaryEnrichmentTargets().count == 2)
     }
 
-    func testOldServerEndpointIsNonFatalAndBackoffPreventsImmediateRepeat() async throws {
+    @Test func testOldServerEndpointIsNonFatalAndBackoffPreventsImmediateRepeat() async throws {
         let fixture = try makeBlankMeaningStore(words: ["codexoldserver"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let counter = LockedRequestCounter()
@@ -121,43 +121,34 @@ final class MacAutoSyncDictionaryEnrichmentTests: XCTestCase {
         let first = await controller.performDictionaryEnrichment(store: fixture.store, config: config)
         let second = await controller.performDictionaryEnrichment(store: fixture.store, config: config)
 
-        XCTAssertEqual(first.appliedCount, 0)
-        XCTAssertEqual(second.appliedCount, 0)
-        XCTAssertEqual(counter.value, 1)
-        XCTAssertTrue(fixture.store.dictionaryEnrichmentStatus.endpointUnavailable)
-        XCTAssertEqual(first.nextRetryAt, now.addingTimeInterval(MacAutoSyncController.endpointUnavailableRetryDelay))
-        XCTAssertEqual(fixture.store.cards.first?.meaningKo, "")
+        #expect(first.appliedCount == 0)
+        #expect(second.appliedCount == 0)
+        #expect(counter.value == 1)
+        #expect(fixture.store.dictionaryEnrichmentStatus.endpointUnavailable)
+        #expect(first.nextRetryAt == now.addingTimeInterval(MacAutoSyncController.endpointUnavailableRetryDelay))
+        #expect(fixture.store.cards.first?.meaningKo == "")
     }
 
-    func testRetryPolicyHasFiniteCapsForEveryPendingOutcome() {
-        XCTAssertEqual(
-            DictionaryEnrichmentRetryLedger.retryDelay(outcome: .pending, attemptCount: 99),
-            6 * 60 * 60
-        )
-        XCTAssertEqual(
-            DictionaryEnrichmentRetryLedger.retryDelay(outcome: .notFound, attemptCount: 99),
-            7 * 24 * 60 * 60
-        )
-        XCTAssertEqual(
-            DictionaryEnrichmentRetryLedger.retryDelay(outcome: .providerFailure, attemptCount: 99),
-            60 * 60
-        )
+    @Test func testRetryPolicyHasFiniteCapsForEveryPendingOutcome() {
+        #expect(DictionaryEnrichmentRetryLedger.retryDelay(outcome: .pending, attemptCount: 99) == 6 * 60 * 60)
+        #expect(DictionaryEnrichmentRetryLedger.retryDelay(outcome: .notFound, attemptCount: 99) == 7 * 24 * 60 * 60)
+        #expect(DictionaryEnrichmentRetryLedger.retryDelay(outcome: .providerFailure, attemptCount: 99) == 60 * 60)
     }
 
-    func testRetryLedgerSurvivesControllerRecreation() throws {
+    @Test func testRetryLedgerSurvivesControllerRecreation() throws {
         let defaults = try makeDefaults()
         let now = Date(timeIntervalSince1970: 1_784_000_000)
         let first = DictionaryEnrichmentRetryLedger(defaults: defaults, key: "persisted-ledger")
         first.record(cardId: "card-1", outcome: .providerFailure, at: now)
 
         let reloaded = DictionaryEnrichmentRetryLedger(defaults: defaults, key: "persisted-ledger")
-        XCTAssertFalse(reloaded.isEligible(cardId: "card-1", at: now.addingTimeInterval(59)))
-        XCTAssertTrue(reloaded.isEligible(cardId: "card-1", at: now.addingTimeInterval(60)))
+        #expect(!(reloaded.isEligible(cardId: "card-1", at: now.addingTimeInterval(59))))
+        #expect(reloaded.isEligible(cardId: "card-1", at: now.addingTimeInterval(60)))
     }
 
     private func makeDefaults() throws -> UserDefaults {
         let suiteName = "MacAutoSyncDictionaryEnrichmentTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
     }

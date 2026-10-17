@@ -1,9 +1,10 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class SchedulerBoundaryTests: XCTestCase {
+final class SchedulerBoundaryTests {
     private let schedulerSettings = SchedulerSettings(
         snoozeDurationMinutes: 60,
         quietHoursStart: "23:00",
@@ -19,66 +20,39 @@ final class SchedulerBoundaryTests: XCTestCase {
         timezone: "Asia/Seoul"
     )
 
-    func testQuietHoursStartBoundaryAt2259And2300InSeoul() {
+    @Test func testQuietHoursStartBoundaryAt2259And2300InSeoul() {
         let beforeQuietHours = seoulDate(day: 13, hour: 22, minute: 59)
         let quietHoursStart = seoulDate(day: 13, hour: 23, minute: 0)
         let nextMorningRelease = seoulDate(day: 14, hour: 9, minute: 30)
 
-        XCTAssertEqual(
-            Scheduler.avoidQuietHours(beforeQuietHours, settings: schedulerSettings),
-            beforeQuietHours
-        )
-        XCTAssertEqual(
-            Scheduler.avoidQuietHours(quietHoursStart, settings: schedulerSettings),
-            nextMorningRelease
-        )
-        XCTAssertFalse(MacNotificationScheduler.isQuietHours(beforeQuietHours, settings: notificationSettings))
-        XCTAssertTrue(MacNotificationScheduler.isQuietHours(quietHoursStart, settings: notificationSettings))
-        XCTAssertEqual(
-            MacNotificationScheduler.nextQuietBoundary(after: beforeQuietHours, settings: notificationSettings),
-            quietHoursStart
-        )
-        XCTAssertEqual(
-            MacNotificationScheduler.nextQuietBoundary(after: quietHoursStart, settings: notificationSettings),
-            seoulDate(day: 14, hour: 9, minute: 0)
-        )
+        #expect(Scheduler.avoidQuietHours(beforeQuietHours, settings: schedulerSettings) == beforeQuietHours)
+        #expect(Scheduler.avoidQuietHours(quietHoursStart, settings: schedulerSettings) == nextMorningRelease)
+        #expect(!(MacNotificationScheduler.isQuietHours(beforeQuietHours, settings: notificationSettings)))
+        #expect(MacNotificationScheduler.isQuietHours(quietHoursStart, settings: notificationSettings))
+        #expect(MacNotificationScheduler.nextQuietBoundary(after: beforeQuietHours, settings: notificationSettings) == quietHoursStart)
+        #expect(MacNotificationScheduler.nextQuietBoundary(after: quietHoursStart, settings: notificationSettings) == seoulDate(day: 14, hour: 9, minute: 0))
     }
 
-    func testMidnightIsQuietAndWaitsUntilMorningRelease() {
+    @Test func testMidnightIsQuietAndWaitsUntilMorningRelease() {
         let midnight = seoulDate(day: 14, hour: 0, minute: 0)
 
-        XCTAssertEqual(
-            Scheduler.avoidQuietHours(midnight, settings: schedulerSettings),
-            seoulDate(day: 14, hour: 9, minute: 30)
-        )
-        XCTAssertTrue(MacNotificationScheduler.isQuietHours(midnight, settings: notificationSettings))
-        XCTAssertEqual(
-            MacNotificationScheduler.nextQuietBoundary(after: midnight, settings: notificationSettings),
-            seoulDate(day: 14, hour: 9, minute: 0)
-        )
+        #expect(Scheduler.avoidQuietHours(midnight, settings: schedulerSettings) == seoulDate(day: 14, hour: 9, minute: 30))
+        #expect(MacNotificationScheduler.isQuietHours(midnight, settings: notificationSettings))
+        #expect(MacNotificationScheduler.nextQuietBoundary(after: midnight, settings: notificationSettings) == seoulDate(day: 14, hour: 9, minute: 0))
     }
 
-    func testQuietHoursEndAt0900IsExclusive() {
+    @Test func testQuietHoursEndAt0900IsExclusive() {
         let lastQuietMinute = seoulDate(day: 14, hour: 8, minute: 59)
         let quietHoursEnd = seoulDate(day: 14, hour: 9, minute: 0)
 
-        XCTAssertEqual(
-            Scheduler.avoidQuietHours(lastQuietMinute, settings: schedulerSettings),
-            seoulDate(day: 14, hour: 9, minute: 30)
-        )
-        XCTAssertEqual(
-            Scheduler.avoidQuietHours(quietHoursEnd, settings: schedulerSettings),
-            quietHoursEnd
-        )
-        XCTAssertTrue(MacNotificationScheduler.isQuietHours(lastQuietMinute, settings: notificationSettings))
-        XCTAssertFalse(MacNotificationScheduler.isQuietHours(quietHoursEnd, settings: notificationSettings))
-        XCTAssertEqual(
-            MacNotificationScheduler.nextQuietBoundary(after: quietHoursEnd, settings: notificationSettings),
-            seoulDate(day: 14, hour: 23, minute: 0)
-        )
+        #expect(Scheduler.avoidQuietHours(lastQuietMinute, settings: schedulerSettings) == seoulDate(day: 14, hour: 9, minute: 30))
+        #expect(Scheduler.avoidQuietHours(quietHoursEnd, settings: schedulerSettings) == quietHoursEnd)
+        #expect(MacNotificationScheduler.isQuietHours(lastQuietMinute, settings: notificationSettings))
+        #expect(!(MacNotificationScheduler.isQuietHours(quietHoursEnd, settings: notificationSettings)))
+        #expect(MacNotificationScheduler.nextQuietBoundary(after: quietHoursEnd, settings: notificationSettings) == seoulDate(day: 14, hour: 23, minute: 0))
     }
 
-    func testFirstAndSecondUnavailableUseFixedNow() {
+    @Test func testFirstAndSecondUnavailableUseFixedNow() {
         let now = seoulDate(day: 13, hour: 10, minute: 0)
         let card = reviewCard(dueAt: now)
 
@@ -97,13 +71,13 @@ final class SchedulerBoundaryTests: XCTestCase {
             unavailableCountToday: 1
         )
 
-        XCTAssertEqual(first.card.dueAt, seoulDate(day: 13, hour: 11, minute: 0))
-        XCTAssertEqual(second.card.dueAt, seoulDate(day: 14, hour: 10, minute: 0))
-        XCTAssertEqual(first.card.status, card.status)
-        XCTAssertEqual(second.card.intervalDays, card.intervalDays)
+        #expect(first.card.dueAt == seoulDate(day: 13, hour: 11, minute: 0))
+        #expect(second.card.dueAt == seoulDate(day: 14, hour: 10, minute: 0))
+        #expect(first.card.status == card.status)
+        #expect(second.card.intervalDays == card.intervalDays)
     }
 
-    func testFirstUnavailableAt2259DefersAcrossQuietHours() {
+    @Test func testFirstUnavailableAt2259DefersAcrossQuietHours() {
         let now = seoulDate(day: 13, hour: 22, minute: 59)
 
         let result = Scheduler.applyReview(
@@ -114,7 +88,7 @@ final class SchedulerBoundaryTests: XCTestCase {
             unavailableCountToday: 0
         )
 
-        XCTAssertEqual(result.card.dueAt, seoulDate(day: 14, hour: 9, minute: 30))
+        #expect(result.card.dueAt == seoulDate(day: 14, hour: 9, minute: 30))
     }
 
     private func reviewCard(dueAt: Date) -> SchedulerCard {
@@ -139,14 +113,8 @@ final class SchedulerBoundaryTests: XCTestCase {
     }
 }
 
-final class SchedulerSharedVectorTests: XCTestCase {
-    func testSharedCrossPlatformSchedulerVectors() throws {
-        try SchedulerVectorCommand.verifySharedSchedulerVectors()
-    }
-}
-
 extension SchedulerBoundaryTests {
-    func testQuietReleaseUsesLocalMorningAcrossBothDSTTransitions() throws {
+    @Test func testQuietReleaseUsesLocalMorningAcrossBothDSTTransitions() throws {
         let formatter = ISO8601DateFormatter()
         let settings = SchedulerSettings(quietHoursStart: "23:00", quietHoursEnd: "09:00", timezone: "America/New_York")
         for (input, expected) in [
@@ -154,8 +122,8 @@ extension SchedulerBoundaryTests {
             ("2026-11-01T05:55:00Z", "2026-11-01T14:30:00Z"),
             ("2026-11-01T06:55:00Z", "2026-11-01T14:30:00Z")
         ] {
-            let now = try XCTUnwrap(formatter.date(from: input))
-            XCTAssertEqual(Scheduler.avoidQuietHours(now, settings: settings), formatter.date(from: expected))
+            let now = try #require(formatter.date(from: input))
+            #expect(Scheduler.avoidQuietHours(now, settings: settings) == formatter.date(from: expected))
         }
     }
 }

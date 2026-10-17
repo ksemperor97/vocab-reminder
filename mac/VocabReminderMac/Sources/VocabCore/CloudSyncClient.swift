@@ -1,10 +1,18 @@
 import Foundation
 
-struct CloudSyncConfig {
-    var serverBaseURL: String
-    var bearerToken: String
+package struct CloudSyncConfig {
+    package init(
+        serverBaseURL: String,
+        bearerToken: String
+    ) {
+        self.serverBaseURL = serverBaseURL
+        self.bearerToken = bearerToken
+    }
 
-    func endpoint(_ path: String) throws -> URL {
+    package var serverBaseURL: String
+    package var bearerToken: String
+
+    package func endpoint(_ path: String) throws -> URL {
         let trimmed = serverBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else { throw CloudSyncError.invalidConfig("Server URL is required.") }
         guard bearerToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -17,13 +25,13 @@ struct CloudSyncConfig {
     }
 }
 
-enum CloudSyncError: Error, LocalizedError {
+package enum CloudSyncError: Error, LocalizedError {
     case invalidConfig(String)
     case invalidResponse
     case http(Int, String)
     case server(String)
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .invalidConfig(let message):
             return message
@@ -39,7 +47,7 @@ enum CloudSyncError: Error, LocalizedError {
         }
     }
 
-    var requestID: String? {
+    package var requestID: String? {
         switch self {
         case .http(_, let requestID):
             return requestID.isEmpty ? nil : requestID
@@ -58,14 +66,14 @@ enum CloudSyncError: Error, LocalizedError {
     }
 }
 
-enum CloudDictionaryOutcome: String, Codable, Equatable, Sendable {
+package enum CloudDictionaryOutcome: String, Codable, Equatable, Sendable {
     case resolved
     case pending
     case notFound = "not_found"
     case providerFailure = "provider_failure"
 }
 
-func normalizeCloudDictionaryLemma(_ value: String) -> String {
+package func normalizeCloudDictionaryLemma(_ value: String) -> String {
     value
         .precomposedStringWithCompatibilityMapping
         .replacingOccurrences(of: "\u{2018}", with: "'")
@@ -82,7 +90,7 @@ func normalizeCloudDictionaryLemma(_ value: String) -> String {
         .lowercased(with: Locale(identifier: "en_US_POSIX"))
 }
 
-enum CloudRequestOperation: String, Codable, Equatable, Sendable {
+package enum CloudRequestOperation: String, Codable, Equatable, Sendable {
     case health
     case syncPush = "sync_push"
     case syncPull = "sync_pull"
@@ -91,51 +99,79 @@ enum CloudRequestOperation: String, Codable, Equatable, Sendable {
     case other
 }
 
-struct CloudRequestDiagnostic: Codable, Equatable, Sendable {
-    var requestID: String
-    var operation: CloudRequestOperation
-    var succeeded: Bool
-    var statusCode: Int?
-    var category: String
-    var occurredAt: Date
+package struct CloudRequestDiagnostic: Codable, Equatable, Sendable {
+    package init(
+        requestID: String,
+        operation: CloudRequestOperation,
+        succeeded: Bool,
+        statusCode: Int? = nil,
+        category: String,
+        occurredAt: Date
+    ) {
+        self.requestID = requestID
+        self.operation = operation
+        self.succeeded = succeeded
+        self.statusCode = statusCode
+        self.category = category
+        self.occurredAt = occurredAt
+    }
 
-    var shortRequestID: String { String(requestID.prefix(12)) }
+    package var requestID: String
+    package var operation: CloudRequestOperation
+    package var succeeded: Bool
+    package var statusCode: Int?
+    package var category: String
+    package var occurredAt: Date
+
+    package var shortRequestID: String { String(requestID.prefix(12)) }
 }
 
-enum CloudRequestDiagnosticsStore {
-    static let defaultsKey = "lastCloudRequestDiagnosticV1"
+package enum CloudRequestDiagnosticsStore {
+    package static let defaultsKey = "lastCloudRequestDiagnosticV1"
 
-    static func load(defaults: UserDefaults = .standard) -> CloudRequestDiagnostic? {
+    package static func load(defaults: UserDefaults = .standard) -> CloudRequestDiagnostic? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
         return try? JSONDecoder.vocab.decode(CloudRequestDiagnostic.self, from: data)
     }
 
-    static func save(_ diagnostic: CloudRequestDiagnostic, defaults: UserDefaults = .standard) {
+    package static func save(_ diagnostic: CloudRequestDiagnostic, defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder.vocab.encode(diagnostic) else { return }
         defaults.set(data, forKey: defaultsKey)
     }
 }
 
-struct CloudDictionarySense: Equatable, Sendable {
-    var meaningKo: String
-    var definitionEn: String = ""
-    var partOfSpeech: String = ""
-    var exampleSentence: String = ""
+package struct CloudDictionarySense: Equatable, Sendable {
+    package init(
+        meaningKo: String,
+        definitionEn: String = "",
+        partOfSpeech: String = "",
+        exampleSentence: String = ""
+    ) {
+        self.meaningKo = meaningKo
+        self.definitionEn = definitionEn
+        self.partOfSpeech = partOfSpeech
+        self.exampleSentence = exampleSentence
+    }
+
+    package var meaningKo: String
+    package var definitionEn: String = ""
+    package var partOfSpeech: String = ""
+    package var exampleSentence: String = ""
 }
 
-struct CloudDictionaryLookupResult: Equatable, Sendable {
-    var lemma: String
-    var meaningKo: String
-    var definitionEn: String
-    var partOfSpeech: String
-    var exampleSentence: String
-    var sourceType: String
-    var confidence: Double
-    var attemptedAt: String
-    var errorCode: String?
-    var senses: [CloudDictionarySense]
+package struct CloudDictionaryLookupResult: Equatable, Sendable {
+    package var lemma: String
+    package var meaningKo: String
+    package var definitionEn: String
+    package var partOfSpeech: String
+    package var exampleSentence: String
+    package var sourceType: String
+    package var confidence: Double
+    package var attemptedAt: String
+    package var errorCode: String?
+    package var senses: [CloudDictionarySense]
 
-    var outcome: CloudDictionaryOutcome {
+    package var outcome: CloudDictionaryOutcome {
         guard meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .resolved
         }
@@ -152,7 +188,7 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
         }
     }
 
-    init(
+    package init(
         lemma: String,
         meaningKo: String,
         definitionEn: String = "",
@@ -176,7 +212,7 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
         self.senses = Array(senses.prefix(20))
     }
 
-    init(payload: [String: Any]) throws {
+    package init(payload: [String: Any]) throws {
         let lemma = normalizeCloudDictionaryLemma(payload["lemma"] as? String ?? "")
         guard lemma.isEmpty == false else { throw CloudSyncError.invalidResponse }
 
@@ -202,9 +238,9 @@ struct CloudDictionaryLookupResult: Equatable, Sendable {
     }
 }
 
-final class CloudSyncClient {
-    static let maxItemsPerBatch = 400
-    static let maxDictionaryItemsPerBatch = 25
+package final class CloudSyncClient {
+    package static let maxItemsPerBatch = 400
+    package static let maxDictionaryItemsPerBatch = 25
     private static let collectionKeys = [
         "cards",
         "contexts",
@@ -218,7 +254,7 @@ final class CloudSyncClient {
     private let session: URLSession
     private let diagnosticsDefaults: UserDefaults
 
-    init(
+    package init(
         config: CloudSyncConfig,
         session: URLSession = .shared,
         diagnosticsDefaults: UserDefaults = .standard
@@ -228,26 +264,26 @@ final class CloudSyncClient {
         self.diagnosticsDefaults = diagnosticsDefaults
     }
 
-    func pushAndPull(localBatch: [String: Any]) async throws -> Data {
+    package func pushAndPull(localBatch: [String: Any]) async throws -> Data {
         _ = try await push(localBatch: localBatch)
         let snapshot = try await get("sync/snapshot")
         return try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
     }
 
-    func push(localBatch: [String: Any]) async throws -> [String: Any] {
+    package func push(localBatch: [String: Any]) async throws -> [String: Any] {
         var aggregate: [String: Any] = [
             "applied": [String: Int](),
             "skipped": ["reasons": [Any]()] as [String: Any]
         ]
         for batch in Self.splitIntoBatches(localBatch) {
             let result = try await post("sync/batch", body: batch)
-            supportsChanges = supportsChanges || (result["sync_protocol"] as? Int == 2)
+            supportsChanges = supportsChanges || (result["sync_protocol"] as? Int ?? 0) >= 2
             aggregate = Self.mergingPushResult(aggregate, result)
         }
         return aggregate
     }
 
-    func pullSnapshot(cursor: String? = nil) async throws -> Data {
+    package func pullSnapshot(cursor: String? = nil) async throws -> Data {
         guard supportsChanges else {
             let snapshot = try await get("sync/snapshot")
             return try JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
@@ -264,11 +300,11 @@ final class CloudSyncClient {
         throw CloudSyncError.server("동기화 변경 페이지가 너무 많습니다.")
     }
 
-    func health() async throws -> [String: Any] {
+    package func health() async throws -> [String: Any] {
         try await get("health")
     }
 
-    func lookupDictionary(lemmas: [String]) async throws -> [CloudDictionaryLookupResult] {
+    package func lookupDictionary(lemmas: [String]) async throws -> [CloudDictionaryLookupResult] {
         let normalized = lemmas.map(normalizeCloudDictionaryLemma)
         guard normalized.isEmpty == false,
               normalized.count <= Self.maxDictionaryItemsPerBatch,
@@ -450,7 +486,7 @@ final class CloudSyncClient {
         )
     }
 
-    static func splitIntoBatches(_ localBatch: [String: Any]) -> [[String: Any]] {
+    package static func splitIntoBatches(_ localBatch: [String: Any]) -> [[String: Any]] {
         let arrays = Dictionary(uniqueKeysWithValues: collectionKeys.map { key in
             (key, localBatch[key] as? [Any] ?? [])
         })

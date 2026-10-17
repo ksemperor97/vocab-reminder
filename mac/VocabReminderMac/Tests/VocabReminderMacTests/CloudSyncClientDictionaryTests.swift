@@ -1,22 +1,22 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
-final class CloudSyncClientDictionaryTests: XCTestCase {
-    override func tearDown() {
+@Suite(.serialized)
+final class CloudSyncClientDictionaryTests {
+    deinit {
         DictionaryURLProtocolStub.handler = nil
-        super.tearDown()
     }
 
-    func testBatchLookupSendsBearerAndDecodesAllOutcomeKinds() async throws {
+    @Test func testBatchLookupSendsBearerAndDecodesAllOutcomeKinds() async throws {
         DictionaryURLProtocolStub.handler = { request in
-            XCTAssertEqual(request.url?.path, "/dict/batch")
-            XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json; charset=utf-8")
-            let body = try XCTUnwrap(DictionaryURLProtocolStub.bodyData(from: request))
-            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(payload["lemmas"] as? [String], ["resilient", "missing", "provider"])
+            #expect(request.url?.path == "/dict/batch")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
+            let body = try #require(DictionaryURLProtocolStub.bodyData(from: request))
+            let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(payload["lemmas"] as? [String] == ["resilient", "missing", "provider"])
             return (
                 200,
                 ["Content-Type": "application/json"],
@@ -58,13 +58,13 @@ final class CloudSyncClientDictionaryTests: XCTestCase {
             session: session
         ).lookupDictionary(lemmas: [" Resilient ", "missing", "provider"])
 
-        XCTAssertEqual(results.map(\.outcome), [.resolved, .notFound, .providerFailure])
-        XCTAssertEqual(results[0].meaningKo, "회복력 있는")
-        XCTAssertEqual(results[0].sourceType, "offline_catalog")
-        XCTAssertEqual(results[0].confidence, 0.94, accuracy: 0.0001)
+        #expect(results.map(\.outcome) == [.resolved, .notFound, .providerFailure])
+        #expect(results[0].meaningKo == "회복력 있는")
+        #expect(results[0].sourceType == "offline_catalog")
+        #expect(results[0].confidence == 0.94)
     }
 
-    func testEnglishOnlyResponseRemainsPendingForKoreanMeaning() async throws {
+    @Test func testEnglishOnlyResponseRemainsPendingForKoreanMeaning() async throws {
         DictionaryURLProtocolStub.handler = { _ in
             (
                 200,
@@ -87,10 +87,10 @@ final class CloudSyncClientDictionaryTests: XCTestCase {
             session: session
         ).lookupDictionary(lemmas: ["technical"]).first
 
-        XCTAssertEqual(result?.outcome, .pending)
+        #expect(result?.outcome == .pending)
     }
 
-    func testOldServer404IsReportedWithoutChangingTheSyncErrorContract() async throws {
+    @Test func testOldServer404IsReportedWithoutChangingTheSyncErrorContract() async throws {
         DictionaryURLProtocolStub.handler = { _ in
             (404, ["Content-Type": "application/json"], Data(#"{"error":{"message":"Not found."}}"#.utf8))
         }
@@ -102,15 +102,15 @@ final class CloudSyncClientDictionaryTests: XCTestCase {
                 config: CloudSyncConfig(serverBaseURL: "https://old.example.test", bearerToken: "token"),
                 session: session
             ).lookupDictionary(lemmas: ["resilient"])
-            XCTFail("Expected HTTP 404")
+            Issue.record("Expected HTTP 404")
         } catch CloudSyncError.http(let status, _) {
-            XCTAssertEqual(status, 404)
+            #expect(status == 404)
         } catch {
-            XCTFail("Unexpected error: \(error)")
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
-    func testDictionaryBatchLimitIsEnforcedBeforeNetworkIO() async {
+    @Test func testDictionaryBatchLimitIsEnforcedBeforeNetworkIO() async {
         let counter = LockedRequestCounter()
         DictionaryURLProtocolStub.handler = { _ in
             counter.increment()
@@ -125,15 +125,15 @@ final class CloudSyncClientDictionaryTests: XCTestCase {
             ).lookupDictionary(
                 lemmas: (0...CloudSyncClient.maxDictionaryItemsPerBatch).map { "word\($0)" }
             )
-            XCTFail("Expected the bounded batch guard")
+            Issue.record("Expected the bounded batch guard")
         } catch CloudSyncError.invalidConfig {
-            XCTAssertEqual(counter.value, 0)
+            #expect(counter.value == 0)
         } catch {
-            XCTFail("Unexpected error: \(error)")
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
-    func testLemmaNormalizationMatchesServerPunctuationAndWhitespaceRules() {
-        XCTAssertEqual(normalizeCloudDictionaryLemma("  DON’T—STOP\nNOW  "), "don't-stop now")
+    @Test func testLemmaNormalizationMatchesServerPunctuationAndWhitespaceRules() {
+        #expect(normalizeCloudDictionaryLemma("  DON’T—STOP\nNOW  ") == "don't-stop now")
     }
 }

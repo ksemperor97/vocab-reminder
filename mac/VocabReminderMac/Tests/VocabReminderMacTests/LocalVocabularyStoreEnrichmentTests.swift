@@ -1,10 +1,11 @@
 import Foundation
-import XCTest
-@testable import VocabReminderMac
+import Testing
+@testable import VocabCore
 
+@Suite(.serialized)
 @MainActor
-final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
-    func testPreviewLookupFillsKoreanMeaningBeforeSave() async throws {
+final class LocalVocabularyStoreEnrichmentTests {
+    @Test func testPreviewLookupFillsKoreanMeaningBeforeSave() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VocabReminderPreviewLookupTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -12,7 +13,7 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             appSupportURL: directory,
             scheduleNotifications: false,
             previewDictionaryLookup: { lemma in
-                XCTAssertEqual(lemma, "uncomfy")
+                #expect(lemma == "uncomfy")
                 return CloudDictionaryLookupResult(
                     lemma: lemma,
                     meaningKo: "불편한, 편하지 않은",
@@ -29,21 +30,21 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             await Task.yield()
         }
 
-        XCTAssertEqual(store.preview?.displayWord, "uncomfy")
-        XCTAssertEqual(store.preview?.meaningKo, "불편한, 편하지 않은")
-        XCTAssertEqual(store.preview?.sourceType, "definition_variant")
-        XCTAssertEqual(store.message, "한국어 뜻을 찾았습니다. 저장 전 preview를 확인하세요.")
-        XCTAssertTrue(store.cards.isEmpty)
+        #expect(store.preview?.displayWord == "uncomfy")
+        #expect(store.preview?.meaningKo == "불편한, 편하지 않은")
+        #expect(store.preview?.sourceType == "definition_variant")
+        #expect(store.message == "한국어 뜻을 찾았습니다. 저장 전 preview를 확인하세요.")
+        #expect(store.cards.isEmpty)
     }
 
-    func testResolvedMeaningIsAppliedOnceWithSelectedCandidateAndFreshFirstDueDate() throws {
+    @Test func testResolvedMeaningIsAppliedOnceWithSelectedCandidateAndFreshFirstDueDate() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexblanklemma"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
-        let target = try XCTUnwrap(store.pendingDictionaryEnrichmentTargets().first)
-        let before = try XCTUnwrap(store.cards.first(where: { $0.id == target.cardId }))
+        let target = try #require(store.pendingDictionaryEnrichmentTargets().first)
+        let before = try #require(store.cards.first(where: { $0.id == target.cardId }))
         let candidateCount = store.definitionCandidates.count
-        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-13T04:00:00Z"))
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-07-13T04:00:00Z"))
 
         let summary = store.applyDictionaryEnrichment(
             [
@@ -61,39 +62,36 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(summary.appliedCardIds, [target.cardId])
-        let updated = try XCTUnwrap(store.cards.first(where: { $0.id == target.cardId }))
-        XCTAssertEqual(updated.meaningKo, "자동으로 채운 뜻")
-        XCTAssertEqual(updated.definitionEn, "a definition")
-        XCTAssertEqual(updated.definitionSourcePrimary, "offline_catalog")
-        XCTAssertEqual(updated.version, before.version + 1)
-        XCTAssertEqual(updated.updatedAt, now)
-        XCTAssertGreaterThanOrEqual(updated.dueAt.timeIntervalSince(now), 60)
-        XCTAssertLessThanOrEqual(updated.dueAt.timeIntervalSince(now), 20 * 60)
-        XCTAssertEqual(store.definitionCandidates.count, candidateCount + 1)
-        let candidate = try XCTUnwrap(store.definitionCandidates.last)
-        XCTAssertEqual(candidate.cardId, target.cardId)
-        XCTAssertEqual(candidate.parsedMeaningKo, "자동으로 채운 뜻")
-        XCTAssertTrue(candidate.selectedAsPrimary)
-        XCTAssertTrue(store.pendingDictionaryEnrichmentTargets().isEmpty)
+        #expect(summary.appliedCardIds == [target.cardId])
+        let updated = try #require(store.cards.first(where: { $0.id == target.cardId }))
+        #expect(updated.meaningKo == "자동으로 채운 뜻")
+        #expect(updated.definitionEn == "a definition")
+        #expect(updated.definitionSourcePrimary == "offline_catalog")
+        #expect(updated.version == before.version + 1)
+        #expect(updated.updatedAt == now)
+        #expect(updated.dueAt.timeIntervalSince(now) >= 60)
+        #expect(updated.dueAt.timeIntervalSince(now) <= 20 * 60)
+        #expect(store.definitionCandidates.count == candidateCount + 1)
+        let candidate = try #require(store.definitionCandidates.last)
+        #expect(candidate.cardId == target.cardId)
+        #expect(candidate.parsedMeaningKo == "자동으로 채운 뜻")
+        #expect(candidate.selectedAsPrimary)
+        #expect(store.pendingDictionaryEnrichmentTargets().isEmpty)
 
         let reloaded = LocalVocabularyStore(
             appSupportURL: fixture.directory,
             scheduleNotifications: false
         )
-        XCTAssertEqual(reloaded.cards.first(where: { $0.id == target.cardId })?.meaningKo, "자동으로 채운 뜻")
-        XCTAssertEqual(
-            reloaded.definitionCandidates.filter { $0.cardId == target.cardId }.last?.parsedMeaningKo,
-            "자동으로 채운 뜻"
-        )
+        #expect(reloaded.cards.first(where: { $0.id == target.cardId })?.meaningKo == "자동으로 채운 뜻")
+        #expect(reloaded.definitionCandidates.filter { $0.cardId == target.cardId }.last?.parsedMeaningKo == "자동으로 채운 뜻")
     }
 
-    func testLateServerResultNeverOverwritesManualMeaning() throws {
+    @Test func testLateServerResultNeverOverwritesManualMeaning() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexmanualguard"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
-        let target = try XCTUnwrap(store.pendingDictionaryEnrichmentTargets().first)
-        let card = try XCTUnwrap(store.cards.first(where: { $0.id == target.cardId }))
+        let target = try #require(store.pendingDictionaryEnrichmentTargets().first)
+        let card = try #require(store.cards.first(where: { $0.id == target.cardId }))
         store.updateCardDetails(
             cardId: card.id,
             displayWord: card.displayWord,
@@ -103,7 +101,7 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             partOfSpeech: card.partOfSpeech,
             exampleSentence: card.exampleSentence
         )
-        let manuallyEdited = try XCTUnwrap(store.cards.first(where: { $0.id == target.cardId }))
+        let manuallyEdited = try #require(store.cards.first(where: { $0.id == target.cardId }))
         let candidateCount = store.definitionCandidates.count
 
         let summary = store.applyDictionaryEnrichment(
@@ -112,18 +110,18 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             now: manuallyEdited.updatedAt.addingTimeInterval(30)
         )
 
-        XCTAssertEqual(summary.appliedCount, 0)
-        let unchanged = try XCTUnwrap(store.cards.first(where: { $0.id == target.cardId }))
-        XCTAssertEqual(unchanged.meaningKo, "사용자가 직접 입력한 뜻")
-        XCTAssertEqual(unchanged.version, manuallyEdited.version)
-        XCTAssertEqual(store.definitionCandidates.count, candidateCount)
+        #expect(summary.appliedCount == 0)
+        let unchanged = try #require(store.cards.first(where: { $0.id == target.cardId }))
+        #expect(unchanged.meaningKo == "사용자가 직접 입력한 뜻")
+        #expect(unchanged.version == manuallyEdited.version)
+        #expect(store.definitionCandidates.count == candidateCount)
     }
 
-    func testExplicitlyClearedUserMeaningStaysLockedUntilManualRetry() throws {
+    @Test func testExplicitlyClearedUserMeaningStaysLockedUntilManualRetry() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexmanualblank"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
-        let original = try XCTUnwrap(store.cards.first)
+        let original = try #require(store.cards.first)
         store.updateCardDetails(
             cardId: original.id,
             displayWord: original.displayWord,
@@ -133,7 +131,7 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             partOfSpeech: original.partOfSpeech,
             exampleSentence: original.exampleSentence
         )
-        let withMeaning = try XCTUnwrap(store.cards.first)
+        let withMeaning = try #require(store.cards.first)
         store.updateCardDetails(
             cardId: withMeaning.id,
             displayWord: withMeaning.displayWord,
@@ -143,34 +141,34 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
             partOfSpeech: withMeaning.partOfSpeech,
             exampleSentence: withMeaning.exampleSentence
         )
-        let cleared = try XCTUnwrap(store.cards.first)
-        XCTAssertEqual(cleared.definitionSourcePrimary, "user")
-        XCTAssertTrue(store.pendingDictionaryEnrichmentTargets().isEmpty)
+        let cleared = try #require(store.cards.first)
+        #expect(cleared.definitionSourcePrimary == "user")
+        #expect(store.pendingDictionaryEnrichmentTargets().isEmpty)
 
         let staleTarget = DictionaryEnrichmentTarget(cardId: cleared.id, lemma: cleared.lemma)
         let lockedSummary = store.applyDictionaryEnrichment(
             [CloudDictionaryLookupResult(lemma: cleared.lemma, meaningKo: "자동 뜻")],
             requestedTargets: [staleTarget]
         )
-        XCTAssertEqual(lockedSummary.appliedCount, 0)
-        XCTAssertEqual(store.cards.first?.meaningKo, "")
+        #expect(lockedSummary.appliedCount == 0)
+        #expect(store.cards.first?.meaningKo == "")
 
         store.retryDictionaryEnrichment(cardId: cleared.id)
-        XCTAssertEqual(store.pendingDictionaryEnrichmentTargets().map(\.cardId), [cleared.id])
+        #expect(store.pendingDictionaryEnrichmentTargets().map(\.cardId) == [cleared.id])
         let retrySummary = store.applyDictionaryEnrichment(
             [CloudDictionaryLookupResult(lemma: cleared.lemma, meaningKo: "자동 뜻")],
             requestedTargets: store.pendingDictionaryEnrichmentTargets()
         )
-        XCTAssertEqual(retrySummary.appliedCount, 1)
-        XCTAssertEqual(store.cards.first?.meaningKo, "자동 뜻")
+        #expect(retrySummary.appliedCount == 1)
+        #expect(store.cards.first?.meaningKo == "자동 뜻")
     }
 
-    func testDeletedAndAlreadyResolvedCardsAreNotLookupTargets() throws {
+    @Test func testDeletedAndAlreadyResolvedCardsAreNotLookupTargets() throws {
         let fixture = try makeBlankMeaningStore(words: ["codextargetone", "codextargettwo"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
         let cards = store.activeCards
-        XCTAssertEqual(cards.count, 2)
+        #expect(cards.count == 2)
 
         let resolved = cards[0]
         store.updateCardDetails(
@@ -184,16 +182,16 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
         )
         store.softDeleteCard(cards[1])
 
-        XCTAssertTrue(store.pendingDictionaryEnrichmentTargets().isEmpty)
+        #expect(store.pendingDictionaryEnrichmentTargets().isEmpty)
     }
 
-    func testSchedulerRecentResponsesIgnoreManualEditSuspendAndRestoreEvents() throws {
+    @Test func testSchedulerRecentResponsesIgnoreManualEditSuspendAndRestoreEvents() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexresponsefilter"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
-        let card = try XCTUnwrap(store.cards.first)
+        let card = try #require(store.cards.first)
         store.review(cardId: card.id, response: .remembered)
-        let afterFirstReview = try XCTUnwrap(store.cards.first)
+        let afterFirstReview = try #require(store.cards.first)
         store.updateCardDetails(
             cardId: afterFirstReview.id,
             displayWord: afterFirstReview.displayWord,
@@ -207,27 +205,24 @@ final class LocalVocabularyStoreEnrichmentTests: XCTestCase {
         store.review(cardId: card.id, response: .restore)
         store.review(cardId: card.id, response: .remembered)
 
-        XCTAssertEqual(
-            store.schedulerRecentResponses(cardId: card.id, limit: 2),
-            [.remembered, .remembered]
-        )
+        #expect(store.schedulerRecentResponses(cardId: card.id, limit: 2) == [.remembered, .remembered])
     }
 }
 
 extension LocalVocabularyStoreEnrichmentTests {
-    func testAlternativeSensesAndPrimaryPointerSurviveReload() throws {
+    @Test func testAlternativeSensesAndPrimaryPointerSurviveReload() throws {
         let fixture = try makeBlankMeaningStore(words: ["codexsenselemma"])
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let store = fixture.store
-        let target = try XCTUnwrap(store.pendingDictionaryEnrichmentTargets().first)
+        let target = try #require(store.pendingDictionaryEnrichmentTargets().first)
         let result = CloudDictionaryLookupResult(lemma: target.lemma, meaningKo: "은행", definitionEn: "a financial institution",
             senses: [CloudDictionarySense(meaningKo: "강둑", definitionEn: "land beside a river", partOfSpeech: "noun")])
         _ = store.applyDictionaryEnrichment([result], requestedTargets: [target])
         let reloaded = LocalVocabularyStore(appSupportURL: fixture.directory, scheduleNotifications: false)
-        let card = try XCTUnwrap(reloaded.cards.first)
-        XCTAssertEqual(card.meaningKo, "은행")
-        let primary = try XCTUnwrap(reloaded.definitionCandidates.first { $0.id == card.primaryDefinitionCandidateId })
-        XCTAssertEqual(primary.parsedMeaningKo, "은행")
-        XCTAssertTrue(reloaded.definitionCandidates.contains { $0.parsedMeaningKo == "강둑" && !$0.selectedAsPrimary })
+        let card = try #require(reloaded.cards.first)
+        #expect(card.meaningKo == "은행")
+        let primary = try #require(reloaded.definitionCandidates.first { $0.id == card.primaryDefinitionCandidateId })
+        #expect(primary.parsedMeaningKo == "은행")
+        #expect(reloaded.definitionCandidates.contains { $0.parsedMeaningKo == "강둑" && !$0.selectedAsPrimary })
     }
 }

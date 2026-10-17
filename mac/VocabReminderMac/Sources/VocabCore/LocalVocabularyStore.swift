@@ -1,37 +1,40 @@
-import AppKit
+import CryptoKit
 import Foundation
 
 @MainActor
-final class LocalVocabularyStore: ObservableObject {
-    static let shared = LocalVocabularyStore()
+package final class LocalVocabularyStore: ObservableObject {
+    package static let shared = LocalVocabularyStore()
 
-    @Published private(set) var cards: [VocabularyCard] = []
-    @Published private(set) var contexts: [StoredContext] = []
-    @Published private(set) var definitionCandidates: [StoredDefinitionCandidate] = []
-    @Published private(set) var reviewEvents: [StoredReviewEvent] = []
-    @Published private(set) var syncEvents: [StoredSyncEvent] = []
-    @Published private(set) var recommendationFeedback: [RecommendationFeedback] = []
-    @Published var settings = UserSettingsData()
-    @Published var preview: DictionaryResult?
-    @Published var pendingAnalysis: CaptureAnalysis?
-    @Published var message = ""
-    @Published var notificationWarning = ""
-    @Published private(set) var dictionaryEnrichmentStatus = DictionaryEnrichmentStatus.idle
-    @Published private(set) var lastCaptureDiagnostic = CaptureDiagnosticStore.load()
+    @Published package private(set) var cards: [VocabularyCard] = []
+    @Published package private(set) var contexts: [StoredContext] = []
+    @Published package private(set) var definitionCandidates: [StoredDefinitionCandidate] = []
+    @Published package private(set) var reviewEvents: [StoredReviewEvent] = []
+    @Published package private(set) var syncEvents: [StoredSyncEvent] = []
+    @Published package private(set) var recommendationFeedback: [RecommendationFeedback] = []
+    @Published package var settings = UserSettingsData()
+    @Published package var preview: DictionaryResult?
+    @Published package var pendingAnalysis: CaptureAnalysis?
+    @Published package var message = ""
+    @Published package var notificationWarning = ""
+    @Published package private(set) var dictionaryEnrichmentStatus = DictionaryEnrichmentStatus.idle
+    @Published package private(set) var lastCaptureDiagnostic = CaptureDiagnosticStore.load()
 
-    @Published private(set) var storageError: String?
+    @Published package private(set) var storageError: String?
     private var committedSnapshot: StoreSnapshot?
     private var syncCursor: String?
     private var syncCursorEndpoint: String?
-    private var syncUploadFingerprints: [String: String] = [:]
     private var mutationDepth = 0
     private var pendingSave = false
     private var pendingSync = false
-    private let writeStoreData: (Data, URL) throws -> Void
+    /// Test hook run inside the commit transaction; throwing simulates a failed write.
+    private let beforeCommit: () throws -> Void
+    /// While server rows are being applied, saves neither stamp clocks nor queue uploads.
+    private var applyingRemote = false
+    private var remoteRowsToUpload: Set<String> = []
 
-    private let storeURL: URL
+    private let database: VocabularyDatabase?
+    private let legacyStoreURL: URL
     private let syncURL: URL
-    private var backupURL: URL { storeURL.appendingPathExtension("bak") }
     private let scheduleNotifications: Bool
     private let previewDictionaryLookup: ((String) async throws -> CloudDictionaryLookupResult?)?
     private var previewLookupTask: Task<Void, Never>?
@@ -40,24 +43,33 @@ final class LocalVocabularyStore: ObservableObject {
     private var pendingCaptureSourceURL: String?
     private var pendingCaptureSourceApp = ""
 
-    init(
+    package init(
         appSupportURL: URL? = nil,
         scheduleNotifications: Bool = true,
         previewDictionaryLookup: ((String) async throws -> CloudDictionaryLookupResult?)? = nil,
-        writeStoreData: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
+        beforeCommit: @escaping () throws -> Void = {}
     ) {
-        let appSupport = appSupportURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("VocabReminder", isDirectory: true)
+        // VOCAB_REMINDER_DATA_DIR isolates end-to-end runs from the user's real data.
+        let appSupport = appSupportURL
+            ?? ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"].map { URL(filePath: $0, directoryHint: .isDirectory) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("VocabReminder", isDirectory: true)
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        storeURL = appSupport.appendingPathComponent("vocab-data.json")
+        legacyStoreURL = appSupport.appendingPathComponent("vocab-data.json")
         syncURL = appSupport.appendingPathComponent("vocab-reminder-sync.json")
-        self.writeStoreData = writeStoreData
+        do {
+            database = try VocabularyDatabase(url: appSupport.appendingPathComponent("vocab.sqlite"))
+        } catch {
+            database = nil
+            storageError = error.localizedDescription
+        }
+        self.beforeCommit = beforeCommit
         self.scheduleNotifications = scheduleNotifications
         self.previewDictionaryLookup = previewDictionaryLookup
         load()
     }
 
-    var activeCards: [VocabularyCard] {
+    package var activeCards: [VocabularyCard] {
         let excluded = Set(recommendationFeedback.filter { ["known", "dismissed"].contains($0.action) }
             .map { RecommendationEngine.normalizedLemma($0.lemma) })
         return cards.filter {
@@ -65,11 +77,11 @@ final class LocalVocabularyStore: ObservableObject {
         }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    var dueCount: Int {
+    package var dueCount: Int {
         activeCards.filter { $0.meaningKo.isEmpty == false && $0.dueAt <= Date() && $0.status != .mastered && $0.status != .suspended }.count
     }
 
-    var weakCount: Int {
+    package var weakCount: Int {
         activeCards.filter { card in
             let events = reviewEvents.filter { $0.cardId == card.id && ($0.response == .remembered || $0.response == .forgotten) }
             let forgotten = events.filter { $0.response == .forgotten }.count
@@ -77,9 +89,9 @@ final class LocalVocabularyStore: ObservableObject {
         }.count
     }
 
-    func captureClipboard() {
-        let text = NSPasteboard.general.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    /// The app reads the pasteboard; the store stays free of AppKit.
+    package func captureClipboard(_ clipboardText: String?) {
+        let text = clipboardText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard text.isEmpty == false else {
             preview = nil
             pendingAnalysis = nil
@@ -94,7 +106,7 @@ final class LocalVocabularyStore: ObservableObject {
         )
     }
 
-    func capture(
+    package func capture(
         text: String,
         method: CaptureMethod = .manual,
         sourceApp: String = "",
@@ -131,7 +143,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func selectCandidate(_ candidate: String) {
+    package func selectCandidate(_ candidate: String) {
         cancelPreviewLookup()
         guard let pendingAnalysis else { return }
         let selected = CaptureNormalizer.analyzeSelection(rawText: pendingAnalysis.rawText, selectedWord: candidate)
@@ -206,7 +218,7 @@ final class LocalVocabularyStore: ObservableObject {
         previewLookupID = nil
     }
 
-    func persistSettings() {
+    package func persistSettings() {
         _ = performMutation {
             settings.updatedAt = Date()
             save()
@@ -216,7 +228,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func refreshNotifications() {
+    package func refreshNotifications() {
         guard scheduleNotifications, mutationDepth == 0, storageError == nil else { return }
         MacNotificationScheduler.shared.reschedule(
             cards: activeCards,
@@ -225,7 +237,7 @@ final class LocalVocabularyStore: ObservableObject {
         )
     }
 
-    func processedNotificationCardIdsToday(now: Date = Date()) -> Set<String> {
+    package func processedNotificationCardIdsToday(now: Date = Date()) -> Set<String> {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: settings.timezone) ?? .current
         let countedResponses: Set<ReviewResponse> = [.remembered, .forgotten, .unavailable, .reveal]
@@ -242,18 +254,18 @@ final class LocalVocabularyStore: ObservableObject {
         return Set(reviewed + recommendationDecisions)
     }
 
-    func fillRecommendations() {
+    package func fillRecommendations() {
         message = "컴퓨터에서 준비한 추천을 동기화합니다."
         enqueueAutoSync()
     }
 
     @discardableResult
-    func ensureRecommendations(now: Date = Date()) -> Int {
+    package func ensureRecommendations(now: Date = Date()) -> Int {
         // Compatibility entry point: new cards are created only by the sync server.
         0
     }
 
-    func savePreview(
+    package func savePreview(
         meaningOverride: String,
         exampleOverride: String,
         method: CaptureMethod? = nil
@@ -303,7 +315,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func cancelCapture() {
+    package func cancelCapture() {
         cancelPreviewLookup()
         preview = nil
         pendingAnalysis = nil
@@ -312,7 +324,7 @@ final class LocalVocabularyStore: ObservableObject {
         pendingCaptureSourceApp = ""
     }
 
-    func recordCaptureFailure(
+    package func recordCaptureFailure(
         method: CaptureMethod,
         detailCode: String,
         mechanismOverride: String? = nil
@@ -327,7 +339,7 @@ final class LocalVocabularyStore: ObservableObject {
         )
     }
 
-    func review(card: VocabularyCard, response: ReviewResponse) {
+    package func review(card: VocabularyCard, response: ReviewResponse) {
         _ = performMutation {
             let now = Date()
             let recent = schedulerRecentResponses(cardId: card.id, limit: 2)
@@ -356,7 +368,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func schedulerRecentResponses(cardId: String, limit: Int) -> [ReviewResponse] {
+    package func schedulerRecentResponses(cardId: String, limit: Int) -> [ReviewResponse] {
         let countedResponses: Set<ReviewResponse> = [.remembered, .forgotten, .unavailable, .reveal]
         return Array(
             reviewEvents
@@ -367,13 +379,13 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     @discardableResult
-    func review(cardId: String, response: ReviewResponse) -> VocabularyCard? {
+    package func review(cardId: String, response: ReviewResponse) -> VocabularyCard? {
         guard let card = cards.first(where: { $0.id == cardId }) else { return nil }
         review(card: card, response: response)
         return cards.first { $0.id == cardId }
     }
 
-    func updateCardDetails(
+    package func updateCardDetails(
         cardId: String,
         displayWord: String,
         lemma: String,
@@ -417,7 +429,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func restoreDefinitionCandidate(cardId: String, candidateId: String) {
+    package func restoreDefinitionCandidate(cardId: String, candidateId: String) {
         _ = performMutation {
             guard let cardIndex = cards.firstIndex(where: { $0.id == cardId && $0.deletedAt == nil }),
                   let candidate = definitionCandidates.first(where: { $0.id == candidateId && $0.cardId == cardId })
@@ -489,7 +501,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func rebalanceDueCards() {
+    package func rebalanceDueCards() {
         _ = performMutation {
             let now = Date()
             let due = activeCards.filter { !$0.meaningKo.isEmpty && $0.dueAt <= now }.map(\.schedulerCard)
@@ -508,7 +520,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func markRecommendationStarted(_ card: VocabularyCard) {
+    package func markRecommendationStarted(_ card: VocabularyCard) {
         _ = performMutation {
             guard card.wordbook == .recommended, card.deletedAt == nil else { return }
             let now = Date()
@@ -530,12 +542,12 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func markRecommendationStarted(cardId: String) {
+    package func markRecommendationStarted(cardId: String) {
         guard let card = cards.first(where: { $0.id == cardId }) else { return }
         markRecommendationStarted(card)
     }
 
-    func softDeleteRecommendation(_ card: VocabularyCard, action: String) {
+    package func softDeleteRecommendation(_ card: VocabularyCard, action: String) {
         _ = performMutation {
             guard card.wordbook == .recommended, card.deletedAt == nil, ["known", "dismissed"].contains(action) else { return }
             let now = Date()
@@ -552,12 +564,12 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func softDeleteRecommendation(cardId: String, action: String) {
+    package func softDeleteRecommendation(cardId: String, action: String) {
         guard let card = cards.first(where: { $0.id == cardId }) else { return }
         softDeleteRecommendation(card, action: action)
     }
 
-    func softDeleteCard(_ card: VocabularyCard) {
+    package func softDeleteCard(_ card: VocabularyCard) {
         _ = performMutation {
             guard card.deletedAt == nil else { return }
             let now = Date()
@@ -575,7 +587,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func exportSyncSnapshot() {
+    package func exportSyncSnapshot() {
         guard save() else { return }
         do {
             let data = try SyncBatchFactory.jsonData(
@@ -593,7 +605,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func importSyncSnapshot() {
+    package func importSyncSnapshot() {
         _ = performMutation {
             guard FileManager.default.fileExists(atPath: syncURL.path) else {
                 message = "가져올 sync snapshot이 없습니다."
@@ -601,6 +613,8 @@ final class LocalVocabularyStore: ObservableObject {
             }
             do {
                 let snapshot = try SyncBatchFactory.localSnapshot(from: Data(contentsOf: syncURL))
+                beginApplyingRemote(snapshot)
+                defer { endApplyingRemote() }
                 let merged = SyncBatchFactory.merge(
                     local: StoreSnapshot(
                         cards: cards,
@@ -630,34 +644,35 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func syncWithServer(serverBaseURL: String, authToken: String, session: URLSession = .shared) async throws -> CloudSyncSummary {
+    /// One sync round: upload the outbox, then pull what changed since the last
+    /// cursor. The upload always runs, even empty, because it is what lets the
+    /// server top up today's recommendations; reads never write.
+    package func syncWithServer(serverBaseURL: String, authToken: String, session: URLSession = .shared) async throws -> CloudSyncSummary {
         try requireSaved()
-        let payload = SyncBatchFactory.build(
-            cards: cards,
-            contexts: contexts,
-            definitionCandidates: definitionCandidates,
-            reviewEvents: reviewEvents,
-            recommendationFeedback: recommendationFeedback,
-            settings: settings
-        )
         let client = CloudSyncClient(
             config: CloudSyncConfig(serverBaseURL: serverBaseURL, bearerToken: authToken),
             session: session
         )
         let endpoint = serverBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let acknowledged = syncCursorEndpoint == endpoint && syncCursor != nil ? syncUploadFingerprints : [:]
-        var pushResult = try await client.push(localBatch: SyncUploadState.pending(payload, acknowledged: acknowledged))
-        var snapshotData = try await client.pullSnapshot(cursor: syncCursorEndpoint == endpoint ? syncCursor : nil)
+        var cursor = syncCursorEndpoint == endpoint ? syncCursor : nil
+        if cursor == nil { try queueEverythingForUpload() }
+        var upload = try pendingUpload()
+        var pushResult = try await client.push(localBatch: try upload.payload())
+        var snapshotData = try await client.pullSnapshot(cursor: cursor)
         var cursorPayload = try JSONSerialization.jsonObject(with: snapshotData) as? [String: Any]
-        if cursorPayload?["sync_reset"] as? Bool == true && !acknowledged.isEmpty {
-            // A restart/restore invalidates remote acknowledgements. Reconcile
-            // the full local snapshot before accepting the new timeline.
-            pushResult = try await client.push(localBatch: payload)
+        if cursorPayload?["sync_reset"] as? Bool == true, cursor != nil {
+            // The server's change log was reset (restore or new database):
+            // send everything again and take a full copy back.
+            try queueEverythingForUpload()
+            upload = try pendingUpload()
+            pushResult = try await client.push(localBatch: try upload.payload())
+            cursor = nil
             snapshotData = try await client.pullSnapshot()
             cursorPayload = try JSONSerialization.jsonObject(with: snapshotData) as? [String: Any]
         }
-        let epochCreatedCardIds = SyncBatchFactory.epochCreatedCardIds(in: snapshotData)
         let snapshot = try SyncBatchFactory.localSnapshot(from: snapshotData)
+        beginApplyingRemote(snapshot)
+        defer { endApplyingRemote() }
         let merged = SyncBatchFactory.merge(
             local: StoreSnapshot(
                 cards: cards,
@@ -679,21 +694,10 @@ final class LocalVocabularyStore: ObservableObject {
         settings = merged.settings
         syncCursor = cursorPayload?["sync_cursor"] as? String
         syncCursorEndpoint = endpoint
-        syncUploadFingerprints = skippedSummary(pushResult).isEmpty ? try SyncUploadState.fingerprints(payload) : [:]
         try requireSaved()
-        if cards.contains(where: { epochCreatedCardIds.contains($0.id) && $0.createdAt > Date(timeIntervalSince1970: 1) }) {
-            // The import repaired a legacy epoch fallback using related-record
-            // evidence. Push the bumped version in this same sync run so the
-            // server snapshot is healed without waiting for another timer tick.
-            _ = try await client.push(localBatch: SyncBatchFactory.build(
-                cards: cards,
-                contexts: contexts,
-                definitionCandidates: definitionCandidates,
-                reviewEvents: reviewEvents,
-                recommendationFeedback: recommendationFeedback,
-                settings: settings
-            ))
-        }
+        // The server answered for every row; validation skips are deterministic
+        // and are reported below instead of being re-sent each round.
+        try acknowledgeUpload(upload.digests)
         let skipped = skippedSummary(pushResult)
         appendSyncEvent(
             succeeded: true,
@@ -705,7 +709,23 @@ final class LocalVocabularyStore: ObservableObject {
         return CloudSyncSummary(cards: cards.count, reviewEvents: reviewEvents.count, skippedSummary: skipped)
     }
 
-    func recordSyncFailure(_ error: Error, now: Date = Date()) {
+    /// Server cards that merged into something different hold local edits the
+    /// server has not seen yet; they stay queued for upload.
+    private func beginApplyingRemote(_ incoming: StoreSnapshot) {
+        applyingRemote = true
+        let local = Dictionary(uniqueKeysWithValues: cards.map { ($0.id, $0) })
+        remoteRowsToUpload = Set(incoming.cards.compactMap { card in
+            guard let existing = local[card.id], CardMerge.merge(existing, card) != card else { return nil }
+            return card.id
+        })
+    }
+
+    private func endApplyingRemote() {
+        applyingRemote = false
+        remoteRowsToUpload = []
+    }
+
+    package func recordSyncFailure(_ error: Error, now: Date = Date()) {
         let summary: String
         if let cloudError = error as? CloudSyncError {
             switch cloudError {
@@ -728,7 +748,7 @@ final class LocalVocabularyStore: ObservableObject {
         appendSyncEvent(succeeded: false, summary: summary, now: now)
     }
 
-    func pendingDictionaryEnrichmentTargets() -> [DictionaryEnrichmentTarget] {
+    package func pendingDictionaryEnrichmentTargets() -> [DictionaryEnrichmentTarget] {
         cards
             .filter {
                 $0.deletedAt == nil &&
@@ -749,7 +769,7 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     @discardableResult
-    func applyDictionaryEnrichment(
+    package func applyDictionaryEnrichment(
         _ results: [CloudDictionaryLookupResult],
         requestedTargets: [DictionaryEnrichmentTarget],
         now: Date = Date()
@@ -839,7 +859,7 @@ final class LocalVocabularyStore: ObservableObject {
         return DictionaryEnrichmentApplySummary(appliedCardIds: appliedCardIds)
     }
 
-    func retryDictionaryEnrichment(cardId: String) {
+    package func retryDictionaryEnrichment(cardId: String) {
         _ = performMutation {
             guard let index = cards.firstIndex(where: {
                 $0.id == cardId &&
@@ -859,7 +879,7 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    func setDictionaryEnrichmentStatus(_ status: DictionaryEnrichmentStatus) {
+    package func setDictionaryEnrichmentStatus(_ status: DictionaryEnrichmentStatus) {
         dictionaryEnrichmentStatus = status
     }
 
@@ -1170,7 +1190,7 @@ final class LocalVocabularyStore: ObservableObject {
         return "\(intro) · 추천 \(generated)개 준비됨"
     }
 
-    var recommendationStatusMessage: String {
+    package var recommendationStatusMessage: String {
         let now = Date()
         if !settings.enableWordRecommendations { return "추천이 꺼져 있습니다. 설정에서 추천 단어를 켜세요." }
         let remaining = max(0, settings.dailyWordGoal - processedNotificationCardIdsToday(now: now).count)
@@ -1184,7 +1204,7 @@ final class LocalVocabularyStore: ObservableObject {
 
     private func recommendationWaitingMessage() -> String { recommendationStatusMessage }
 
-    func maintainRecommendations(now: Date = Date()) {
+    package func maintainRecommendations(now: Date = Date()) {
         let generated = ensureRecommendations(now: now)
         if generated > 0 { enqueueAutoSync() }
         refreshNotifications()
@@ -1224,26 +1244,65 @@ final class LocalVocabularyStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: storeURL) else {
-            if recoverFromBackup() {
-                message = "백업에서 복구했습니다"
-            } else {
-                save()
-            }
+        guard let database else {
+            message = storageError ?? "저장소를 열지 못했습니다"
             return
         }
         do {
-            let snapshot = try JSONDecoder.vocab.decode(StoreSnapshot.self, from: data)
-            apply(snapshot)
-            committedSnapshot = self.snapshot()
+            let isEmpty = try database.strings("SELECT id FROM cards LIMIT 1").isEmpty &&
+                (try database.value(forKey: "settings")) == nil
+            if isEmpty, FileManager.default.fileExists(atPath: legacyStoreURL.path) {
+                try importLegacyStore()
+            } else {
+                apply(try readDatabase())
+                committedSnapshot = snapshot()
+            }
             refreshNotifications()
         } catch {
-            if recoverFromBackup() {
-                message = "백업에서 복구했습니다"
-            } else {
-                message = "저장소를 읽지 못했습니다: \(error.localizedDescription)"
-            }
+            storageError = "저장소를 읽지 못했습니다: \(error.localizedDescription)"
+            message = storageError!
         }
+    }
+
+    /// One-time move from the pre-SQLite vocab-data.json. Everything is queued
+    /// for upload and the cursor dropped, so the next sync is a full exchange.
+    private func importLegacyStore() throws {
+        let legacy = try JSONDecoder.vocab.decode(StoreSnapshot.self, from: Data(contentsOf: legacyStoreURL))
+        apply(StoreSnapshot(
+            cards: legacy.cards,
+            contexts: legacy.contexts,
+            definitionCandidates: legacy.definitionCandidates,
+            reviewEvents: legacy.reviewEvents,
+            syncEvents: legacy.syncEvents,
+            recommendationFeedback: legacy.recommendationFeedback,
+            settings: legacy.settings
+        ))
+        committedSnapshot = nil
+        guard save() else { throw StoreWriteError.failed(storageError ?? "저장 실패") }
+        try queueEverythingForUpload()
+        let migrated = legacyStoreURL.appendingPathExtension("migrated")
+        try? FileManager.default.removeItem(at: migrated)
+        try FileManager.default.moveItem(at: legacyStoreURL, to: migrated)
+    }
+
+    private func readDatabase() throws -> StoreSnapshot {
+        guard let database else { throw StoreWriteError.failed(storageError ?? "저장소 없음") }
+        let settings = try database.value(forKey: "settings")
+            .flatMap { try JSONDecoder.vocab.decode(UserSettingsData.self, from: Data($0.utf8)) } ?? UserSettingsData()
+        let syncEvents = try database.value(forKey: "sync_events")
+            .flatMap { try JSONDecoder.vocab.decode([StoredSyncEvent].self, from: Data($0.utf8)) } ?? []
+        return StoreSnapshot(
+            cards: try database.bodies("cards").map(SyncBatchFactory.cardPayload),
+            contexts: try database.bodies("contexts").map(SyncBatchFactory.contextPayload),
+            definitionCandidates: try database.bodies("definition_candidates").map(SyncBatchFactory.candidatePayload),
+            reviewEvents: try database.bodies("review_events").map(SyncBatchFactory.reviewEventPayload)
+                .sorted { $0.clientCreatedAt < $1.clientCreatedAt },
+            syncEvents: syncEvents,
+            recommendationFeedback: try database.bodies("recommendation_feedback").map(SyncBatchFactory.feedbackPayload),
+            settings: settings,
+            syncCursor: try database.value(forKey: "sync_cursor"),
+            syncCursorEndpoint: try database.value(forKey: "sync_cursor_endpoint")
+        )
     }
 
     private func snapshot() -> StoreSnapshot {
@@ -1262,32 +1321,173 @@ final class LocalVocabularyStore: ObservableObject {
             recommendationFeedback: recommendationFeedback,
             settings: settings,
             syncCursor: syncCursor,
-            syncCursorEndpoint: syncCursorEndpoint,
-            syncUploadFingerprints: syncUploadFingerprints
+            syncCursorEndpoint: syncCursorEndpoint
         )
     }
 
+    /// Writes only the rows that differ from the last committed state, in one
+    /// transaction. Local edits stamp card field-group clocks and join the
+    /// upload outbox; rows applied from the server do neither.
     @discardableResult
     private func save() -> Bool {
         if mutationDepth > 0 {
             pendingSave = true
             return true
         }
-        let state = snapshot()
+        guard let database else {
+            storageError = storageError ?? "저장소를 열지 못했습니다"
+            message = storageError!
+            return false
+        }
+        let previous = committedSnapshot
+        var state = snapshot()
+        let previousCards = Dictionary(uniqueKeysWithValues: (previous?.cards ?? []).map { ($0.id, $0) })
+        if !applyingRemote {
+            state.cards = state.cards.map { card in
+                guard let old = previousCards[card.id] else { return CardMerge.pinned(card) }
+                return old == card ? card : CardMerge.stamp(previous: old, next: card)
+            }
+        }
+        let deviceId = SyncBatchFactory.deviceId()
         do {
-            let data = try JSONEncoder.vocab.encode(state)
-            try rotateBackupIfNeeded()
-            try writeStoreData(data, storeURL)
+            try database.transaction {
+                for card in changed(state.cards, from: previous?.cards) {
+                    try database.run(
+                        "INSERT OR REPLACE INTO cards (id, lemma, deleted_at, created_at, body) VALUES (?, ?, ?, ?, ?)",
+                        [card.id, card.lemma.trimmingCharacters(in: .whitespaces).lowercased(),
+                         card.deletedAt.map(SyncBatchFactory.iso), SyncBatchFactory.iso(card.createdAt),
+                         try json(SyncBatchFactory.card(card, deviceId: deviceId))]
+                    )
+                    if !applyingRemote || remoteRowsToUpload.contains(card.id) { try database.markOutbox("cards", id: card.id) }
+                }
+                for context in changed(state.contexts, from: previous?.contexts) {
+                    try database.run(
+                        "INSERT OR REPLACE INTO contexts (id, card_id, created_at, body) VALUES (?, ?, ?, ?)",
+                        [context.id, context.cardId, SyncBatchFactory.iso(context.createdAt),
+                         try json(SyncBatchFactory.context(context, deviceId: deviceId))]
+                    )
+                    if !applyingRemote { try database.markOutbox("contexts", id: context.id) }
+                }
+                for candidate in changed(state.definitionCandidates, from: previous?.definitionCandidates) {
+                    try database.run(
+                        "INSERT OR REPLACE INTO definition_candidates (id, card_id, created_at, body) VALUES (?, ?, ?, ?)",
+                        [candidate.id, candidate.cardId, SyncBatchFactory.iso(candidate.createdAt),
+                         try json(SyncBatchFactory.candidate(candidate))]
+                    )
+                    if !applyingRemote { try database.markOutbox("definition_candidates", id: candidate.id) }
+                }
+                for event in changed(state.reviewEvents, from: previous?.reviewEvents) {
+                    try database.run(
+                        "INSERT OR REPLACE INTO review_events (id, card_id, response, client_created_at, body) VALUES (?, ?, ?, ?, ?)",
+                        [event.id, event.cardId, event.response.rawValue, SyncBatchFactory.iso(event.clientCreatedAt),
+                         try json(SyncBatchFactory.reviewEvent(event, deviceId: deviceId))]
+                    )
+                    if !applyingRemote { try database.markOutbox("review_events", id: event.id) }
+                }
+                for feedback in changed(state.recommendationFeedback, from: previous?.recommendationFeedback) {
+                    try database.run(
+                        "INSERT OR REPLACE INTO recommendation_feedback (id, card_id, lemma, action, created_at, body) VALUES (?, ?, ?, ?, ?, ?)",
+                        [feedback.id, feedback.cardId, feedback.lemma, feedback.action, SyncBatchFactory.iso(feedback.createdAt),
+                         try json(SyncBatchFactory.feedback(feedback))]
+                    )
+                    if !applyingRemote { try database.markOutbox("recommendation_feedback", id: feedback.id) }
+                }
+                if previous?.settings != state.settings {
+                    try database.setValue(String(decoding: try JSONEncoder.vocab.encode(state.settings), as: UTF8.self), forKey: "settings")
+                    if !applyingRemote { try database.markOutbox("settings", id: "main") }
+                }
+                if previous?.syncEvents != state.syncEvents {
+                    try database.setValue(String(decoding: try JSONEncoder.vocab.encode(state.syncEvents), as: UTF8.self), forKey: "sync_events")
+                }
+                try database.setValue(state.syncCursor, forKey: "sync_cursor")
+                try database.setValue(state.syncCursorEndpoint, forKey: "sync_cursor_endpoint")
+                try beforeCommit()
+            }
+            cards = state.cards
             committedSnapshot = state
             storageError = nil
             refreshNotifications()
             return true
         } catch {
-            if let committedSnapshot { apply(committedSnapshot) }
+            if let previous { apply(previous) }
             storageError = "저장 실패: \(error.localizedDescription)"
             message = storageError!
             return false
         }
+    }
+
+    private func changed<T: Identifiable & Equatable>(_ current: [T], from previous: [T]?) -> [T] where T.ID == String {
+        let old = Dictionary((previous ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return current.filter { old[$0.id] != $0 }
+    }
+
+    private func json(_ object: [String: Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+    }
+
+    // MARK: Upload outbox
+
+    package struct PendingUpload: Sendable {
+        package var payloadData: Data
+        package var digests: [String: String]
+
+        /// A fresh dictionary per send, so nothing shared crosses into the client.
+        package func payload() throws -> [String: Any] {
+            try JSONSerialization.jsonObject(with: payloadData) as? [String: Any] ?? [:]
+        }
+    }
+
+    /// Rows changed on this device since the server last acknowledged them.
+    package func pendingUpload() throws -> PendingUpload {
+        guard let database else { throw StoreWriteError.failed(storageError ?? "저장소 없음") }
+        var payload: [String: Any] = [:]
+        var digests: [String: String] = [:]
+        for table in VocabularyDatabase.entityTables {
+            let rows = try database.rows(
+                "SELECT t.id, t.body FROM outbox o JOIN \(table) t ON t.id = o.id WHERE o.collection = ?", [table]
+            )
+            payload[table] = try rows.compactMap { row -> [String: Any]? in
+                guard let id = row[0], let body = row[1] else { return nil }
+                digests["\(table):\(id)"] = Self.digest(body)
+                return try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]
+            }
+        }
+        if try !database.strings("SELECT id FROM outbox WHERE collection = 'settings'").isEmpty,
+           let raw = try database.value(forKey: "settings") {
+            payload["settings"] = SyncBatchFactory.settingsPayload(settings)
+            digests["settings:main"] = Self.digest(raw)
+        }
+        return PendingUpload(payloadData: try JSONSerialization.data(withJSONObject: payload), digests: digests)
+    }
+
+    /// Drops acknowledged rows from the outbox unless they changed again meanwhile.
+    package func acknowledgeUpload(_ digests: [String: String]) throws {
+        guard let database else { return }
+        try database.transaction {
+            for (key, expected) in digests {
+                let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+                let current = parts[0] == "settings"
+                    ? try database.value(forKey: "settings")
+                    : try database.strings("SELECT body FROM \(parts[0]) WHERE id = ?", [parts[1]]).first
+                if current.map(Self.digest) == expected {
+                    try database.run("DELETE FROM outbox WHERE collection = ? AND id = ?", [parts[0], parts[1]])
+                }
+            }
+        }
+    }
+
+    package func queueEverythingForUpload() throws {
+        guard let database else { return }
+        try database.transaction {
+            for table in VocabularyDatabase.entityTables {
+                try database.execute("INSERT OR IGNORE INTO outbox (collection, id) SELECT '\(table)', id FROM \(table)")
+            }
+            if try database.value(forKey: "settings") != nil { try database.markOutbox("settings", id: "main") }
+        }
+    }
+
+    private static func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Delay persistence and side effects until the entire user operation succeeds.
@@ -1332,29 +1532,9 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    private func recoverFromBackup() -> Bool {
-        guard let data = try? Data(contentsOf: backupURL),
-              let snapshot = try? JSONDecoder.vocab.decode(StoreSnapshot.self, from: data) else {
-            return false
-        }
-        apply(snapshot)
-        committedSnapshot = self.snapshot()
-        do {
-            try writeStoreData(data, storeURL)
-            storageError = nil
-            refreshNotifications()
-            return true
-        } catch {
-            storageError = "백업 복원 저장 실패: \(error.localizedDescription)"
-            message = storageError!
-            return false
-        }
-    }
-
     private func apply(_ snapshot: StoreSnapshot) {
         syncCursor = snapshot.syncCursor
         syncCursorEndpoint = snapshot.syncCursorEndpoint
-        syncUploadFingerprints = snapshot.syncUploadFingerprints
         cards = snapshot.cards
         contexts = snapshot.contexts
         definitionCandidates = snapshot.definitionCandidates
@@ -1388,14 +1568,6 @@ final class LocalVocabularyStore: ObservableObject {
         }
     }
 
-    private func rotateBackupIfNeeded() throws {
-        guard FileManager.default.fileExists(atPath: storeURL.path) else { return }
-        let data = try Data(contentsOf: storeURL)
-        // Never replace a valid backup with an unreadable primary file.
-        _ = try JSONDecoder.vocab.decode(StoreSnapshot.self, from: data)
-        try data.write(to: backupURL, options: .atomic)
-    }
-
     private func enqueueAutoSync() {
         if mutationDepth > 0 { pendingSync = true; return }
         guard storageError == nil else { return }
@@ -1417,34 +1589,74 @@ final class LocalVocabularyStore: ObservableObject {
     }
 }
 
-struct CloudSyncSummary {
-    var cards: Int
-    var reviewEvents: Int
-    var skippedSummary: String = ""
+package struct CloudSyncSummary {
+    package init(
+        cards: Int,
+        reviewEvents: Int,
+        skippedSummary: String = ""
+    ) {
+        self.cards = cards
+        self.reviewEvents = reviewEvents
+        self.skippedSummary = skippedSummary
+    }
+
+    package var cards: Int
+    package var reviewEvents: Int
+    package var skippedSummary: String = ""
 }
 
-struct DictionaryEnrichmentTarget: Hashable, Sendable {
-    var cardId: String
-    var lemma: String
+package struct DictionaryEnrichmentTarget: Hashable, Sendable {
+    package init(
+        cardId: String,
+        lemma: String
+    ) {
+        self.cardId = cardId
+        self.lemma = lemma
+    }
+
+    package var cardId: String
+    package var lemma: String
 }
 
-struct DictionaryEnrichmentApplySummary: Equatable, Sendable {
-    var appliedCardIds: [String]
+package struct DictionaryEnrichmentApplySummary: Equatable, Sendable {
+    package init(
+        appliedCardIds: [String]
+    ) {
+        self.appliedCardIds = appliedCardIds
+    }
 
-    var appliedCount: Int { appliedCardIds.count }
+    package var appliedCardIds: [String]
+
+    package var appliedCount: Int { appliedCardIds.count }
 }
 
-struct DictionaryEnrichmentStatus: Equatable, Sendable {
-    var pendingCount: Int = 0
-    var resolvedCount: Int = 0
-    var notFoundCount: Int = 0
-    var providerFailureCount: Int = 0
-    var endpointUnavailable = false
-    var nextRetryAt: Date?
+package struct DictionaryEnrichmentStatus: Equatable, Sendable {
+    package init(
+        pendingCount: Int = 0,
+        resolvedCount: Int = 0,
+        notFoundCount: Int = 0,
+        providerFailureCount: Int = 0,
+        endpointUnavailable: Bool = false,
+        nextRetryAt: Date? = nil
+    ) {
+        self.pendingCount = pendingCount
+        self.resolvedCount = resolvedCount
+        self.notFoundCount = notFoundCount
+        self.providerFailureCount = providerFailureCount
+        self.endpointUnavailable = endpointUnavailable
+        self.nextRetryAt = nextRetryAt
+    }
 
-    static let idle = DictionaryEnrichmentStatus()
+    package var pendingCount: Int = 0
+    package var resolvedCount: Int = 0
+    package var notFoundCount: Int = 0
+    package var providerFailureCount: Int = 0
+    package var endpointUnavailable = false
+    package var nextRetryAt: Date?
 
-    var userFacingSummary: String {
+    package static let idle = DictionaryEnrichmentStatus()
+
+    package var userFacingSummary: String {
         if endpointUnavailable {
             return "서버 사전 기능을 사용할 수 없어 기존 동기화만 유지합니다."
         }
@@ -1461,19 +1673,18 @@ struct DictionaryEnrichmentStatus: Equatable, Sendable {
     }
 }
 
-struct StoreSnapshot: Codable {
-    var cards: [VocabularyCard]
-    var contexts: [StoredContext]
-    var definitionCandidates: [StoredDefinitionCandidate]
-    var reviewEvents: [StoredReviewEvent]
-    var syncEvents: [StoredSyncEvent]
-    var recommendationFeedback: [RecommendationFeedback]
-    var settings: UserSettingsData
-    var syncCursor: String?
-    var syncCursorEndpoint: String?
-    var syncUploadFingerprints: [String: String]
+package struct StoreSnapshot: Codable {
+    package var cards: [VocabularyCard]
+    package var contexts: [StoredContext]
+    package var definitionCandidates: [StoredDefinitionCandidate]
+    package var reviewEvents: [StoredReviewEvent]
+    package var syncEvents: [StoredSyncEvent]
+    package var recommendationFeedback: [RecommendationFeedback]
+    package var settings: UserSettingsData
+    package var syncCursor: String?
+    package var syncCursorEndpoint: String?
 
-    init(
+    package init(
         cards: [VocabularyCard],
         contexts: [StoredContext],
         definitionCandidates: [StoredDefinitionCandidate],
@@ -1482,8 +1693,7 @@ struct StoreSnapshot: Codable {
         recommendationFeedback: [RecommendationFeedback] = [],
         settings: UserSettingsData,
         syncCursor: String? = nil,
-        syncCursorEndpoint: String? = nil,
-        syncUploadFingerprints: [String: String] = [:]
+        syncCursorEndpoint: String? = nil
     ) {
         self.cards = cards
         self.contexts = contexts
@@ -1494,7 +1704,6 @@ struct StoreSnapshot: Codable {
         self.settings = settings
         self.syncCursor = syncCursor
         self.syncCursorEndpoint = syncCursorEndpoint
-        self.syncUploadFingerprints = syncUploadFingerprints
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1507,10 +1716,9 @@ struct StoreSnapshot: Codable {
         case settings
         case syncCursor
         case syncCursorEndpoint
-        case syncUploadFingerprints
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cards = try container.decode([VocabularyCard].self, forKey: .cards)
         contexts = try container.decode([StoredContext].self, forKey: .contexts)
@@ -1521,7 +1729,6 @@ struct StoreSnapshot: Codable {
         settings = try container.decode(UserSettingsData.self, forKey: .settings)
         syncCursor = try container.decodeIfPresent(String.self, forKey: .syncCursor)
         syncCursorEndpoint = try container.decodeIfPresent(String.self, forKey: .syncCursorEndpoint)
-        syncUploadFingerprints = try container.decodeIfPresent([String: String].self, forKey: .syncUploadFingerprints) ?? [:]
     }
 }
 
@@ -1559,7 +1766,7 @@ private extension VocabularyCard {
 }
 
 extension JSONEncoder {
-    static var vocab: JSONEncoder {
+    package static var vocab: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -1568,7 +1775,7 @@ extension JSONEncoder {
 }
 
 extension JSONDecoder {
-    static var vocab: JSONDecoder {
+    package static var vocab: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
