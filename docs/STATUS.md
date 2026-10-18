@@ -1,3 +1,7 @@
+## 2026-10-18 — 운영 서버를 Mac Studio로 이전
+
+운영 동기화 서버를 Mac mini + Cloudflare Worker에서 이 Mac Studio의 launchd + Tailscale Funnel(`https://sjks-mac-studio.tailf6f030.ts.net`)로 옮겼다. 기존 서버의 데이터를 `tools/migrate_sync_server.mjs`로 전부 복사하고 모든 행이 도착했는지 확인했다(활성 카드 80장; 새 서버가 중복 단어 3개를 접음). Android 릴리스는 새 전용 서명 키(`release-signer.sha256` = `b44ce7f8…`)로 빌드했고, 깨끗한 에뮬레이터에 설치하자 새 서버에서 내 단어 28장·추천 52장을 받아왔다. 남은 것: 폰 전환(옛 앱 동기화 → 이전 스크립트 재실행 → 옛 앱 삭제 → 새 APK 설치), Mac 앱 교체, 그 뒤 Mac mini 서버와 Cloudflare 정리.
+
 ## 2026-10-17 — 동기화 프로토콜 3, 클라이언트 SQLite, 실제 실행 E2E
 
 설계 리뷰 결과를 반영했다. 서버가 카드 병합과 중복 단어 접기의 단일 권한이 되었고, 카드는 내용/학습 상태 필드 그룹별 시계로 병합한다(`shared/test-vectors/card_merge.json`). GET 동기화는 더 이상 쓰지 않는다. Android와 Mac은 SQLite 행 저장소와 업로드 outbox를 쓰며, 기존 SharedPreferences·`vocab-data.json` 데이터는 첫 실행 때 한 번 가져온다. Android 화면 상태는 AppViewModel로, Mac 비UI 코드는 VocabCore 라이브러리로 분리했다. Even G2 연동은 제거했다.
@@ -29,7 +33,7 @@
 | `docs/product_completion_plan_20260713.md` | 현재 완료 조건, 단계, 미완료 gate의 정본 |
 | `docs/STATUS.md` | 날짜가 붙은 구현·검증·artifact 현황과 과거 경과 |
 | `docs/vocab_reminder_user_experience.md` | 사용자가 보게 될 동작과 현재 제품 경계 |
-| `docs/sync_tunnel_runbook.md` | Mac mini 운영, 장애 복구, 배포 인수 절차 |
+| `docs/sync_tunnel_runbook.md` | 서버 Mac 운영, 장애 복구, 배포 인수 절차 |
 | `docs/single_user_security_model.md` | 단독 사용자 credential·서명·분실 대응과 제3자 배포 금지 경계 |
 
 서로 다르면 완료 여부는 product completion plan, 운영 명령은 runbook, 보안 판단은 security model을 따른다. 과거 worklist와 아래의 날짜별 기록은 증거·결정 이력이지 현재 완료 선언의 정본이 아니다.

@@ -1,3 +1,5 @@
+> **2026-10-18:** the server now runs on the Mac Studio and the default tunnel is Tailscale Funnel (`npm run sync:setup-server` / `sync:setup-funnel`, see README "Sync Server (Mac Studio)"). Read "Mac mini" below as "the server Mac". The Cloudflare Worker steps below apply only until installed apps are rebuilt with the Funnel address; then run `npm run sync:retire-cloudflare`.
+
 # Mac mini 자동 Sync Tunnel 런북
 
 이 문서는 `Vocabulary Reminder` 동기화를 실제로 굴릴 때 따라가는 운영 문서다.

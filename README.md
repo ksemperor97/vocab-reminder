@@ -9,7 +9,7 @@ The source of truth for implementation decisions is in `docs/`:
 - `docs/vocab_reminder_claude_guide.md`: product and technical guide
 - `docs/vocab_reminder_user_experience.md`: user-facing completion criteria
 - `docs/vocab_reminder_implementation_plan.md`: milestone plan for coding agents
-- `docs/sync_tunnel_runbook.md`: Mac mini automatic sync tunnel setup and checklist
+- `docs/sync_tunnel_runbook.md`: sync server and tunnel runbook (Cloudflare-era details kept for reference)
 - `docs/STATUS.md`: current milestone handoff state
 
 ## Repository Layout
@@ -136,24 +136,23 @@ cd mac/VocabReminderMac
 
 `VOCAB_REMINDER_DATA_DIR=/some/dir` makes the app (or `vocab-check store`) use an isolated data directory.
 
-## Mac Mini Sync Server
+## Sync Server (Mac Studio)
 
-This app is single-user and does not use Firebase or an external cloud database. Data lives on the Mac mini SQLite server. Cloudflare is used only as a free HTTPS relay/front door; no purchased domain, router setting, Android VPN, DDNS, server URL input, or token input is required for the Android user.
+This app is single-user and does not use Firebase or an external cloud database. Data lives in a SQLite sync server on the always-on Mac Studio (`https://sjks-mac-studio.tailf6f030.ts.net`); it used to run on a Mac mini behind a Cloudflare Worker. Any always-on Mac works the same way. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the server Mac, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
 
-1. Deploy the Cloudflare Worker front door in `server/tunnel/cloudflare_worker`.
-   It gives a stable free `workers.dev` URL.
-   Current deployment: `https://vocab-sync.vocab-reminder-sjk.workers.dev`
-2. On the always-on Mac mini, start the setup:
+One-time account steps on the server Mac:
+
+1. Install Tailscale and sign in: `brew install --cask tailscale && open -a Tailscale`.
+2. In the Tailscale admin console, enable MagicDNS and HTTPS certificates, and allow Funnel for the machine. The setup prints the exact approval link if Funnel is not allowed yet.
+
+Then install the server and publish it:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:setup-mac-mini
+npm run sync:setup-server       # server under launchd, then Funnel
+npm run sync:setup-funnel        # Funnel only (re-run any time)
 ```
 
-If `server/tunnel/.env` is missing, the command creates the template and pauses. Put the Worker URL/admin token in that file, then rerun the same command. The Mac mini will keep a Cloudflare quick tunnel alive and automatically publish the current quick tunnel URL to the Worker.
-
-3. Keep the generated `VOCAB_SYNC_TOKEN` in `server/.env`; release scripts read it automatically unless `VOCAB_SYNC_DEFAULT_TOKEN` is set.
-4. Release Android/MacBook clients use the fixed tunnel endpoint automatically; server URL/token fields are debug-only.
-5. Optional: to pick each word's meaning from the sentence it was captured in, add `ANTHROPIC_API_KEY=<key>` to the server runtime `.env` (`~/Library/Application Support/VocabReminderServer/.env`) and rerun `npm run sync:setup-mac-mini` or restart the service. The key stays on the Mac mini; clients never see it.
+`sync:setup-funnel` records `TUNNEL_PROVIDER=tailscale_funnel` and `VOCAB_SYNC_PUBLIC_URL` in the runtime `tunnel.env`, then checks `/health` through the public address: it must return 200 with the token and 401 without it. Release, preflight, doctor and QC scripts read that URL automatically. Keep the generated `VOCAB_SYNC_TOKEN` in the runtime `.env`; release scripts read it unless `VOCAB_SYNC_DEFAULT_TOKEN` is set.
 
 ### Context meanings
 
@@ -165,44 +164,57 @@ A word has many senses, and the app keeps the sentence each word was captured in
 - Server settings (runtime `.env`): `ANTHROPIC_API_KEY`; `VOCAB_CONTEXT_RESOLVER` = `claude` (default when a key is set) | `fixture` | `off`; `VOCAB_CONTEXT_FIXTURE_PATH` for fixed answers (tests and key-less runs); `VOCAB_CONTEXT_MODEL`, `VOCAB_CONTEXT_TIMEOUT_MS`, `VOCAB_CONTEXT_MIN_CONFIDENCE`.
 - The shared contract is `shared/test-vectors/context_meanings.json`; server, Android and Mac tests replace the LLM with its fixed answers.
 
-Release client configuration is injected at build/package time, not typed by the Android or MacBook user:
+Build both user-facing clients against the Funnel address:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev
-VOCAB_SYNC_DEFAULT_TOKEN=<server .env VOCAB_SYNC_TOKEN>
+npm run sync:release             # uses VOCAB_SYNC_PUBLIC_URL from tunnel.env
+VOCAB_SYNC_DEFAULT_URL=https://<machine>.<tailnet>.ts.net npm run sync:release   # or explicitly
 ```
 
-Build both user-facing clients with:
+Artifacts go to `dist/sync-release/`. Release builds require an HTTPS sync URL and token, so empty-config release artifacts fail early. Placeholder endpoints such as `example.invalid` require `ALLOW_SYNC_RELEASE_DRY_RUN=1`.
+
+Check the setup, Funnel, endpoint and artifacts:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:release
+npm run sync:doctor
+npm run sync:preflight
 ```
 
-The script reads `VOCAB_SYNC_TOKEN` from `server/.env` unless `VOCAB_SYNC_DEFAULT_TOKEN` is already set, then writes artifacts to `dist/sync-release/`.
-Direct Android/Mac release builds also require an HTTPS sync URL and token, so empty-config release artifacts fail early instead of producing an app that asks the user to configure sync.
-Placeholder endpoints such as `example.invalid` require `ALLOW_SYNC_RELEASE_DRY_RUN=1`, so a dry-run artifact is harder to mistake for a real release.
+### Moving the server to another Mac
 
-Verify endpoint health and release artifacts with:
+Data moves through the sync API, so no database files are copied by hand:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:preflight
+node tools/migrate_sync_server.mjs \
+  --from https://old.example --from-env /path/to/old/.env \
+  --to https://<machine>.<tailnet>.ts.net --to-env "$HOME/Library/Application Support/VocabReminderServer/.env"
 ```
 
-Check the Mac mini setup, tunnel, release endpoint, artifacts, and connected Android device readiness with:
+It copies every collection from the old server, uploads it to the new one, and checks that every row arrived. Tokens are read from `VOCAB_SYNC_TOKEN` in the env files and never printed. The new server folds duplicate words that the old one kept apart (the survivor keeps the furthest progress); the check lists those separately. It is safe to run again: a second run brings over whatever changed on the old server since, so run it once more right before the devices switch.
 
-```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
-```
+### Switching the installed apps (2026-10-18 cutover)
+
+Apps built before the switch have the `workers.dev` address and the Mac mini token baked in, so the old server and its Cloudflare Worker keep running until both devices switch. The new Android build is signed with a new key (`release-signer.sha256`), so Android cannot install it over the old app:
+
+1. Phone: open the old app and press "지금 동기화" so its last changes reach the old server.
+2. This Mac: rerun `tools/migrate_sync_server.mjs` (above) to carry those changes over.
+3. Phone: uninstall the old app, install `dist/sync-release/VocabReminderAndroid-release.apk`, open it; it downloads everything from the new server.
+4. Mac: replace `VocabReminder.app` with the one in `dist/sync-release/` and press "지금 동기화".
+5. When both devices sync through the Funnel address, stop the old server and run `npm run sync:retire-cloudflare` on the Mac mini.
+
+`tools/setup_android_release_signing.sh --new-certificate` creates such a key (outside the repo) and rewrites the pin; use it only when a reinstall is acceptable.
+
+Token rotation (`npm run sync:rotate-tokens`) still rotates the Worker admin token while the Cloudflare keys are present in `tunnel.env`, and builds the rotated apps against the Funnel address.
 
 ## Updating the Android app without adb
 
 Release builds update themselves from the sync server; no USB cable, adb or Play Store is involved.
 
 1. Raise `versionCode` (and `versionName`) in `android/VocabReminderAndroid/app/build.gradle.kts`. Phones only offer a release whose `versionCode` is higher than the installed one.
-2. On the Mac mini, build and publish:
+2. On the server Mac, build and publish:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:release
+npm run sync:release
 ```
 
 `tools/build_sync_release.sh` signs the APK with the release key, checks the signer against `release-signer.sha256`, and then publishes it to `~/Library/Application Support/VocabReminderServer/app-updates/android/` (`VOCAB_SYNC_RUNTIME_ROOT`/`VOCAB_SYNC_APP_UPDATE_DIR` move it). The publish copies the APK in under a temporary name, renames it into place and swaps `latest.json` with a rename, so a phone downloading at that moment still gets one whole release. The previous APK stays as `previous.json` + its file; older ones are deleted. A lower `versionCode` is refused. `SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1` builds without publishing.
@@ -238,11 +250,11 @@ The Mac app steps need Xcode and macOS Automation Mode (macOS asks for authentic
 The component checks are also available separately:
 
 ```sh
-VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:check-endpoint
+npm run sync:check-endpoint
 npm run sync:check-artifacts
 ```
 
-The old WireGuard helper is no longer shipped because it conflicts with Android devices that already use an always-on VPN such as AdGuard.
+Phone VPN-based options (WireGuard, a Tailscale client on the phone) are not used because they conflict with an always-on VPN such as AdGuard; Funnel needs nothing on the phone.
 
 ## Milestone Notes
 

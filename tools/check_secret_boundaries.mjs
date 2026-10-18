@@ -102,15 +102,17 @@ export function checkSecretBoundaries(options) {
   const server = readEnvFile(options.serverEnv);
   const tunnel = readEnvFile(options.tunnelEnv);
   const syncToken = validateSecret(server.get("VOCAB_SYNC_TOKEN"), "VOCAB_SYNC_TOKEN");
-  const adminToken = validateSecret(tunnel.get("CF_WORKER_ADMIN_TOKEN"), "CF_WORKER_ADMIN_TOKEN");
+  // A Funnel-only host has no Cloudflare Worker, so no admin token to guard.
+  const funnelOnly = tunnel.get("TUNNEL_PROVIDER") === "tailscale_funnel" && !tunnel.has("CF_WORKER_ADMIN_TOKEN");
+  const adminToken = funnelOnly ? null : validateSecret(tunnel.get("CF_WORKER_ADMIN_TOKEN"), "CF_WORKER_ADMIN_TOKEN");
 
-  if (timingSafeEqualText(syncToken, adminToken)) {
+  if (adminToken && timingSafeEqualText(syncToken, adminToken)) {
     throw new Error("VOCAB_SYNC_TOKEN and CF_WORKER_ADMIN_TOKEN must be different secrets.");
   }
   const cloudflareApiToken = String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
   if (
     cloudflareApiToken &&
-    (timingSafeEqualText(syncToken, cloudflareApiToken) || timingSafeEqualText(adminToken, cloudflareApiToken))
+    (timingSafeEqualText(syncToken, cloudflareApiToken) || (adminToken && timingSafeEqualText(adminToken, cloudflareApiToken)))
   ) {
     throw new Error("Cloudflare deployment credentials must not be reused as runtime tokens.");
   }
@@ -132,8 +134,8 @@ export function checkSecretBoundaries(options) {
     }
   }
 
-  const adminBytes = Buffer.from(adminToken);
-  const artifactLeaks = listFiles(options.artifactDir).filter((file) => artifactContains(file, adminBytes));
+  const adminBytes = adminToken ? Buffer.from(adminToken) : null;
+  const artifactLeaks = adminBytes ? listFiles(options.artifactDir).filter((file) => artifactContains(file, adminBytes)) : [];
   if (artifactLeaks.length > 0) {
     throw new Error(
       `Worker admin token was embedded in release artifacts: ${artifactLeaks.map((file) => path.relative(repositoryRoot, file)).join(", ")}`,

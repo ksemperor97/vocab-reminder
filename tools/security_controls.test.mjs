@@ -95,6 +95,19 @@ test("boundary check requires distinct tokens and excludes admin credentials fro
   assert.throws(() => checkSecretBoundaries(options), /embedded in release artifacts/);
 });
 
+test("boundary check needs no Worker admin token on a Funnel-only host", (t) => {
+  const f = fixture(t);
+  const options = { ...f, allowMissing: false };
+  fs.writeFileSync(f.tunnelEnv, "TUNNEL_PROVIDER=tailscale_funnel\nVOCAB_SYNC_PUBLIC_URL=https://host.tailnet.ts.net\n", { mode: 0o600 });
+  assert.equal(checkSecretBoundaries(options).skipped, false);
+
+  // Cloudflare keys kept for the transition are still checked.
+  fs.appendFileSync(f.tunnelEnv, `CF_WORKER_ADMIN_TOKEN=${f.syncToken}\n`);
+  assert.throws(() => checkSecretBoundaries(options), /must be different secrets/);
+  fs.writeFileSync(f.tunnelEnv, "TUNNEL_PROVIDER=cloudflare_quick_worker\n", { mode: 0o600 });
+  assert.throws(() => checkSecretBoundaries(options), /CF_WORKER_ADMIN_TOKEN/);
+});
+
 test("leak scanner reports paths and categories without requiring source-line output", (t) => {
   const f = fixture(t);
   const generated = path.join(f.root, "generated");

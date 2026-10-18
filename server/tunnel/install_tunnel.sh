@@ -32,10 +32,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
     cp "$LEGACY_ENV_FILE" "$ENV_FILE"
     echo "Migrated the existing tunnel environment to $ENV_FILE."
   else
-    cp "$ENV_EXAMPLE" "$ENV_FILE"
-    echo "Created $ENV_FILE."
-    echo "Edit it for cloudflare_quick_worker or cloudflare_named, then rerun this script." >&2
-    exit 78
+    # New installs publish through Tailscale Funnel; that script creates the env file.
+    exec "$SOURCE_SERVER_DIR/tunnel/install_tailscale_funnel.sh" "$@"
   fi
 fi
 chmod 600 "$ENV_FILE"
@@ -48,6 +46,10 @@ set +a
 provider="${TUNNEL_PROVIDER:-}"
 if [[ -z "$provider" ]]; then
   provider="cloudflare_quick_worker"
+fi
+
+if [[ "$provider" == "tailscale_funnel" ]]; then
+  exec "$SOURCE_SERVER_DIR/tunnel/install_tailscale_funnel.sh" "$@"
 fi
 
 if ! command -v cloudflared >/dev/null 2>&1; then

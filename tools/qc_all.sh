@@ -147,7 +147,7 @@ if [[ -f "$runtime_env" && -f "$tunnel_env" ]]; then
     # shellcheck disable=SC1090
     . "$tunnel_env"
     set +a
-    VOCAB_SYNC_DEFAULT_URL="${VOCAB_SYNC_DEFAULT_URL:-$CF_WORKER_PUBLIC_URL}" \
+    VOCAB_SYNC_DEFAULT_URL="${VOCAB_SYNC_DEFAULT_URL:-${VOCAB_SYNC_PUBLIC_URL:-${CF_WORKER_PUBLIC_URL:-}}}" \
     VOCAB_SYNC_DEFAULT_TOKEN="${VOCAB_SYNC_DEFAULT_TOKEN:-$VOCAB_SYNC_TOKEN}" \
       node "$ROOT_DIR/tools/run_dictionary_benchmark.mjs"
   )
@@ -160,6 +160,7 @@ node "$ROOT_DIR/tools/check_secret_boundaries.mjs" --allow-missing
 node "$ROOT_DIR/tools/scan_secret_leaks.mjs"
 node --test "$ROOT_DIR/tools/security_controls.test.mjs"
 bash "$ROOT_DIR/tools/test_android_release_signing.sh"
+bash "$ROOT_DIR/tools/test_tailscale_funnel_setup.sh"
 
 section "Android unit, lint, and build"
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}"
@@ -194,7 +195,7 @@ if [[ -f "$signing_properties" && -f "$runtime_env" && -f "$tunnel_env" ]]; then
     . "$tunnel_env"
     set +a
     cd "$ROOT_DIR/android/VocabReminderAndroid"
-    VOCAB_SYNC_DEFAULT_URL="${VOCAB_SYNC_DEFAULT_URL:-$CF_WORKER_PUBLIC_URL}" \
+    VOCAB_SYNC_DEFAULT_URL="${VOCAB_SYNC_DEFAULT_URL:-${VOCAB_SYNC_PUBLIC_URL:-${CF_WORKER_PUBLIC_URL:-}}}" \
     VOCAB_SYNC_DEFAULT_TOKEN="${VOCAB_SYNC_DEFAULT_TOKEN:-$VOCAB_SYNC_TOKEN}" \
       ./gradlew --no-daemon :app:assembleRelease
     JAVA_HOME="$JAVA_HOME" ANDROID_HOME="$ANDROID_HOME" \

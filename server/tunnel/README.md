@@ -1,6 +1,6 @@
 # Vocab Reminder Sync Tunnel
 
-This folder installs the Mac mini outbound tunnel agent for the automatic sync path.
+This folder installs the server Mac's outbound tunnel agent for the automatic sync path.
 
 The target route is:
 

@@ -18,6 +18,22 @@
 - Opening the main window from the menu bar retries when another app closes the menu first.
 - `VocabReminder-E2E.app` is always an isolated run (no login item, global hotkey or notification prompt), even when started without `VOCAB_REMINDER_DATA_DIR`.
 
+# Sync server moves to the Mac Studio — 2026-10-18
+
+- Production now runs on the always-on Mac Studio under launchd, published by Tailscale Funnel at `https://sjks-mac-studio.tailf6f030.ts.net`; the Mac mini server and Cloudflare Worker stay up only until both devices switch.
+- `tools/migrate_sync_server.mjs` copies a server's data to another through the sync API and checks every row arrived (duplicate words the new server folds are listed separately). Rerunnable. Used for the real move: 233 cards, 217 contexts, 255 candidates, 950 review events and 133 feedback rows; 80 active cards after folding.
+- `setup_android_release_signing.sh --new-certificate` creates a dedicated release key and rewrites the signer pin. The new Android build uses one, so the phone reinstalls once (data comes back from the server).
+- `install_launchd.sh` points the agent at Homebrew's stable `node@22` path instead of a versioned Cellar path that breaks on upgrade.
+- `npm run sync:setup-server` is the host-neutral name for `sync:setup-mac-mini`.
+- Verified for real: the release APK, installed on a clean emulator, synced through Funnel and showed the server's 28 user and 52 recommended cards.
+
+# Tailscale Funnel instead of the Cloudflare Worker — 2026-10-18
+
+- `server/tunnel/install_tailscale_funnel.sh` (`npm run sync:setup-funnel`) publishes the sync server at a stable `https://<machine>.<tailnet>.ts.net` address: nothing to install on the phone, TLS ends on the server Mac, and no supervisor process. It records the URL in the runtime `tunnel.env` and checks `/health` through it (200 with the token, 401 without).
+- Release, preflight, endpoint, doctor, QC and token rotation read `VOCAB_SYNC_PUBLIC_URL` first; the doctor checks Tailscale and Funnel instead of cloudflared in this mode. New installs default to Funnel.
+- The Cloudflare Worker path stays during the switch so installed apps keep syncing; `npm run sync:retire-cloudflare` removes its tunnel agent afterwards.
+- Verified for real on a Mac signed in to Tailscale: the emulator app and the Mac store synced through the Funnel address, the doctor passed, and Funnel was turned off afterwards.
+
 # Mac app UI in the real end-to-end run — 2026-10-17
 
 - Add `mac/VocabReminderMac/UITests`, an XCUITest project that drives the packaged menu bar app: open it from the menu bar, type and preview a word, save, press "지금 동기화", edit a meaning in the card editor.
