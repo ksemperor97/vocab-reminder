@@ -94,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        if let pairing = urls.first(where: { $0.scheme == "vocabreminder" && $0.host == "pair" }) {
+            pair(with: pairing)
+            return
+        }
         guard let payload = urls.compactMap(MacCaptureURLParser.parse).first else {
             LocalVocabularyStore.shared.recordCaptureFailure(
                 method: .macService,
@@ -111,7 +115,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
     }
 
+    /// vocabreminder://pair?server=…&code=… (the pairing page's link): exchange
+    /// the code for this Mac's own token, keep it in the Keychain, sync.
+    private func pair(with url: URL) {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let server = items.first { $0.name == "server" }?.value ?? ""
+        let code = items.first { $0.name == "code" }?.value ?? ""
+        showMainWindow()
+        Task { @MainActor in
+            do {
+                let paired = try await CloudSyncClient.claimPairing(
+                    serverBaseURL: server,
+                    code: code,
+                    deviceName: Host.current().localizedName ?? "Mac"
+                )
+                guard PairedServerStore.save(paired) else {
+                    LocalVocabularyStore.shared.message = "키체인에 저장하지 못했어요."
+                    return
+                }
+                LocalVocabularyStore.shared.message = "서버에 연결했어요. 단어장을 받아오는 중이에요."
+                MacAutoSyncController.shared.syncNow(reason: "paired")
+            } catch {
+                LocalVocabularyStore.shared.message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+        if let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+           let url = URL(string: urlString), url.scheme == "vocabreminder", url.host == "pair" {
+            pair(with: url)
+            return
+        }
         guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URL(string: urlString),
               let payload = MacCaptureURLParser.parse(url)
