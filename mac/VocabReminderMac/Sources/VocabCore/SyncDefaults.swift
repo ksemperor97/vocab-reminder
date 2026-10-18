@@ -27,7 +27,11 @@ package enum SyncDefaults {
 #endif
     }
 
+    /// A paired server (Keychain) wins over anything built in or typed in debug builds.
     package static func effectiveCredentials() -> (serverURL: String, bearerToken: String)? {
+        if let paired = PairedServerStore.load() {
+            return (paired.serverBaseURL, paired.token)
+        }
         let defaults = UserDefaults.standard
         let serverURL = effectiveServerURL(stored: defaults.string(forKey: "syncServerURL") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)

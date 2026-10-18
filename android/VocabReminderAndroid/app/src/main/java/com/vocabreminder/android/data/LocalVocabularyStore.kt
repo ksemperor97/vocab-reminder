@@ -149,7 +149,17 @@ class LocalVocabularyStore private constructor(
 
     // ---- Device-local preferences ----------------------------------------------------------
 
+    private val pairedServers = PairedServerStore(applicationContext)
+
+    /** The server this device paired with, if any; it wins over any built-in address and token. */
+    fun pairedServer(): PairedServer? = pairedServers.load()
+
+    fun savePairedServer(server: PairedServer) = pairedServers.save(server)
+
+    fun clearPairedServer() = pairedServers.clear()
+
     fun cloudSyncCredentials(): CloudSyncCredentials {
+        pairedServers.load()?.let { return CloudSyncCredentials(serverBaseUrl = it.serverBaseUrl, bearerToken = it.token) }
         val defaults = CloudSyncCredentials()
         if (!BuildConfig.DEBUG) return defaults
         val raw = prefs.getString(KEY_CLOUD_SYNC, null) ?: return defaults

@@ -4,7 +4,13 @@
 set -e
 cd "$(dirname "$0")"
 CONFIGURATION="${CONFIGURATION:-debug}"
-if [ "$CONFIGURATION" = "release" ]; then
+# Public builds embed no server address or token; each install pairs by code.
+if [ "${VOCAB_SYNC_PUBLIC_BUILD:-0}" = "1" ]; then
+    if [ -n "${VOCAB_SYNC_DEFAULT_URL:-}" ] || [ -n "${VOCAB_SYNC_DEFAULT_TOKEN:-}" ]; then
+        echo "VOCAB_SYNC_PUBLIC_BUILD=1 must not be combined with VOCAB_SYNC_DEFAULT_URL or VOCAB_SYNC_DEFAULT_TOKEN." >&2
+        exit 64
+    fi
+elif [ "$CONFIGURATION" = "release" ]; then
     if [ -z "${VOCAB_SYNC_DEFAULT_URL:-}" ]; then
         echo "Release packaging requires VOCAB_SYNC_DEFAULT_URL." >&2
         exit 64

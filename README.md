@@ -180,6 +180,23 @@ npm run sync:doctor
 npm run sync:preflight
 ```
 
+### Connecting devices (pairing)
+
+Apps can connect to a server with a one-time code instead of a built-in token, so a public build carries no server address or secret.
+
+- Make a code: on a connected phone or Mac, Settings → 다른 기기 연결 (the Mac also shows a QR code); or on the server Mac, `node server/tools/pair_code.mjs`. A code has 6 digits, lasts 10 minutes and works once.
+- Use it: on the new device, 서버에 연결 → server address + code. Scanning the QR with a phone camera opens `https://<server>/pair?code=…`, whose 앱에서 열기 button hands both to the Android app (`vocabreminder://pair?server=…&code=…`).
+- Each device gets its own token (`vrd_…`); the server stores only its SHA-256. Android keeps it encrypted with an Android Keystore key, the Mac in the login Keychain. A paired server wins over any built-in setting.
+- `node server/tools/pair_code.mjs --devices` lists devices; `--revoke <id>` (or `POST /devices/revoke`) disconnects one. Ten wrong codes within 10 minutes cancel every open code and pause claims for 10 minutes.
+- `VOCAB_SYNC_TOKEN` keeps working as the "legacy" device, so apps built with it keep syncing until the token is rotated.
+
+Public builds: `SYNC_RELEASE_PUBLIC=1 npm run sync:release` builds both apps with nothing embedded into `dist/public-release/`, fails if this server's token appears in the APK code or the Mac bundle, and does not publish to this server's update channel.
+
+Before making the repository public:
+1. Build and attach public releases only (`SYNC_RELEASE_PUBLIC=1`); delete release assets that were built with a token (v0.6.0).
+2. Pair your own devices, then rotate the old token (`npm run sync:rotate-tokens`) so copies of earlier builds stop working.
+3. Scan the whole git history for secrets (not only the current files).
+
 ### Backups
 
 The server keeps a verified daily backup with a manifest in the runtime `backups/` folder (30 days) and replaces today's backup whenever the data changed since. `VOCAB_SYNC_BACKUP_MIRROR_DIRS` in the runtime `.env` lists extra folders, separated by `;`, that receive a checked copy of the newest backup; production uses `…/GoogleDrive-…/My Drive/VocabReminder Backups` and iCloud Drive `VocabReminder Backups`, whose apps upload them. Restore with `node server/tools/db_admin.mjs restore --backup <file> --destination <db>`.

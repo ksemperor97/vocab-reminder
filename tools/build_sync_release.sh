@@ -13,62 +13,76 @@ if [[ "${VOCAB_RUNTIME_LOCK_WRAPPED:-0}" != "1" ]]; then
 fi
 SERVER_ENV="${VOCAB_SYNC_SERVER_ENV_FILE:-$RUNTIME_ROOT/.env}"
 TUNNEL_ENV="${VOCAB_SYNC_TUNNEL_ENV_FILE:-$RUNTIME_ROOT/tunnel.env}"
-DIST_DIR="${SYNC_RELEASE_DIST_DIR:-$ROOT_DIR/dist/sync-release}"
+# SYNC_RELEASE_PUBLIC=1 builds apps with no server address or token (each install
+# pairs by code), into dist/public-release, and never publishes them to this
+# server's update channel.
+PUBLIC_BUILD="${SYNC_RELEASE_PUBLIC:-0}"
+if [[ "$PUBLIC_BUILD" == "1" ]]; then
+  DIST_DIR="${SYNC_RELEASE_DIST_DIR:-$ROOT_DIR/dist/public-release}"
+else
+  DIST_DIR="${SYNC_RELEASE_DIST_DIR:-$ROOT_DIR/dist/sync-release}"
+fi
 ANDROID_DIR="$ROOT_DIR/android/VocabReminderAndroid"
 MAC_DIR="$ROOT_DIR/mac/VocabReminderMac"
 CHANGELOG_FILE="${VOCAB_RELEASE_CHANGELOG_FILE:-$ROOT_DIR/CHANGELOG.md}"
 
-SYNC_URL="${VOCAB_SYNC_DEFAULT_URL:-}"
-SYNC_TOKEN="${VOCAB_SYNC_DEFAULT_TOKEN:-}"
+if [[ "$PUBLIC_BUILD" == "1" ]]; then
+  SYNC_URL=""
+  SYNC_TOKEN=""
+  SYNC_TOKEN_SHA256=""
+else
+  SYNC_URL="${VOCAB_SYNC_DEFAULT_URL:-}"
+  SYNC_TOKEN="${VOCAB_SYNC_DEFAULT_TOKEN:-}"
 
-if [[ -z "$SYNC_TOKEN" && -f "$SERVER_ENV" ]]; then
-  SYNC_TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$SERVER_ENV" | head -n 1)"
-fi
-if [[ -z "$SYNC_URL" && -f "$TUNNEL_ENV" ]]; then
-  # Tailscale Funnel address first; the Cloudflare Worker address only during the transition.
-  SYNC_URL="$(sed -n 's/^VOCAB_SYNC_PUBLIC_URL=//p' "$TUNNEL_ENV" | tail -n 1)"
-  [[ -n "$SYNC_URL" ]] || SYNC_URL="$(sed -n 's/^CF_WORKER_PUBLIC_URL=//p' "$TUNNEL_ENV" | head -n 1)"
-fi
+  if [[ -z "$SYNC_TOKEN" && -f "$SERVER_ENV" ]]; then
+    SYNC_TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$SERVER_ENV" | head -n 1)"
+  fi
+  if [[ -z "$SYNC_URL" && -f "$TUNNEL_ENV" ]]; then
+    # Tailscale Funnel address first; the Cloudflare Worker address only during the transition.
+    SYNC_URL="$(sed -n 's/^VOCAB_SYNC_PUBLIC_URL=//p' "$TUNNEL_ENV" | tail -n 1)"
+    [[ -n "$SYNC_URL" ]] || SYNC_URL="$(sed -n 's/^CF_WORKER_PUBLIC_URL=//p' "$TUNNEL_ENV" | head -n 1)"
+  fi
 
-if [[ -z "$SYNC_URL" ]]; then
-  echo "Set VOCAB_SYNC_DEFAULT_URL to the stable HTTPS sync endpoint." >&2
-  exit 64
-fi
+  if [[ -z "$SYNC_URL" ]]; then
+    echo "Set VOCAB_SYNC_DEFAULT_URL to the stable HTTPS sync endpoint." >&2
+    exit 64
+  fi
 
-if [[ "$SYNC_URL" != https://* ]]; then
-  echo "VOCAB_SYNC_DEFAULT_URL must be HTTPS for release clients: $SYNC_URL" >&2
-  exit 64
-fi
+  if [[ "$SYNC_URL" != https://* ]]; then
+    echo "VOCAB_SYNC_DEFAULT_URL must be HTTPS for release clients: $SYNC_URL" >&2
+    exit 64
+  fi
 
-is_placeholder_sync_url() {
-  local url="$1"
-  local host
-  host="${url#https://}"
-  host="${host%%/*}"
-  host="${host%%:*}"
-  case "$host" in
-    example.com|*.example.com|example.net|*.example.net|example.org|*.example.org|example.invalid|*.example.invalid|*.invalid)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
+  is_placeholder_sync_url() {
+    local url="$1"
+    local host
+    host="${url#https://}"
+    host="${host%%/*}"
+    host="${host%%:*}"
+    case "$host" in
+      example.com|*.example.com|example.net|*.example.net|example.org|*.example.org|example.invalid|*.example.invalid|*.invalid)
+        return 0
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
 
-if is_placeholder_sync_url "$SYNC_URL" && [[ "${ALLOW_SYNC_RELEASE_DRY_RUN:-0}" != "1" ]]; then
-  echo "Placeholder sync URLs require ALLOW_SYNC_RELEASE_DRY_RUN=1: $SYNC_URL" >&2
-  exit 64
-fi
+  if is_placeholder_sync_url "$SYNC_URL" && [[ "${ALLOW_SYNC_RELEASE_DRY_RUN:-0}" != "1" ]]; then
+    echo "Placeholder sync URLs require ALLOW_SYNC_RELEASE_DRY_RUN=1: $SYNC_URL" >&2
+    exit 64
+  fi
 
-if [[ -z "$SYNC_TOKEN" ]]; then
-  echo "Set VOCAB_SYNC_DEFAULT_TOKEN or configure $SERVER_ENV with VOCAB_SYNC_TOKEN." >&2
-  exit 64
-fi
-SYNC_TOKEN_SHA256="$(printf '%s' "$SYNC_TOKEN" | shasum -a 256 | awk '{print $1}')"
-if [[ ! "$SYNC_TOKEN_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
-  echo "Could not compute the embedded sync token digest." >&2
-  exit 1
+  if [[ -z "$SYNC_TOKEN" ]]; then
+    echo "Set VOCAB_SYNC_DEFAULT_TOKEN or configure $SERVER_ENV with VOCAB_SYNC_TOKEN." >&2
+    exit 64
+  fi
+  SYNC_TOKEN_SHA256="$(printf '%s' "$SYNC_TOKEN" | shasum -a 256 | awk '{print $1}')"
+  if [[ ! "$SYNC_TOKEN_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "Could not compute the embedded sync token digest." >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$CHANGELOG_FILE" ]]; then
@@ -102,6 +116,7 @@ echo "Building Android release APK with injected sync endpoint..."
   ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" \
   VOCAB_SYNC_DEFAULT_URL="$SYNC_URL" \
   VOCAB_SYNC_DEFAULT_TOKEN="$SYNC_TOKEN" \
+  VOCAB_SYNC_PUBLIC_BUILD="$PUBLIC_BUILD" \
   ./gradlew :app:assembleRelease
 )
 
@@ -128,6 +143,7 @@ echo "Building Mac app with injected sync endpoint..."
   cd "$MAC_DIR"
   VOCAB_SYNC_DEFAULT_URL="$SYNC_URL" \
   VOCAB_SYNC_DEFAULT_TOKEN="$SYNC_TOKEN" \
+  VOCAB_SYNC_PUBLIC_BUILD="$PUBLIC_BUILD" \
   CONFIGURATION=release \
   ./package_app.sh
 )
@@ -171,6 +187,23 @@ if [[ -z "$MAC_BINARY_MINIMUM_SYSTEM_VERSION" ||
       "$MAC_MINIMUM_SYSTEM_VERSION" != "$MAC_BINARY_MINIMUM_SYSTEM_VERSION" ]]; then
   echo "Mac Info.plist minimum system version does not match the built binary." >&2
   exit 1
+fi
+if [[ "$PUBLIC_BUILD" == "1" ]]; then
+  # Prove nothing secret went in: this server's token must not appear in the
+  # app code or the Mac bundle.
+  RUNTIME_TOKEN="$(sed -n 's/^VOCAB_SYNC_TOKEN=//p' "$SERVER_ENV" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$RUNTIME_TOKEN" ]]; then
+    if unzip -p "$STAGING_DIR/VocabReminderAndroid-release.apk" 'classes*.dex' | LC_ALL=C grep -aqF "$RUNTIME_TOKEN" ||
+       LC_ALL=C grep -raqF "$RUNTIME_TOKEN" "$STAGING_DIR/VocabReminder.app"; then
+      echo "Public build contains this server's sync token; refusing." >&2
+      exit 1
+    fi
+  fi
+  if [[ -n "$(/usr/libexec/PlistBuddy -c 'Print :VocabSyncDefaultToken' "$MAC_INFO" 2>/dev/null || true)" ]]; then
+    echo "Public Mac build has a VocabSyncDefaultToken." >&2
+    exit 1
+  fi
+  echo "Public build check: no server address or token embedded."
 fi
 GIT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 GIT_BRANCH="$(git -C "$ROOT_DIR" branch --show-current)"
@@ -222,7 +255,7 @@ const manifest = {
   },
   configuration: {
     syncEndpoint: process.env.RELEASE_SYNC_URL,
-    tokenEmbedded: true,
+    tokenEmbedded: Boolean(process.env.RELEASE_SYNC_TOKEN_SHA256),
     tokenRecorded: false,
     tokenDigestAlgorithm: "sha256",
     tokenSha256: process.env.RELEASE_SYNC_TOKEN_SHA256
@@ -296,7 +329,9 @@ echo "Release artifacts written to: $DIST_DIR"
 # Phones update from the sync server (Settings > 앱 업데이트), so publish the
 # APK into the server runtime. The publish swaps the release atomically and
 # keeps the previous APK. SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1 builds only.
-if [[ "${SYNC_RELEASE_SKIP_ANDROID_PUBLISH:-0}" == "1" ]]; then
+if [[ "$PUBLIC_BUILD" == "1" ]]; then
+  echo "Public build: not published to this server's update channel (installed apps keep their built-in connection)."
+elif [[ "${SYNC_RELEASE_SKIP_ANDROID_PUBLISH:-0}" == "1" ]]; then
   echo "Skipped publishing the Android update (SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1)."
 else
   node "$ROOT_DIR/server/tools/publish_android_update.mjs" \

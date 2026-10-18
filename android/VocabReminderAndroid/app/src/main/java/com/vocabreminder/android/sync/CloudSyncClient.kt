@@ -30,6 +30,27 @@ data class CloudSyncConfig(
     }
 }
 
+/**
+ * Exchanges a pairing code for this device's own token. The request carries no
+ * credentials; the code is the proof.
+ */
+fun claimPairing(
+    serverBaseUrl: String,
+    code: String,
+    deviceName: String,
+    transport: CloudSyncTransport = HttpUrlConnectionSyncTransport()
+): com.vocabreminder.android.data.PairedServer {
+    val base = serverBaseUrl.trim().trimEnd('/')
+    require(base.startsWith("https://") || base.startsWith("http://")) { "서버 주소는 https://로 시작해야 해요." }
+    val body = JSONObject().put("code", code.filter(Char::isDigit)).put("device_name", deviceName).put("platform", "android")
+    val response = transport.postJson("$base/pair/claim", body, bearerToken = "", requestId = UUID.randomUUID().toString(), readTimeoutMillis = 15_000)
+    val token = response.body.optString("token")
+    if (token.isBlank()) {
+        throw CloudSyncException(response.body.optString("error").ifBlank { "연결하지 못했어요." }, response.requestId)
+    }
+    return com.vocabreminder.android.data.PairedServer(base, token, response.body.optString("device_id"))
+}
+
 class CloudSyncException(
     message: String,
     val requestId: String? = null,
@@ -195,6 +216,12 @@ class CloudSyncClient(
             if (!page.getBoolean("has_more")) return collected.snapshot()
         }
         throw CloudSyncException("동기화 변경 페이지가 너무 많습니다.", lastRequestId)
+    }
+
+    /** A 6-digit code another device can use to pair with this server (10 minutes, once). */
+    fun createPairingCode(): String {
+        val response = postJson(config.endpoint("pair/code"), JSONObject())
+        return response.body.throwIfError(response.requestId).getString("code")
     }
 
     fun health(): JSONObject {

@@ -51,7 +51,7 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
     val capture = model.capture
     val library = model.library
     val needsNotificationPermission = !model.notificationsAreAllowed
-    val firstRunGuide = initial.text.isBlank() && model.onboarding.captureGuideCompletedAt == null
+    val firstRunGuide = initial.text.isBlank() && initial.pairCode.isBlank() && model.onboarding.captureGuideCompletedAt == null
 
     var selectedTab by remember { mutableStateOf(AppTab.TODAY) }
     var showRecommended by remember { mutableStateOf(false) }
@@ -193,7 +193,9 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
                         message = model.message,
                         needsNotificationPermission = needsNotificationPermission,
                         onRequestNotificationPermission = { showNotificationPermissionDialog = true },
-                        onStartStudy = model::startStudy
+                        onStartStudy = model::startStudy,
+                        serverConnected = model.serverConnected,
+                        onConnect = { model.openConnect() }
                     )
                     AppTab.WORDBOOK -> WordbookScreen(
                         cards = library.cards,
@@ -236,6 +238,16 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
                                 onCheck = model::checkForUpdate,
                                 onUpdate = model::startUpdate,
                                 onOpenInstallPermission = model::openInstallPermissionSettings
+                            )
+                        },
+                        connectionContent = {
+                            ServerConnectionPanel(
+                                connected = model.serverConnected,
+                                paired = model.pairedServer,
+                                serverUrl = model.syncServerUrl,
+                                onConnect = { model.openConnect() },
+                                onCreateCode = model::createCodeForOtherDevice,
+                                onDisconnect = model::disconnectServer
                             )
                         },
                         syncContent = {
@@ -288,6 +300,23 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
                     )
                 }
             }
+        }
+
+        if (model.showConnectSheet) {
+            ModalBottomSheet(onDismissRequest = { model.showConnectSheet = false }) {
+                ConnectSheetContent(
+                    server = model.connectServer,
+                    code = model.connectCode,
+                    running = model.connectRunning,
+                    error = model.connectError,
+                    onServerChange = { model.connectServer = it },
+                    onCodeChange = { model.connectCode = it },
+                    onConnect = model::connect
+                )
+            }
+        }
+        model.codeForOtherDevice?.let { code ->
+            PairingCodeDialog(code = code, serverUrl = model.syncServerUrl, onDismiss = model::dismissCodeForOtherDevice)
         }
 
         if (capture.showSheet) {

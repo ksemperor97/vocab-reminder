@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import VocabCore
 import ServiceManagement
 import SwiftUI
+import CoreImage
 
 @main
 struct VocabReminderMacApp: App {
@@ -514,6 +515,11 @@ struct SettingsView: View {
     @AppStorage("lastLocalSyncSkipped") private var lastLocalSyncSkipped = ""
     @State private var connectionTestRunning = false
     @State private var cloudSyncRunning = false
+    @State private var paired: PairedServer? = PairedServerStore.load()
+    @State private var pairServerText = ""
+    @State private var pairCodeText = ""
+    @State private var pairRunning = false
+    @State private var codeForOtherDevice: String?
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
     @State private var syncingLaunchAtLoginState = false
     @State private var quietStartText = ""
@@ -585,6 +591,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            serverConnectionSection
 #if DEBUG
             TextField("서버 주소", text: $syncServerURL)
                 .textFieldStyle(.roundedBorder)
@@ -643,13 +650,105 @@ struct SettingsView: View {
     }
 
     private var resolvedServerURL: String {
-        SyncDefaults.effectiveServerURL(stored: syncServerURL)
+        (paired?.serverBaseURL ?? SyncDefaults.effectiveServerURL(stored: syncServerURL))
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var resolvedBearerToken: String {
-        SyncDefaults.effectiveBearerToken(stored: syncBearerToken)
+        (paired?.token ?? SyncDefaults.effectiveBearerToken(stored: syncBearerToken))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Pairing: connect this Mac with a code, or make a code for another device.
+    @ViewBuilder
+    private var serverConnectionSection: some View {
+        if canCloudSync == false {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("서버에 연결").font(.subheadline.weight(.semibold))
+                Text("이미 연결된 폰이나 Mac의 설정에서 \"다른 기기 연결\"을 누르면 6자리 코드가 나와요.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("서버 주소 (https://…ts.net)", text: $pairServerText)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("pair_server_field")
+                HStack {
+                    TextField("6자리 코드", text: $pairCodeText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .accessibilityIdentifier("pair_code_field")
+                    Button(pairRunning ? "연결하는 중" : "연결") { connectWithCode() }
+                        .disabled(pairRunning)
+                        .accessibilityIdentifier("pair_connect_button")
+                }
+            }
+        } else {
+            HStack {
+                Button("다른 기기 연결") { createCodeForOtherDevice() }
+                    .accessibilityIdentifier("pair_create_code_button")
+                if paired != nil {
+                    Button("연결 해제") { disconnectServer() }
+                }
+            }
+            if let code = codeForOtherDevice {
+                HStack(alignment: .top, spacing: 14) {
+                    if let qr = PairingQRCode.image(for: "\(resolvedServerURL)/pair?code=\(code)") {
+                        Image(nsImage: qr).interpolation(.none).resizable().frame(width: 120, height: 120)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(code.prefix(3) + " " + code.suffix(3))
+                            .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                            .accessibilityIdentifier("pair_code_value")
+                        Text("폰 카메라로 QR을 찍거나, 새 기기에 서버 주소와 이 코드를 입력하세요. 10분 동안 한 번만 쓸 수 있어요.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(resolvedServerURL).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                        Button("닫기") { codeForOtherDevice = nil }
+                    }
+                }
+            }
+        }
+    }
+
+    private func connectWithCode() {
+        pairRunning = true
+        let server = pairServerText
+        let code = pairCodeText
+        Task { @MainActor in
+            defer { pairRunning = false }
+            do {
+                let result = try await CloudSyncClient.claimPairing(
+                    serverBaseURL: server,
+                    code: code,
+                    deviceName: Host.current().localizedName ?? "Mac"
+                )
+                guard PairedServerStore.save(result) else {
+                    store.message = "키체인에 저장하지 못했어요."
+                    return
+                }
+                paired = result
+                pairCodeText = ""
+                store.message = "서버에 연결했어요. 단어장을 받아오는 중이에요."
+                runCloudSync()
+            } catch {
+                store.message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func createCodeForOtherDevice() {
+        let config = CloudSyncConfig(serverBaseURL: resolvedServerURL, bearerToken: resolvedBearerToken)
+        Task { @MainActor in
+            do {
+                codeForOtherDevice = try await CloudSyncClient(config: config).createPairingCode()
+            } catch {
+                store.message = "코드를 만들지 못했어요. \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+            }
+        }
+    }
+
+    private func disconnectServer() {
+        PairedServerStore.clear()
+        paired = nil
+        codeForOtherDevice = nil
+        store.message = "이 Mac의 서버 연결을 해제했어요. 단어는 이 Mac에 그대로 있어요."
     }
 
     private var syncStatusText: String {
@@ -1053,5 +1152,19 @@ struct FlowLayout<Content: View>: View {
                 content(item)
             }
         }
+    }
+}
+
+/// QR code for a pairing address, drawn with Core Image.
+enum PairingQRCode {
+    static func image(for text: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let representation = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: representation.size)
+        image.addRepresentation(representation)
+        return image
     }
 }

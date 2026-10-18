@@ -245,7 +245,8 @@ internal fun SettingsScreen(
     onOpenSync: () -> Unit,
     onBackFromSync: () -> Unit,
     updateContent: @Composable () -> Unit,
-    syncContent: @Composable () -> Unit
+    syncContent: @Composable () -> Unit,
+    connectionContent: @Composable () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -270,6 +271,9 @@ internal fun SettingsScreen(
                 syncContent()
             }
         } else {
+            item {
+                connectionContent()
+            }
             item {
                 updateContent()
             }

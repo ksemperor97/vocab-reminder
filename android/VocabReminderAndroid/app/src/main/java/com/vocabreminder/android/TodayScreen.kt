@@ -45,7 +45,9 @@ internal fun TodayScreen(
     message: String,
     needsNotificationPermission: Boolean,
     onRequestNotificationPermission: () -> Unit,
-    onStartStudy: () -> Unit
+    onStartStudy: () -> Unit,
+    serverConnected: Boolean = true,
+    onConnect: () -> Unit = {}
 ) {
     val now = Instant.now()
     Column(
@@ -57,6 +59,7 @@ internal fun TodayScreen(
     ) {
         Text(dateFormat.format(now.atZone(timezone)), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("오늘", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium)
+        if (!serverConnected) NotConnectedCard(onConnect)
         if (needsNotificationPermission) NotificationPermissionCard(onRequestNotificationPermission)
         if (message.isNotBlank()) StatusSnackbar(message = message)
 

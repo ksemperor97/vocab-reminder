@@ -273,6 +273,36 @@ func runStore(_ arguments: [String]) async throws {
     print(String(decoding: output, as: UTF8.self))
 }
 
+// MARK: - Pairing
+
+/// Pairs like the menu bar app does, against the Keychain account for
+/// VOCAB_REMINDER_DATA_DIR (required, so the real app's pairing is never touched).
+func runPair(_ args: [String]) async throws {
+    guard let dataDir = ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"], dataDir.isEmpty == false else {
+        throw CheckFailure("set VOCAB_REMINDER_DATA_DIR so pairing uses a scratch Keychain account")
+    }
+    switch args.first {
+    case "claim":
+        guard args.count == 3 else { throw CheckFailure("pair claim URL CODE") }
+        let paired = try await CloudSyncClient.claimPairing(serverBaseURL: args[1], code: args[2], deviceName: "vocab-check")
+        guard PairedServerStore.save(paired) else { throw CheckFailure("Keychain save failed") }
+        print("paired device=\(paired.deviceID) server=\(paired.serverBaseURL)")
+    case "check":
+        guard let credentials = SyncDefaults.effectiveCredentials(), let paired = PairedServerStore.load(),
+              credentials.bearerToken == paired.token
+        else { throw CheckFailure("no paired server in the Keychain for \(dataDir)") }
+        let client = CloudSyncClient(config: CloudSyncConfig(serverBaseURL: credentials.serverURL, bearerToken: credentials.bearerToken))
+        _ = try await client.health()
+        let code = try await client.createPairingCode()
+        print("paired token works: health ok, issued code \(code.count) digits")
+    case "forget":
+        PairedServerStore.clear()
+        print("forgot paired server")
+    default:
+        throw CheckFailure("pair claim URL CODE | pair check | pair forget")
+    }
+}
+
 // MARK: - Entry point
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -285,6 +315,8 @@ do {
         print("vectors passed: scheduler \(scheduler), capture \(capture), card merge \(merge)")
     case "store":
         try await runStore(Array(arguments.dropFirst()))
+    case "pair":
+        try await runPair(Array(arguments.dropFirst()))
     default:
         print("usage: vocab-check vectors | vocab-check store --data-dir DIR <command> ...")
         exit(64)

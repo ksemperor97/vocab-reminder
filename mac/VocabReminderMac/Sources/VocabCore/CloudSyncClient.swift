@@ -365,6 +365,52 @@ package final class CloudSyncClient {
         try await get("health")
     }
 
+    /// A 6-digit code another device can use to pair with this server (10 minutes, once).
+    package func createPairingCode() async throws -> String {
+        let payload = try await post("pair/code", body: [:])
+        guard let code = payload["code"] as? String else { throw CloudSyncError.invalidResponse }
+        return code
+    }
+
+    /// Exchanges a pairing code for this Mac's own token. The request carries
+    /// no credentials; the code is the proof.
+    package static func claimPairing(
+        serverBaseURL: String,
+        code: String,
+        deviceName: String,
+        session: URLSession = .shared
+    ) async throws -> PairedServer {
+        let base = serverBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard base.hasPrefix("https://") || base.hasPrefix("http://"), let url = URL(string: "\(base)/pair/claim") else {
+            throw CloudSyncError.invalidConfig("서버 주소는 https://로 시작해야 해요.")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "code": code.filter(\.isNumber), "device_name": deviceName, "platform": "mac"
+        ])
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw CloudSyncError.server("서버에 닿지 않아요. 주소와 인터넷 연결을 확인하세요.")
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        switch status {
+        case 200...299: break
+        case 400: throw CloudSyncError.server("코드가 틀렸거나 만료됐어요. 새 코드를 만들어 다시 입력하세요.")
+        case 429: throw CloudSyncError.server("틀린 코드가 여러 번 입력돼 잠시 막혔어요. 몇 분 뒤 새 코드로 다시 하세요.")
+        default: throw CloudSyncError.server("연결하지 못했어요 (HTTP \(status)).")
+        }
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = payload["token"] as? String, token.isEmpty == false
+        else { throw CloudSyncError.invalidResponse }
+        return PairedServer(serverBaseURL: base, token: token, deviceID: payload["device_id"] as? String ?? "")
+    }
+
     package func lookupDictionary(lemmas: [String]) async throws -> [CloudDictionaryLookupResult] {
         let normalized = lemmas.map(normalizeCloudDictionaryLemma)
         guard normalized.isEmpty == false,

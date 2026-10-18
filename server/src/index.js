@@ -51,6 +51,7 @@ const { server, maintain } = createSyncServer({
   backupDir: config.backupDir,
   backupRetention: config.backupRetention,
   token: config.token,
+  publicUrl: config.publicUrl,
   appUpdateDir: config.appUpdateDir,
   maxBodyBytes: config.maxBodyBytes,
   maxCollectionItems: config.maxCollectionItems,

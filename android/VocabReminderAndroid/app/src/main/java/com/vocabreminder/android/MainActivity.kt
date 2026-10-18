@@ -43,6 +43,10 @@ class MainActivity : ComponentActivity() {
                 sourceUrl = provenance.sourceUrl,
                 pageTitle = provenance.pageTitle
             )
+            Intent.ACTION_VIEW -> intent.data
+                ?.takeIf { it.scheme == "vocabreminder" && it.host == "pair" }
+                ?.let { link -> InitialCapture(pairServer = link.getQueryParameter("server").orEmpty(), pairCode = link.getQueryParameter("code").orEmpty()) }
+                ?: InitialCapture()
             else -> InitialCapture()
         }
     }

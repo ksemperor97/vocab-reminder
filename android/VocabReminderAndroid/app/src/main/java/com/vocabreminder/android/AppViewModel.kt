@@ -42,6 +42,7 @@ import com.vocabreminder.android.sync.CloudSyncConfig
 import com.vocabreminder.android.sync.CloudSyncException
 import com.vocabreminder.android.sync.SyncCoordinator
 import com.vocabreminder.android.sync.SyncWorker
+import com.vocabreminder.android.sync.claimPairing
 import com.vocabreminder.android.update.AppRelease
 import com.vocabreminder.android.update.AppUpdateClient
 import com.vocabreminder.android.update.AppUpdateException
@@ -98,7 +99,10 @@ internal data class InitialCapture(
     val method: CaptureMethod = CaptureMethod.MANUAL,
     val sourceApp: String = "",
     val sourceUrl: String = "",
-    val pageTitle: String = ""
+    val pageTitle: String = "",
+    // vocabreminder://pair?server=…&code=… (the pairing page's "앱에서 열기" button)
+    val pairServer: String = "",
+    val pairCode: String = ""
 )
 
 /**
@@ -188,6 +192,11 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
         SyncWorker.ensureScheduled(context)
         SyncWorker.enqueueImmediate(context)
         refreshDeviceReadiness()
+        if (!pairLinkHandled && initial.pairCode.isNotBlank()) {
+            pairLinkHandled = true
+            openConnect(initial.pairServer, initial.pairCode)
+            connect()
+        }
         // Only on the first start of this screen, not when it is recreated mid-download.
         if (appUpdate == AppUpdateState.Idle && initial.text.isBlank()) {
             AppUpdateInstaller.cleanupDownloads(context)
@@ -518,6 +527,96 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
         val count = DailyReviewPlanner.rebalanceDueCards(context)
         message = "복습 재조정 ${count}개"
         reload()
+    }
+
+    // ---- Server connection (pairing) ---------------------------------------------------------
+
+    private var pairLinkHandled = false
+    var pairedServer by mutableStateOf(store.pairedServer())
+        private set
+    var serverConnected by mutableStateOf(store.cloudSyncCredentials().let { it.serverBaseUrl.isNotBlank() && it.bearerToken.isNotBlank() })
+        private set
+    var showConnectSheet by mutableStateOf(false)
+    var connectServer by mutableStateOf("")
+    var connectCode by mutableStateOf("")
+    var connectRunning by mutableStateOf(false)
+        private set
+    var connectError by mutableStateOf("")
+        private set
+    var codeForOtherDevice by mutableStateOf<String?>(null)
+        private set
+
+    fun openConnect(server: String = "", code: String = "") {
+        connectServer = server.ifBlank { connectServer }
+        connectCode = code.ifBlank { connectCode }
+        connectError = ""
+        showConnectSheet = true
+    }
+
+    fun connect() {
+        val server = connectServer.trim()
+        val code = connectCode.filter(Char::isDigit)
+        if (server.isBlank() || code.length != 6) {
+            connectError = "서버 주소와 6자리 코드를 입력하세요."
+            return
+        }
+        connectRunning = true
+        connectError = ""
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    claimPairing(server, code, deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim())
+                }
+            }
+            connectRunning = false
+            result.fold(
+                onSuccess = { paired ->
+                    store.savePairedServer(paired)
+                    pairedServer = paired
+                    serverConnected = true
+                    syncServerUrl = paired.serverBaseUrl
+                    syncBearerToken = paired.token
+                    showConnectSheet = false
+                    connectCode = ""
+                    message = "서버에 연결했어요. 단어장을 받아오는 중이에요."
+                    runCloudSync()
+                },
+                onFailure = { error -> connectError = pairingErrorMessage(error) }
+            )
+        }
+    }
+
+    fun createCodeForOtherDevice() {
+        val config = syncConfigOrNull() ?: return
+        viewModelScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { CloudSyncClient(config).createPairingCode() } }
+            result.fold(
+                onSuccess = { codeForOtherDevice = it },
+                onFailure = { error -> message = "코드를 만들지 못했어요. ${pairingErrorMessage(error)}" }
+            )
+        }
+    }
+
+    fun dismissCodeForOtherDevice() {
+        codeForOtherDevice = null
+    }
+
+    /** Forgets the paired server on this device; built-in settings (if any) apply again. */
+    fun disconnectServer() {
+        store.clearPairedServer()
+        pairedServer = null
+        val fallback = store.cloudSyncCredentials()
+        syncServerUrl = fallback.serverBaseUrl
+        syncBearerToken = fallback.bearerToken
+        serverConnected = fallback.serverBaseUrl.isNotBlank() && fallback.bearerToken.isNotBlank()
+        message = "이 기기의 서버 연결을 해제했어요. 단어는 이 기기에 그대로 있어요."
+    }
+
+    private fun pairingErrorMessage(error: Throwable): String = when ((error as? CloudSyncException)?.httpStatus) {
+        400 -> "코드가 틀렸거나 만료됐어요. 새 코드를 만들어 다시 입력하세요."
+        401 -> "이 기기의 연결이 해제됐어요. 다시 연결하세요."
+        429 -> "틀린 코드가 여러 번 입력돼 잠시 막혔어요. 몇 분 뒤 새 코드로 다시 하세요."
+        else -> if (error is IllegalArgumentException) error.message.orEmpty() else "서버에 닿지 않아요. 주소와 인터넷 연결을 확인하세요."
     }
 
     // ---- In-app study -----------------------------------------------------------------------

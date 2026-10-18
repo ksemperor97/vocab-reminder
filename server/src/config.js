@@ -61,6 +61,7 @@ export function readConfig(overrides = {}) {
     host: String(overrides.host ?? process.env.VOCAB_SYNC_HOST ?? "127.0.0.1"),
     port,
     token: String(overrides.token ?? process.env.VOCAB_SYNC_TOKEN ?? ""),
+    publicUrl: String(overrides.publicUrl ?? process.env.VOCAB_SYNC_PUBLIC_URL ?? "").trim(),
     dbPath,
     backupDir,
     appUpdateDir,

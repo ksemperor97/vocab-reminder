@@ -1,3 +1,11 @@
+# Device pairing; public builds carry no token — 2026-10-18
+
+- Server: per-device tokens from one-time 6-digit codes (`POST /pair/code` by a connected device, `POST /pair/claim` with the code), `GET /devices`, `POST /devices/revoke`, a `/pair?code=` page for QR codes, and `server/tools/pair_code.mjs` for the server owner. Only token hashes are stored; ten wrong codes in 10 minutes cancel open codes. `VOCAB_SYNC_TOKEN` keeps working as the legacy device.
+- Android: 서버에 연결 sheet (address + code), `vocabreminder://pair` links fill and submit it, the token is encrypted with an Android Keystore key, Settings shows the server with 다른 기기 연결 / 연결 해제, and 오늘 says when nothing is connected.
+- Mac: connect with a code in Settings, 다른 기기 연결 shows the code and a QR, token in the login Keychain; `vocab-check pair claim|check|forget` for scratch runs.
+- `SYNC_RELEASE_PUBLIC=1` release builds embed nothing and fail if this server's token is found in them.
+- Verified once: server tests; a tokenless debug app paired through the link on the emulator, made a code from its own token, and the Mac (vocab-check, Keychain) paired with that code; a public release build contains neither the token nor the server address. Production runs the new server; the existing apps still sync on the legacy token.
+
 # Android 0.6.0: study in the app, new look — 2026-10-18
 
 - New 오늘 tab: today's due reviews and new words, a daily-goal ring, streak, shaky words and the next review, with a 학습 시작 button.

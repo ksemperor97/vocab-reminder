@@ -14,6 +14,9 @@ fun syncBuildValue(name: String): String {
 val defaultSyncServerUrl = syncBuildValue("VOCAB_SYNC_DEFAULT_URL")
 val defaultSyncBearerToken = syncBuildValue("VOCAB_SYNC_DEFAULT_TOKEN")
 val allowSyncReleaseDryRun = syncBuildValue("ALLOW_SYNC_RELEASE_DRY_RUN") == "1"
+// Public builds carry no server address or token; each install pairs with a
+// server by code (see server/src/devices.js).
+val publicSyncBuild = syncBuildValue("VOCAB_SYNC_PUBLIC_BUILD") == "1"
 // The real e2e run (tools/e2e/run_real_e2e.py) builds debug APKs with self-update
 // on and a chosen versionCode, so it can exercise an update signed with the same
 // debug key. Release builds ignore both; deviceQa never gets self-update.
@@ -67,6 +70,12 @@ fun buildConfigString(value: String): String {
 }
 
 fun validateReleaseSyncConfig() {
+    if (publicSyncBuild) {
+        if (defaultSyncServerUrl.isNotBlank() || defaultSyncBearerToken.isNotBlank()) {
+            throw GradleException("VOCAB_SYNC_PUBLIC_BUILD=1 must not be combined with VOCAB_SYNC_DEFAULT_URL or VOCAB_SYNC_DEFAULT_TOKEN.")
+        }
+        return
+    }
     if (defaultSyncServerUrl.isBlank()) {
         throw GradleException("Release builds require VOCAB_SYNC_DEFAULT_URL.")
     }

@@ -14,6 +14,7 @@ import {
 } from "./dictionary.js";
 import { contextSourceType, normalizeContextSentence } from "./context_meaning.js";
 import { SyncStore } from "./sync.js";
+import { createDeviceRegistry } from "./devices.js";
 
 const defaultMaxBodyBytes = 16 * 1024 * 1024;
 const defaultMaxDictionaryBatchItems = 50;
@@ -32,6 +33,7 @@ export function createSyncServer({
   backupDir,
   backupRetention,
   token,
+  publicUrl = "",
   appUpdateDir = null,
   maxBodyBytes = defaultMaxBodyBytes,
   maxCollectionItems,
@@ -62,6 +64,7 @@ export function createSyncServer({
   );
   db.prepare("UPDATE sync_metadata SET value = ? WHERE key = 'epoch'").run(crypto.randomUUID());
   const store = new SyncStore(db, { maxCollectionItems });
+  const devices = createDeviceRegistry(db, { legacyToken: token, now });
 
   const server = http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -77,6 +80,8 @@ export function createSyncServer({
         backupDir,
         backupRetention,
         token,
+        devices,
+        publicUrl,
         androidUpdates: appUpdateDir ? androidUpdateDir(appUpdateDir) : null,
         maxBodyBytes: bodyByteLimit,
         dictionaryResolver,
@@ -114,14 +119,48 @@ async function route(context) {
   const { request, response, store } = context;
   const url = new URL(request.url ?? "/", "http://localhost");
 
+  // ---- Pairing: an authorized device makes a code, a new app exchanges it for its own token.
+  if (url.pathname === "/pair/code" && request.method === "POST") {
+    const deviceId = requireDevice(request, context);
+    sendJson(response, 200, snakeCase(context.devices.createCode(deviceId)));
+    return;
+  }
+
+  if (url.pathname === "/pair/claim" && request.method === "POST") {
+    const payload = await readJsonBody(request, 16 * 1024);
+    const claimed = context.devices.claim({ code: payload.code, deviceName: payload.device_name, platform: payload.platform });
+    sendJson(response, 200, { device_id: claimed.deviceId, token: claimed.token });
+    return;
+  }
+
+  // The QR code a device shows points here: a phone camera opens it in the
+  // browser, and the button hands server and code to the installed app.
+  if (url.pathname === "/pair" && request.method === "GET") {
+    sendPairingPage(response, pairingOrigin(request, context.publicUrl), url.searchParams.get("code") ?? "");
+    return;
+  }
+
+  if (url.pathname === "/devices" && request.method === "GET") {
+    const deviceId = requireDevice(request, context);
+    sendJson(response, 200, { current_device_id: deviceId, devices: context.devices.list() });
+    return;
+  }
+
+  if (url.pathname === "/devices/revoke" && request.method === "POST") {
+    requireDevice(request, context);
+    const payload = await readJsonBody(request, 16 * 1024);
+    sendJson(response, 200, context.devices.revoke(payload.device_id));
+    return;
+  }
+
   if (url.pathname === "/health" && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     sendJson(response, 200, store.health());
     return;
   }
 
   if (url.pathname.startsWith("/dict/") && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     context.dictionaryRateLimiter.consume();
     const lemma = dictionaryLemmaFromPath(url.pathname);
     sendJson(response, 200, await lookupDictionary(context.dictionaryResolver, lemma));
@@ -129,7 +168,7 @@ async function route(context) {
   }
 
   if (url.pathname === "/dict/batch" && request.method === "POST") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     context.dictionaryRateLimiter.consume();
     const payload = await readJsonBody(request, context.maxBodyBytes);
     const items = dictionaryBatchItems(payload, context.maxDictionaryBatchItems);
@@ -162,7 +201,7 @@ async function route(context) {
   }
 
   if (url.pathname === "/sync/batch" && request.method === "POST") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     const payload = await readJsonBody(request, context.maxBodyBytes);
     const result = context.db.transaction(() => {
       const applied = store.applyBatch(payload);
@@ -175,19 +214,19 @@ async function route(context) {
   }
 
   if (url.pathname === "/sync/changes" && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     sendJson(response, 200, readChanges(context.db, url.searchParams.get("cursor") ?? "", Number(url.searchParams.get("limit") ?? 400)));
     return;
   }
 
   if (url.pathname === "/sync/snapshot" && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     sendJson(response, 200, store.snapshot());
     return;
   }
 
   if (url.pathname === "/app/android/latest" && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     const release = context.androidUpdates ? readAndroidRelease(context.androidUpdates) : null;
     if (!release) {
       sendJson(response, 404, { error: { message: "No Android update has been published." } });
@@ -198,7 +237,7 @@ async function route(context) {
   }
 
   if (url.pathname === "/app/android/apk" && request.method === "GET") {
-    requireBearer(request, context.token);
+    requireDevice(request, context);
     const opened = context.androidUpdates ? openAndroidApk(context.androidUpdates) : null;
     if (!opened) {
       sendJson(response, 404, { error: { message: "No Android update has been published." } });
@@ -362,20 +401,54 @@ async function maybeBackup({ db, dbPath, backupDir, backupRetention }) {
   await ensureDailyBackup(db, dbPath, backupDir, backupRetention);
 }
 
-function requireBearer(request, expectedToken) {
+/** The id of the device whose bearer token this request carries; 401 otherwise. */
+function requireDevice(request, context) {
   const authorization = request.headers.authorization ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(String(authorization));
-  if (!match || !constantTimeTokenEquals(match[1], expectedToken)) {
+  const deviceId = match ? context.devices.authenticate(match[1].trim()) : null;
+  if (!deviceId) {
     const error = new Error("Authentication required.");
     error.status = 401;
     throw error;
   }
+  return deviceId;
 }
 
-function constantTimeTokenEquals(actual, expected) {
-  const actualHash = crypto.createHash("sha256").update(actual).digest();
-  const expectedHash = crypto.createHash("sha256").update(expected).digest();
-  return crypto.timingSafeEqual(actualHash, expectedHash);
+function snakeCase(value) {
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key.replace(/[A-Z]/gu, (c) => `_${c.toLowerCase()}`), entry]));
+}
+
+function pairingOrigin(request, publicUrl) {
+  if (publicUrl) return publicUrl.replace(/\/+$/u, "");
+  const host = String(request.headers["x-forwarded-host"] ?? request.headers.host ?? "localhost");
+  const proto = String(request.headers["x-forwarded-proto"] ?? (host.endsWith(".ts.net") ? "https" : "http"));
+  return `${proto}://${host}`;
+}
+
+function sendPairingPage(response, origin, rawCode) {
+  const code = String(rawCode).replace(/\D/gu, "").slice(0, 6);
+  const appLink = `vocabreminder://pair?server=${encodeURIComponent(origin)}&code=${code}`;
+  const androidLink = `intent://pair?server=${encodeURIComponent(origin)}&code=${code}#Intent;scheme=vocabreminder;package=com.vocabreminder.android;end`;
+  const escape = (text) => text.replace(/[&<>"]/gu, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocabulary Reminder 연결</title>
+<style>body{font:17px/1.6 system-ui,sans-serif;background:#faf8f4;color:#1c1b19;margin:0;padding:32px 20px}main{max-width:420px;margin:0 auto;display:grid;gap:18px}
+.code{font:600 40px/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;background:#f0ede6;border-radius:14px;padding:18px;text-align:center}
+a.button{display:block;text-align:center;background:#1f2a37;color:#fff;border-radius:12px;padding:14px;text-decoration:none;font-weight:600}
+p{margin:0;color:#5f5e5a}@media(prefers-color-scheme:dark){body{background:#161614;color:#e8e6e1}.code{background:#242320}p{color:#b4b2a9}a.button{background:#e8e6e1;color:#1c1b19}}</style></head>
+<body><main><h1 style="margin:0;font-size:24px">Vocabulary Reminder 연결</h1>
+<p>이 기기를 단어장 서버에 연결합니다. 앱이 설치돼 있으면 아래 버튼을 누르세요.</p>
+<a class="button" href="${escape(androidLink)}">앱에서 열기</a>
+<p>버튼이 동작하지 않으면 앱의 "서버에 연결" 화면에 아래 주소와 코드를 입력하세요. 코드는 10분 동안 한 번만 쓸 수 있습니다.</p>
+<div class="code">${escape(code || "------")}</div><p style="word-break:break-all">${escape(origin)}</p>
+<p style="font-size:13px"><a href="${escape(appLink)}" style="color:inherit">다른 기기에서 열기</a></p></main></body></html>`;
+  response.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer"
+  });
+  response.end(body);
 }
 
 async function readJsonBody(request, maxBodyBytes) {
