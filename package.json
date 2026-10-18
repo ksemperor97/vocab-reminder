@@ -36,7 +36,7 @@
     "recommendations:quality": "node tools/run_recommendation_quality_gate.mjs",
     "recommendations:all": "npm run recommendations:pool && npm run recommendations:queue && npm run recommendations:enrich:sample && npm run recommendations:pipeline:test && npm run recommendations:build && npm run recommendations:quality",
     "dictionary:benchmark": "node tools/run_dictionary_benchmark.mjs",
-    "e2e:real": "/Users/sjk/Workspace/.venv/bin/python tools/e2e/run_real_e2e.py",
+    "e2e:real": "${PYTHON:-python3} tools/e2e/run_real_e2e.py",
     "mac:test": "mac/VocabReminderMac/swift.sh test",
     "mac:vectors": "cd mac/VocabReminderMac && ./swift.sh run vocab-check vectors"
   },

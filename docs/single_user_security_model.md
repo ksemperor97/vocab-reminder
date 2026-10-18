@@ -19,7 +19,7 @@ sync token과 Worker admin token은 서로 다른 32-byte 이상 난수여야 �
 자동 검증:
 
 ```bash
-cd /Users/sjk/Dropbox/Python/260702_vocaApp
+cd <repo>
 npm run security:check-secrets
 npm run security:test
 ```
@@ -73,7 +73,7 @@ node tools/scan_secret_leaks.mjs --path /absolute/path/to/evidence
 기본 명령은 dry-run이며 active env, Cloudflare, 서비스, artifact를 변경하지 않는다.
 
 ```bash
-cd /Users/sjk/Dropbox/Python/260702_vocaApp
+cd <repo>
 npm run sync:rotate-tokens
 ```
 

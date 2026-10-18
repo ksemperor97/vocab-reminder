@@ -52,7 +52,7 @@
 
 # Sync server moves to the Mac Studio — 2026-10-18
 
-- Production now runs on the always-on Mac Studio under launchd, published by Tailscale Funnel at `https://sjks-mac-studio.tailf6f030.ts.net`; the Mac mini server and Cloudflare Worker stay up only until both devices switch.
+- Production now runs on the always-on Mac Studio under launchd, published by Tailscale Funnel at `https://<machine>.<tailnet>.ts.net`; the Mac mini server and Cloudflare Worker stay up only until both devices switch.
 - `tools/migrate_sync_server.mjs` copies a server's data to another through the sync API and checks every row arrived (duplicate words the new server folds are listed separately). Rerunnable. Used for the real move: 233 cards, 217 contexts, 255 candidates, 950 review events and 133 feedback rows; 80 active cards after folding.
 - `setup_android_release_signing.sh --new-certificate` creates a dedicated release key and rewrites the signer pin. The new Android build uses one, so the phone reinstalls once (data comes back from the server).
 - `install_launchd.sh` points the agent at Homebrew's stable `node@22` path instead of a versioned Cellar path that breaks on upgrade.

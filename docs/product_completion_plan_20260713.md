@@ -423,11 +423,11 @@ release build, rotation 변경 단계, Cloudflare/Mac mini setup은 runtime의 �
 ### 11.1 Server와 sync
 
 ```bash
-cd /Users/sjk/Dropbox/Python/260702_vocaApp/server
+cd <repo>/server
 node --input-type=module -e "await import('better-sqlite3'); console.log(process.version, process.versions.modules)"
 npm test
 
-cd /Users/sjk/Dropbox/Python/260702_vocaApp
+cd <repo>
 npm run sync:local-smoke
 npm run sync:smoke
 VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
@@ -446,7 +446,7 @@ npm run sync:check-artifacts
 ### 11.2 Android
 
 ```bash
-cd /Users/sjk/Dropbox/Python/260702_vocaApp/android/VocabReminderAndroid
+cd <repo>/android/VocabReminderAndroid
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ./gradlew --no-daemon \
@@ -470,7 +470,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ### 11.3 Mac
 
 ```bash
-cd /Users/sjk/Dropbox/Python/260702_vocaApp/mac/VocabReminderMac
+cd <repo>/mac/VocabReminderMac
 swift test
 swift build
 swift build -c release

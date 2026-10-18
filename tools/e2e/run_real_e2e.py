@@ -8,7 +8,7 @@ menu bar app driven through XCUITest (mac/VocabReminderMac/UITests). Each
 scenario checks what the server stored, what each device stored, and what the
 phone and Mac windows show.
 
-    /Users/sjk/Workspace/.venv/bin/python tools/e2e/run_real_e2e.py --serial emulator-5554
+    python3 tools/e2e/run_real_e2e.py --serial emulator-5554
 
 Options:
     --serial SERIAL      adb device (default: $ANDROID_SERIAL)

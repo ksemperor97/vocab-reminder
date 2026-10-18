@@ -138,7 +138,7 @@ cd mac/VocabReminderMac
 
 ## Sync Server (Mac Studio)
 
-This app is single-user and does not use Firebase or an external cloud database. Data lives in a SQLite sync server on the always-on Mac Studio (`https://sjks-mac-studio.tailf6f030.ts.net`); it used to run on a Mac mini behind a Cloudflare Worker. Any always-on Mac works the same way. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the server Mac, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
+This app is single-user and does not use Firebase or an external cloud database. Data lives in a SQLite sync server on the always-on Mac Studio (`https://<machine>.<tailnet>.ts.net`); it used to run on a Mac mini behind a Cloudflare Worker. Any always-on Mac works the same way. **Tailscale Funnel** publishes it at a stable public HTTPS address (`https://<machine>.<tailnet>.ts.net`). The phone and MacBook reach that address without installing Tailscale, so it does not take the Android VPN slot (AdGuard keeps it). TLS terminates on the server Mac, and tailscaled keeps the Funnel configuration across restarts, so no tunnel supervisor process is needed.
 
 One-time account steps on the server Mac:
 
