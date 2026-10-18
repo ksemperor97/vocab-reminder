@@ -524,7 +524,8 @@ def main():
             case = context_cases[(lemma, sentence)]
             if server.context_mode == "fixture":
                 return meaning == case["expected"]["meaningKo"]
-            return any(fragment in meaning for fragment in case["real_llm_expect_any"])
+            return (any(fragment in meaning for fragment in case["real_llm_expect_any"])
+                    and not any(fragment in meaning for fragment in case.get("real_llm_reject_any", [])))
 
         def context_card(lemma, sentence):
             def check():

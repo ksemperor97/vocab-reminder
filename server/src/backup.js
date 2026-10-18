@@ -36,9 +36,13 @@ async function ensureDailyBackupOnce(db, dbPath, backupDir, retention, now) {
         const createdAt = fs.statSync(destination).mtime;
         writeJsonAtomic(manifestPath(destination), backupManifest(destination, verification, createdAt));
       }
-      verifyBackup(destination, { requireManifest: true });
-      pruneBackups(backupDir, retention);
-      return null;
+      const { summary } = verifyBackup(destination, { requireManifest: true });
+      // Today's backup follows the database until the day ends: a backup taken
+      // in the morning must not stand for the whole day's changes.
+      if (sameContents(summary, inspectDatabase(db))) {
+        pruneBackups(backupDir, retention);
+        return null;
+      }
     } catch (error) {
       quarantineInvalidBackup(destination, now, error);
     }
@@ -59,6 +63,12 @@ async function ensureDailyBackupOnce(db, dbPath, backupDir, retention, now) {
 
   pruneBackups(backupDir, retention);
   return destination;
+}
+
+function sameContents(a, b) {
+  return JSON.stringify(a?.counts) === JSON.stringify(b?.counts) &&
+    a?.idChecksum === b?.idChecksum &&
+    a?.contentChecksum === b?.contentChecksum;
 }
 
 export function verifyBackup(backupPath, options = {}) {

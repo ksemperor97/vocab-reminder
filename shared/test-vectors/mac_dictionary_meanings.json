@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "description": "Raw entries from the macOS Korean-English dictionary (DCSCopyTextDefinition) and the short Korean meaning a card should show: the first semicolon group of sense 1, at most three glosses, without grammar marks ([불], 〈목〉), labels (《구어》, 〔음악〕, （…）), alternatives in [] or leading object markers (…을). expected_part_of_speech is sense 1 in English. The English definition is empty because this dictionary has none.",
+  "cases": [
+    {
+      "lemma": "bait",
+      "raw": "bait 1 | beit | 명사1.[불][가]（낚싯바늘·덫에 다는） 미끼,먹이; 독미끼 ▸ a live bait산 미끼 ▸ put a (piece of) bait on a hook[in a trap]낚싯바늘[덫]에 미끼를 달다. 2.[불]《때로a bait》유혹(물), 미끼, 후림 ▸ The shop used free gifts as a bait to attract new customers.그 상점은 새로운 손님들을 끌기 위한 미끼로 증정품을 이용했다. 3.《고어》 （일·여행 중의） 휴식. 숙어 jump at the bait 잘 속다. swallow the bait; rise to the bait; take the bait ①〈고기가〉 미끼를 삼키다. ②상대의 수에 넘어가다. 동사, 타동사1.〈낚싯바늘·덫에〉 〔…의〕 미끼를 달다 〔with …〕; 〈낚시터에〉 미끼를 뿌리다; 〈밭 등에〉 독이 든 먹이를 뿌리다. 2.〔…으로〕 …을 꾀다, 사로잡다〔with …〕 ▸ She was baiting him with his favorite dessert.그녀는 그가 좋아하는 디저트로 그를 꾀려 하고 있었다. 3.〈사슬에 묶은 동물을〉 （개를 부추겨서） 지분거리다, 놀리다; 《비유》 〈사람을〉 지분거려[놀려] 괴롭히다 ▸ The hunters baited the bear with dogs.사냥꾼들이 개를 부추겨서 곰을 괴롭혔다. 4.《고어》 〈말 등에〉 （여행 도중） 먹이나 물을 주다. 동사, 자동사1.《고어》 （여행 도중） 잠시 쉬다, 휴식하다 ▸ bait at a small village작은 마을에서 걸음을 멈추다. 2.〈말 등이〉 먹이를 먹다. ",
+      "expected_meaning_ko": "미끼, 먹이",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "neat",
+      "raw": "neat 1 | niːt | 형용사(neat·er, neat·est)1.말끔한, 정돈된; 〈사람이〉 깨끗한 것을 좋아하는; 〈옷차림이〉 깨끗한, 말쑥한; 〈사람이〉 꼼꼼한 ▸ a very neat person옷차림이 매우 깔끔한 사람 ▸ neat and trim깨끗하게 정돈된 ▸ keep one's room always neat자기 방을 항상 말끔하게 해두다 ▸ be neat in appearance [one's dress]외모[복장]가 단정하다 ▸ They sat in a nice, neat row.그들은 반듯하게 한 줄로 앉아 있었다. 2.《보통 한정적》 〈물건의〉 （외관·디자인 등이） 고상한, 세련된, 산뜻한 ▸ neat furniture세련된 가구 ▸ neat clothes산뜻한 옷. 3.《보통 한정적》 〈일의〉 （성질·표현·방식 등이） 솜씨 있는, 교묘한, 능숙한(dexterous); 적절한 ▸ a neat performance능숙한 연주 ▸ a neat explanation멋진 설명 ▸ a neat solution재치 있는 해답 ▸ make[do] a neat job of…을 능숙하게 해내다. 4.《미·구어》 훌륭한, 굉장한, 기막힌 (※great, wonderful과 마찬가지로 몹시 좋다는 뜻일 때, 어른·아이·남녀를 막론하고 이를 씀) ▸ Hey, this is neat!야, 이거 굉장한데! ▸ Wow! That's a neat picture!와, 기막힌 그림이군! ▸ We had a neat time at the circus.서커스는 정말 재미있었다. 5.〈술이〉 물을 타지 않은, 스트레이트의 (※neat는 《영》 《미》 공통, straight는 《미》) ; 정미(正味)의(net) ▸ drink one's whiskey neat위스키를 스트레이트로 마시다. ",
+      "expected_meaning_ko": "말끔한, 정돈된",
+      "expected_part_of_speech": "adjective"
+    },
+    {
+      "lemma": "botch",
+      "raw": "botch 1 | bɑʧ┃bɔʧ | 동사, 타동사《비격식》 …을 (서투른 솜씨로) 망쳐 놓다, 실수[실패]하다; …을 어설프게 하다[수리하다]〔up〕. 명사(또는 bótch·up) 《주로 영》 엉성한 일[세공], 실패작; 보기 흉하게 기운 것; 아무렇게나 그러모은 것 ▸ make a botch of…을 망쳐버리다[실수하다]. ",
+      "expected_meaning_ko": "망쳐 놓다, 실수하다",
+      "expected_part_of_speech": "verb"
+    },
+    {
+      "lemma": "showdown",
+      "raw": "show·down | ʃóudàun | 명사1.（싸움 등의） 최종적 결말; 막판, 대결; （계획·사실 등의） 폭로, 공표 ▸ a final showdown최후의 대결. 2.（포커에서） 패를 모두 내보이기. ",
+      "expected_meaning_ko": "최종적 결말",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "affinity",
+      "raw": "af·fin·i·ty | əfínəti | 명사(『복수』 -ties)1.[불]《종종 an affinity》〔…을〕 좋아함, 서로 잘 맞음 〔for, to, between, with …〕 cf. LIKENESS ▸ have[feel] an affinity for…을 좋아하다. 2.[불][가]인척 관계.cf. CONSANGUINITY 1. 3.[불][가]〔…과의〕 유사점[성]〔with …〕; 〔…과의 사이의〕 밀접한 관계〔between, of, to …〕 ▸ the affinity of German with English영어와 독일어의 유사성. 4.[불]《종종 an affinity》〔생물·의학〕 친화성; 〔화학〕 친화력. ",
+      "expected_meaning_ko": "좋아함, 서로 잘 맞음",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "complacent",
+      "raw": "com·pla·cent | kəmpléisnt | 형용사1.（결점은 깨닫지 못하고 자기의 장점·입장 등에 대하여） 기뻐하고 있는, 자기 만족의 ▸ a complacent smile[glance, air]혼자 흐뭇해하는 미소[눈길, 태도]. 2.기분 좋은(pleasant), 상냥한. 3.〔…에〕 무관심한〔about …〕. ",
+      "expected_meaning_ko": "기뻐하고 있는, 자기 만족의",
+      "expected_part_of_speech": "adjective"
+    },
+    {
+      "lemma": "agility",
+      "raw": "a·gil·i·ty | əʤíləti | 명사[불]〔동작의〕 민첩[기민]함, 재빠름, 날램, 〔사고·판단의〕 기민함, 명민함〔in …〕 ▸ with the agility of a cat고양이처럼 민첩하게. ",
+      "expected_meaning_ko": "민첩함, 재빠름, 날램",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "enunciation",
+      "raw": "e·nun·ci·a·tion | inʌ̀nsiéiʃən | 명사1.[불]발음법, 말투, 어조; 발음, 발성. 2.[불][가]（이론 등을） 분명히 말하기[말한 것]; （주의 등의） 발표, 공표, 언명. ",
+      "expected_meaning_ko": "발음법, 말투, 어조",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "tessitura",
+      "raw": "tes·si·tu·ra | tèsitjúərə | 명사〔음악〕 음역, 성역. ",
+      "expected_meaning_ko": "음역, 성역",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "theatrical",
+      "raw": "the·at·ri·cal | θiǽtrikəl | 형용사(more theatrical, most theatrical)(또는 the·át·ric)《보통 한정적》 1.연극의 [에 관한] ▸ a theatrical troupe [company]극단 ▸ the theatrical[the theater] page(신문·잡지의) 연극란. 2.〈사람·언동 등이〉 연극 같은, 부자연스러운, 거짓의, 거드름 피우는, 과장된, 연극조의, 일부러 꾸민 ▸ a theatrical gesture과장된 몸짓. 명사《theatricals》1.（특히 비전문인 극단의） 연극 공연. 2.배우, 연기자. 3.《영·비격식》 연극 같은[과장된] 행동. 4.연극 기법. ",
+      "expected_meaning_ko": "연극의",
+      "expected_part_of_speech": "adjective"
+    },
+    {
+      "lemma": "meticulous",
+      "raw": "me·tic·u·lous | mətíkjuləs | 형용사작은 일에 신경을 쓰는; 《구어》 주의 깊은, 정확한. ",
+      "expected_meaning_ko": "작은 일에 신경을 쓰는",
+      "expected_part_of_speech": "adjective"
+    },
+    {
+      "lemma": "plagiarize",
+      "raw": "pla·gia·rize, 《주로 영》 pla·gia·rise | pléiʤəràiz | 동사(-rized, -riz·ing)타동사〈남의 문장·착상 등을〉 표절하다; 〈남의 작품을〉 도용하다. 자동사표절하다. ",
+      "expected_meaning_ko": "표절하다",
+      "expected_part_of_speech": "verb"
+    },
+    {
+      "lemma": "absurdity",
+      "raw": "ab·surd·i·ty | æbsə́ːrdəti,-zə́ːrd-┃əbsə́ːd- | 명사(『복수』 -ties)1.[불]불합리, 어리석음, 논리적 모순; （문학·연극상의） 부조리 ▸ the height of absurdity어리석기 짝이 없음 ▸ the colossal absurdity지독한 불합리. 2.《종종 -ties》 어리석은 일 [것, 언행] ▸ say[utter] an absurdity바보스러운 말을 하다. ",
+      "expected_meaning_ko": "불합리, 어리석음, 논리적 모순",
+      "expected_part_of_speech": "noun"
+    },
+    {
+      "lemma": "baptize",
+      "raw": "bap·tize, 《주로 영》 bap·tise | bæptáiz | 동사(-tized, -tiz·ing)타동사1.[baptize＋〈목〉] 〈남에게〉 세례를 베풀다; [baptize＋〈목〉＋〈보〉] 〈남에게〉 세례를 베풀어 （…으로） 만들다 ▸ She was baptized a Catholic.그녀는 세례를 받고 가톨릭 신자가 되었다. 2.[baptize＋〈목〉/baptize＋〈목〉＋【전치사】＋【명사】] 〈남을〉(정신적으로)정화하다; 〈남을〉정화하여〔… 에〕 입회시키다〔into …〕 ▸ My friend was baptized into the church.내 친구는 세례를 받고 교인이 되었다. 3.[baptize＋〈목〉＋〈보〉] 〈남을〉 （…이라고） 명명하다; 〈남에게〉 （…이라고） 세례명을 붙이다(christen) ▸ They baptized him John.[＝He was baptized John.]그는 존이라는 세례명을 받았다. 자동사세례를 베풀다. ",
+      "expected_meaning_ko": "세례를 베풀다",
+      "expected_part_of_speech": "verb"
+    }
+  ]
+}

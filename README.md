@@ -180,6 +180,12 @@ npm run sync:doctor
 npm run sync:preflight
 ```
 
+### Backups
+
+The server keeps a verified daily backup with a manifest in the runtime `backups/` folder (30 days) and replaces today's backup whenever the data changed since. `VOCAB_SYNC_BACKUP_MIRROR_DIRS` in the runtime `.env` lists extra folders, separated by `;`, that receive a checked copy of the newest backup; production uses `…/GoogleDrive-…/My Drive/VocabReminder Backups` and iCloud Drive `VocabReminder Backups`, whose apps upload them. Restore with `node server/tools/db_admin.mjs restore --backup <file> --destination <db>`.
+
+Context meanings need LM Studio serving the model. In LM Studio settings, turn on the local LLM service (start at login) so it runs after a reboot without opening the app; words captured while it is down keep their dictionary meaning and are retried.
+
 ### Moving the server to another Mac
 
 Data moves through the sync API, so no database files are copied by hand:

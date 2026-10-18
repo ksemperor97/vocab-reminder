@@ -12,18 +12,29 @@ const [
   { readConfig },
   { openDatabase },
   { createSyncServer },
-  { createContextMeaningResolver }
+  { createContextMeaningResolver },
+  { mirrorLatestBackup }
 ] = await Promise.all([
   import("./backup.js"),
   import("./config.js"),
   import("./db.js"),
   import("./http.js"),
-  import("./context_meaning.js")
+  import("./context_meaning.js"),
+  import("./backup_mirror.js")
 ]);
 
 const config = readConfig();
 const db = openDatabase(config.dbPath);
 await ensureDailyBackup(db, config.dbPath, config.backupDir, config.backupRetention);
+mirrorBackups();
+
+// Copies outside this Mac (Google Drive, iCloud Drive); see backup_mirror.js.
+function mirrorBackups() {
+  for (const result of mirrorLatestBackup(config.backupDir, config.backupMirrorDirs, config.backupRetention)) {
+    if (result.status === "failed") console.error(JSON.stringify({ event: "backup_mirror_failed", ...result }));
+    else if (result.status === "copied") console.log(JSON.stringify({ event: "backup_mirrored", ...result }));
+  }
+}
 
 let contextResolver = null;
 try {
@@ -66,6 +77,7 @@ setInterval(runMaintenance, 10 * 60 * 1000).unref();
 
 setInterval(() => {
   ensureDailyBackup(db, config.dbPath, config.backupDir, config.backupRetention)
+    .then(mirrorBackups)
     .catch((error) => console.error("Daily backup failed", error));
 }, 60 * 60 * 1000).unref();
 

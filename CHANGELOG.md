@@ -1,3 +1,11 @@
+# Backups off this Mac, clean dictionary meanings, one-sense context — 2026-10-18
+
+- Daily backups are also copied to every folder in `VOCAB_SYNC_BACKUP_MIRROR_DIRS` (";"-separated; production: Google Drive and iCloud Drive), checked against the manifest SHA-256 and pruned to the same 30 days. A folder that fails is logged and skipped.
+- Today's backup is replaced when the database changed after it was taken; before, the first backup of the day (taken when the new server was still empty) stood for the whole day.
+- Raw macOS Korean-English dictionary entries become short meanings: the first semicolon group of sense 1, at most three glosses, without grammar marks or labels (`shared/test-vectors/mac_dictionary_meanings.json`, used by the Mac app and the server). The English definition is left empty for these entries instead of holding the headword. `server/tools/clean_mac_dictionary_meanings.mjs` fixed the 14 existing cards (dry run by default, `--apply`; asks the local model only when the rule finds nothing).
+- Context meanings ask for one sense plus at most one synonym of that sense; "keen sense of smell" now gives 예민한 instead of 민첩한, 예리한. The shared vectors reject the wrong sense for live runs.
+- Mac 0.4.1.
+
 # Context meanings — 2026-10-18
 
 - A local model can pick the meaning: `VOCAB_CONTEXT_RESOLVER=local` talks to any OpenAI-compatible endpoint (`VOCAB_CONTEXT_BASE_URL`, default LM Studio at `http://127.0.0.1:1234/v1`; `VOCAB_CONTEXT_MODEL`). Production uses Qwen (`qwen3.8-27b`) in LM Studio on the server Mac, no API key. It reads LM Studio's `reasoning_content` and drops `<think>` blocks. On the shared vectors and extra words (bank, interest, run, robust) it picked the sentence's sense each time, about 2.5 s a word. The real end-to-end run uses whatever live model the runtime `.env` configures.

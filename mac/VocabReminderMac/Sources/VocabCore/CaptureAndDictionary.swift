@@ -169,14 +169,17 @@ package enum DictionaryResolver {
             let entry = localEntries[analysis.lemma]
             let parsed = parseEnglishDefinition(from: macDefinition)
             let meaningKo = extractKoreanMeaning(from: macDefinition) ?? entry?.meaningKo ?? ""
+            // The Korean-English dictionary has no English definition; what the
+            // English parser finds there is the headword ("af·fin·i·ty").
+            let isKoreanEntry = containsHangul(macDefinition)
             // guide 10.3: Mac system dictionary is preserved as a definition candidate; Korean fallback can still come from local/LLM later.
             return DictionaryResult(
                 lemma: analysis.lemma,
                 displayWord: analysis.displayWord,
                 meaningKo: meaningKo,
-                definitionEn: entry?.definitionEn ?? parsed.definitionEn,
-                partOfSpeech: entry?.partOfSpeech ?? parsed.partOfSpeech,
-                exampleSentence: analysis.sourceSentence.isEmpty ? (entry?.exampleSentence ?? parsed.exampleSentence) : analysis.sourceSentence,
+                definitionEn: entry?.definitionEn ?? (isKoreanEntry ? "" : parsed.definitionEn),
+                partOfSpeech: entry?.partOfSpeech ?? (isKoreanEntry ? koreanDictionaryPartOfSpeech(from: macDefinition) : parsed.partOfSpeech),
+                exampleSentence: analysis.sourceSentence.isEmpty ? (entry?.exampleSentence ?? (isKoreanEntry ? "" : parsed.exampleSentence)) : analysis.sourceSentence,
                 rawSource: macDefinition,
                 sourceType: "mac_dictionary",
                 confidence: 0.86,
@@ -216,45 +219,90 @@ package enum DictionaryResolver {
         )
     }
 
+    private static let koreanPartsOfSpeech = "타동사|자동사|명사|동사|형용사|부사|대명사|전치사|접속사|감탄사|조동사|관사|한정사"
+
+    /// The short Korean meaning of a macOS Korean-English dictionary entry:
+    /// the first semicolon group of sense 1, at most three glosses, without
+    /// grammar marks, labels, alternatives in [] or leading object markers.
+    /// "bait 1 | beit | 명사1.[불][가]（낚싯바늘·덫에 다는） 미끼,먹이; 독미끼 ▸ …"
+    /// becomes "미끼, 먹이". The server applies the same rule
+    /// (server/src/mac_dictionary_meaning.js); both are pinned by
+    /// shared/test-vectors/mac_dictionary_meanings.json.
     package static func extractKoreanMeaning(from definition: String) -> String? {
-        let stripped = definition
-            .replacingOccurrences(of: #"\[[^\]]+\]|\([^)]*\)|/[^\n/]+/"#, with: " ", options: .regularExpression)
-        // A middle dot can join words inside one Korean meaning (for example,
-        // "장점·입장"), so only actual line and bullet separators split entries.
-        let separators = CharacterSet(charactersIn: "\n\r•")
-        for rawPart in stripped.components(separatedBy: separators) {
-            var part = rawPart
-                .replacingOccurrences(of: #"▸.*$"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"\s+\d+[\.)]?\s*〈.*$"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"^\s*(?:\d+[\.)]?|[①-⑳])\s*"#, with: "", options: .regularExpression)
-                .replacingOccurrences(
-                    of: #"^\s*(?:noun|verb|adjective|adverb|명사|동사|형용사|부사)\s*[:：]?\s*"#,
-                    with: "",
-                    options: [.regularExpression, .caseInsensitive]
-                )
-                .replacingOccurrences(of: #"^\s*(?:\d+[\.)]?|[①-⑳])\s*"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"〈[^〉]+〉"#, with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let firstKorean = part.firstIndex(where: { character in
-                character.unicodeScalars.contains { (0xAC00...0xD7A3).contains(Int($0.value)) }
-            }) else {
-                continue
+        guard containsHangul(definition) else { return nil }
+        let pieces = definition.components(separatedBy: " | ")
+        var text = pieces.count > 2 ? pieces.dropFirst(2).joined(separator: " | ") : definition
+        // Examples (▸), idioms (숙어) and later senses are not part of sense 1.
+        text = text.components(separatedBy: "▸")[0].components(separatedBy: "숙어")[0]
+        let leadingPartOfSpeech = #"^\s*(?:(?:\#(koreanPartsOfSpeech))\s*[,，]?\s*)+"#
+        text = text.replacingOccurrences(of: leadingPartOfSpeech, with: "", options: .regularExpression)
+        text = strippingBrackets(text)
+        text = text.replacingOccurrences(of: leadingPartOfSpeech, with: "", options: .regularExpression)
+        // Senses are numbered "1." "2."; the first one with Korean in it is sense 1.
+        let senses = splitting(text, pattern: #"(?:^|\s|(?<=[^\d\s]))\d+\s*\.(?=\s*\S)"#)
+        guard let firstSense = senses.first(where: containsHangul) else { return nil }
+        guard let firstGroup = splitting(firstSense, pattern: #"[;；\n]"#).first(where: containsHangul) else { return nil }
+        var glosses: [String] = []
+        for piece in splitting(firstGroup, pattern: #"[,，]"#) {
+            let gloss = cleanedGloss(piece)
+            if containsHangul(gloss), glosses.contains(gloss) == false {
+                glosses.append(gloss)
             }
-            part = String(part[firstKorean...])
-                .replacingOccurrences(
-                    of: #"^\s*(?:명사|동사|형용사|부사)\s*[:：]?\s*"#,
-                    with: "",
-                    options: .regularExpression
-                )
-                .replacingOccurrences(of: #"^\s*(?:\d+[\.)]?|[①-⑳])\s*"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"\([^가-힣)]*\)"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-                .trimmingCharacters(in: CharacterSet(charactersIn: " .。;:：,|"))
-            if part.isEmpty == false {
-                return String(part.prefix(80))
-            }
+            if glosses.count == 3 { break }
         }
-        return nil
+        return glosses.isEmpty ? nil : glosses.joined(separator: ", ")
+    }
+
+    /// Sense 1's part of speech in English ("noun", "verb", ...), or "".
+    package static func koreanDictionaryPartOfSpeech(from definition: String) -> String {
+        let pieces = definition.components(separatedBy: " | ")
+        let body = (pieces.count > 2 ? pieces.dropFirst(2).joined(separator: " | ") : definition)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        for (prefixes, english) in [(["동사", "타동사", "자동사"], "verb"), (["형용사"], "adjective"), (["부사"], "adverb"), (["명사"], "noun")]
+        where prefixes.contains(where: { body.hasPrefix($0) }) {
+            return english
+        }
+        return ""
+    }
+
+    private static func containsHangul(_ value: String) -> Bool {
+        value.unicodeScalars.contains { (0xAC00...0xD7A3).contains(Int($0.value)) }
+    }
+
+    private static func splitting(_ value: String, pattern: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [value] }
+        let nsValue = value as NSString
+        var parts: [String] = []
+        var start = 0
+        for match in expression.matches(in: value, range: NSRange(location: 0, length: nsValue.length)) {
+            parts.append(nsValue.substring(with: NSRange(location: start, length: match.range.location - start)))
+            start = match.range.location + match.range.length
+        }
+        parts.append(nsValue.substring(from: start))
+        return parts
+    }
+
+    private static func strippingBrackets(_ value: String) -> String {
+        let patterns = [#"\[[^\[\]]*\]"#, #"〈[^〈〉]*〉"#, #"《[^《》]*》"#, #"『[^『』]*』"#, #"〔[^〔〕]*〕"#, #"（[^（）]*）"#, #"\([^()]*\)"#, #"【[^【】]*】"#]
+        var current = value
+        while true {
+            var next = current
+            for pattern in patterns {
+                next = next.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+            if next == current { break }
+            current = next
+        }
+        return current.replacingOccurrences(of: #"\bcf\.\s*[A-Z][A-Z\s\d]*"#, with: "", options: .regularExpression)
+    }
+
+    private static func cleanedGloss(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"^\s*(?:\#(koreanPartsOfSpeech))\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^\s*…\s*(?:을|를|에게|에|과|와|으로|로)?\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[.。]\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     package static func parseEnglishDefinition(from definition: String) -> ParsedMacDefinition {

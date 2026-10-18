@@ -50,6 +50,12 @@ export function readConfig(overrides = {}) {
     runtimeRoot
   );
 
+  const backupMirrorDirs = String(overrides.backupMirrorDirs ?? process.env.VOCAB_SYNC_BACKUP_MIRROR_DIRS ?? "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => resolveRuntimePath(entry.replace(/^~(?=\/)/u, process.env.HOME ?? "~"), runtimeRoot));
+
   return {
     runtimeRoot,
     host: String(overrides.host ?? process.env.VOCAB_SYNC_HOST ?? "127.0.0.1"),
@@ -59,6 +65,7 @@ export function readConfig(overrides = {}) {
     backupDir,
     appUpdateDir,
     backupRetention,
+    backupMirrorDirs,
     maxBodyBytes,
     maxCollectionItems
   };

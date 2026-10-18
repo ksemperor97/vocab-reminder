@@ -194,7 +194,11 @@
         "sourceType": "llm_context",
         "contextStatus": "resolved",
         "dictionaryMeaningKo": null
-      }
+      },
+      "real_llm_reject_any": [
+        "민첩",
+        "재빠"
+      ]
     },
     {
       "name": "keen about the senses means sharp",
@@ -222,7 +226,11 @@
         "sourceType": "llm_context",
         "contextStatus": "resolved",
         "dictionaryMeaningKo": null
-      }
+      },
+      "real_llm_reject_any": [
+        "민첩",
+        "재빠"
+      ]
     },
     {
       "name": "a low-confidence pick falls back to the dictionary",

@@ -10,6 +10,7 @@ import {
   verifyBackup,
   verifyDatabaseFile
 } from "../src/backup.js";
+import { mirrorLatestBackup } from "../src/backup_mirror.js";
 import { readConfig } from "../src/config.js";
 import { inspectDatabase, openDatabase } from "../src/db.js";
 import { runRestoreDrill } from "../src/restore_drill.js";
@@ -53,6 +54,47 @@ test("a corrupt same-day backup is quarantined before a verified replacement is 
   assert.equal(replacement, backupPath);
   verifyBackup(backupPath, { requireManifest: true });
   assert.ok(fs.readdirSync(fixture.backupDir).some((name) => name.includes(".invalid-")));
+});
+
+test("today's backup is replaced when the database changed after it was taken", async (t) => {
+  const fixture = createFixture(t);
+  const morning = new Date("2026-07-13T01:00:00.000Z");
+  const backupPath = await ensureDailyBackup(fixture.db, fixture.dbPath, fixture.backupDir, 30, morning);
+  assert.equal(verifyBackup(backupPath).summary.counts.cards, 0);
+
+  seedDatabase(fixture.db);
+  const evening = new Date("2026-07-13T10:00:00.000Z");
+  assert.equal(await ensureDailyBackup(fixture.db, fixture.dbPath, fixture.backupDir, 30, evening), backupPath);
+  assert.equal(verifyBackup(backupPath, { requireManifest: true }).summary.counts.cards, 1);
+  assert.equal(await ensureDailyBackup(fixture.db, fixture.dbPath, fixture.backupDir, 30, evening), null, "unchanged data keeps the backup");
+});
+
+test("the newest backup is copied to every mirror folder, checked, and pruned there", async (t) => {
+  const fixture = createFixture(t);
+  seedDatabase(fixture.db);
+  const backupPath = await ensureDailyBackup(fixture.db, fixture.dbPath, fixture.backupDir, 30, new Date("2026-07-13T01:00:00.000Z"));
+  const drive = path.join(fixture.root, "Google Drive", "VocabReminder Backups");
+  const icloud = path.join(fixture.root, "iCloud", "VocabReminder Backups");
+  fs.mkdirSync(icloud, { recursive: true });
+  for (const day of ["20260710", "20260711", "20260712"]) fs.writeFileSync(path.join(icloud, `vocab-sync-${day}.sqlite`), "old");
+  const blocked = path.join(fixture.root, "not-a-folder");
+  fs.writeFileSync(blocked, "");
+
+  const results = mirrorLatestBackup(fixture.backupDir, [drive, icloud, blocked], 2);
+  assert.deepEqual(results.map((result) => result.status), ["copied", "copied", "failed"]);
+  for (const dir of [drive, icloud]) {
+    const copy = path.join(dir, path.basename(backupPath));
+    assert.deepEqual(fs.readFileSync(copy), fs.readFileSync(backupPath));
+    verifyBackup(copy, { requireManifest: true });
+  }
+  assert.deepEqual(fs.readdirSync(icloud).filter((name) => name.endsWith(".sqlite")).sort(),
+    ["vocab-sync-20260712.sqlite", "vocab-sync-20260713.sqlite"]);
+  assert.deepEqual(mirrorLatestBackup(fixture.backupDir, [drive], 2).map((result) => result.status), ["current"]);
+});
+
+test("mirror folders come from VOCAB_SYNC_BACKUP_MIRROR_DIRS separated by semicolons", () => {
+  const config = readConfig({ runtimeRoot: "/tmp/runtime", envPath: "/tmp/runtime/missing.env", backupMirrorDirs: "/a/Google Drive/x; /b/iCloud/y ;" });
+  assert.deepEqual(config.backupMirrorDirs, ["/a/Google Drive/x", "/b/iCloud/y"]);
 });
 
 test("migration checkpoints the source and preserves counts plus ID and content checksums", async (t) => {

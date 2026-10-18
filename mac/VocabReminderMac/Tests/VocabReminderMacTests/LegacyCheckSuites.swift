@@ -142,9 +142,9 @@ enum LegacyCheckSuites {
         try require(result.meaningKo == "회복력 있는, 탄력 있는", "Mac dictionary resolver should use parsed Korean meaning")
 
         let newAceDefinition = "re·sil·ient | rizíljənt┃-liənt | 형용사1.〈물체가〉 되튀는; 탄력이 있는(buoyant) ▸ Rubber is more resilient than wood.고무는 나무보다 탄력이 크다. 2.〈사람이〉 곧 기운을 차리는"
-        try require(DictionaryResolver.extractKoreanMeaning(from: newAceDefinition) == "되튀는; 탄력이 있는", "Mac New Ace dictionary should extract Korean meaning without POS prefix")
+        try require(DictionaryResolver.extractKoreanMeaning(from: newAceDefinition) == "되튀는", "Mac New Ace dictionary should extract Korean meaning without POS prefix")
         let newAceResult = DictionaryResolver.resolve(analysis, sourceApp: "Self-check") { _ in newAceDefinition }
-        try require(newAceResult.meaningKo == "되튀는; 탄력이 있는", "Mac dictionary resolver should prefer New Ace Korean meaning")
+        try require(newAceResult.meaningKo == "되튀는", "Mac dictionary resolver should prefer New Ace Korean meaning")
 
         let englishAnalysis = CaptureNormalizer.analyze("pervasive")
         let englishOnly = "pervasive per·va·sive | adjective spreading widely throughout an area or a group of people: ageism is pervasive and entrenched in our society"
