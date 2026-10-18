@@ -4,7 +4,10 @@
     "raw": "The results are tentative, but the pattern is robust.",
     "then": {
       "needs_word_selection": true,
-      "candidates_include": ["tentative", "robust"]
+      "candidates_include": [
+        "tentative",
+        "robust"
+      ]
     }
   },
   {
@@ -13,7 +16,15 @@
     "then": {
       "needs_word_selection": false,
       "candidates": [],
-      "candidates_exclude": ["https", "ppomppu", "new", "bbs", "view", "php", "extref"]
+      "candidates_exclude": [
+        "https",
+        "ppomppu",
+        "new",
+        "bbs",
+        "view",
+        "php",
+        "extref"
+      ]
     }
   },
   {
@@ -21,8 +32,23 @@
     "raw": "Read the tentative result at https://m.ppomppu.co.kr/new/bbs_view.php?id=freeboard&extref=1 before saving robust notes.",
     "then": {
       "needs_word_selection": true,
-      "candidates_include": ["read", "tentative", "result", "before", "saving", "robust"],
-      "candidates_exclude": ["https", "ppomppu", "new", "bbs", "view", "php", "extref"]
+      "candidates_include": [
+        "read",
+        "tentative",
+        "result",
+        "before",
+        "saving",
+        "robust"
+      ],
+      "candidates_exclude": [
+        "https",
+        "ppomppu",
+        "new",
+        "bbs",
+        "view",
+        "php",
+        "extref"
+      ]
     }
   },
   {
@@ -32,7 +58,9 @@
       "needs_word_selection": false,
       "display_word": "looking",
       "lemma": "look",
-      "candidates": ["looking"]
+      "candidates": [
+        "looking"
+      ]
     }
   },
   {
@@ -42,7 +70,9 @@
       "needs_word_selection": false,
       "display_word": "looking",
       "lemma": "look",
-      "candidates": ["looking"]
+      "candidates": [
+        "looking"
+      ]
     }
   },
   {
@@ -52,7 +82,9 @@
       "needs_word_selection": false,
       "display_word": "looking",
       "lemma": "look",
-      "candidates": ["looking"]
+      "candidates": [
+        "looking"
+      ]
     }
   },
   {
@@ -62,7 +94,129 @@
       "needs_word_selection": false,
       "display_word": "Robustly",
       "lemma": "robust",
-      "candidates": ["robustly"]
+      "candidates": [
+        "robustly"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: baptized -> baptize",
+    "raw": "baptized",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "baptized",
+      "lemma": "baptize",
+      "candidates": [
+        "baptized"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: loved -> love",
+    "raw": "loved",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "loved",
+      "lemma": "love",
+      "candidates": [
+        "loved"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: produced -> produce",
+    "raw": "produced",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "produced",
+      "lemma": "produce",
+      "candidates": [
+        "produced"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: continued -> continue",
+    "raw": "continued",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "continued",
+      "lemma": "continue",
+      "candidates": [
+        "continued"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: judging -> judge",
+    "raw": "judging",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "judging",
+      "lemma": "judge",
+      "candidates": [
+        "judging"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: closed -> close",
+    "raw": "closed",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "closed",
+      "lemma": "close",
+      "candidates": [
+        "closed"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: realized -> realize",
+    "raw": "realized",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "realized",
+      "lemma": "realize",
+      "candidates": [
+        "realized"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: promised -> promise",
+    "raw": "promised",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "promised",
+      "lemma": "promise",
+      "candidates": [
+        "promised"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: kissed -> kiss",
+    "raw": "kissed",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "kissed",
+      "lemma": "kiss",
+      "candidates": [
+        "kissed"
+      ]
+    }
+  },
+  {
+    "name": "silent e and doubled letters: stopped -> stop",
+    "raw": "stopped",
+    "then": {
+      "needs_word_selection": false,
+      "display_word": "stopped",
+      "lemma": "stop",
+      "candidates": [
+        "stopped"
+      ]
     }
   }
 ]

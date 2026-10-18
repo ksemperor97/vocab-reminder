@@ -1,3 +1,9 @@
+# Base forms keep their silent e — 2026-10-18
+
+- Android's offline base-form rule (and the Mac fallback after NLTagger) restores a silent e that -ed/-ing removed: baptized -> baptize, loved -> love, produced -> produce, continued -> continue, judging -> judge, closed -> close; a doubled s, f or z stays (kissed -> kiss). Shared capture vectors cover these.
+- The stored card "baptiz" was replaced by "baptize" with the same meaning and progress (the old one is a tombstone with merged_into).
+- Android 0.5.1 (7), delivered through the in-app update; Mac 0.4.2.
+
 # Backups off this Mac, clean dictionary meanings, one-sense context — 2026-10-18
 
 - Daily backups are also copied to every folder in `VOCAB_SYNC_BACKUP_MIRROR_DIRS` (";"-separated; production: Google Drive and iCloud Drive), checked against the manifest SHA-256 and pruned to the same 30 days. A folder that fails is logged and skipped.

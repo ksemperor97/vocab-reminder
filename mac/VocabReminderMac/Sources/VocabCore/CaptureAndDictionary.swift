@@ -82,9 +82,9 @@ package enum CaptureNormalizer {
         }
         if normalized.hasSuffix("ies"), normalized.count > 4 { return String(normalized.dropLast(3)) + "y" }
         if normalized.hasSuffix("ied"), normalized.count > 4 { return String(normalized.dropLast(3)) + "y" }
-        if normalized.hasSuffix("ing"), normalized.count > 5 { return trimTrailingDoubleConsonant(String(normalized.dropLast(3))) }
+        if normalized.hasSuffix("ing"), normalized.count > 5 { return restoreSilentE(trimTrailingDoubleConsonant(String(normalized.dropLast(3)))) }
         if normalized.hasSuffix("ated"), normalized.count > 5 { return String(normalized.dropLast()) }
-        if normalized.hasSuffix("ed"), normalized.count > 4 { return trimTrailingDoubleConsonant(String(normalized.dropLast(2))) }
+        if normalized.hasSuffix("ed"), normalized.count > 4 { return restoreSilentE(trimTrailingDoubleConsonant(String(normalized.dropLast(2)))) }
         if normalized.hasSuffix("ly"), normalized.count > 5 { return String(normalized.dropLast(2)) }
         if normalized.hasSuffix("s"),
            !normalized.hasSuffix("ss"),
@@ -96,11 +96,18 @@ package enum CaptureNormalizer {
         return normalized
     }
 
+    /// "baptiz" -> "baptize", "lov" -> "love", "judg" -> "judge": stems that
+    /// cannot end an English word lost a silent e to the -ed/-ing ending.
+    private static func restoreSilentE(_ stem: String) -> String {
+        stem.range(of: #"(?:[^aeiou]iz|yz|[^aeious]is|v|[^k]c|dg|u|[^aeiou]os)$"#, options: .regularExpression) == nil ? stem : stem + "e"
+    }
+
+    /// "stopped" -> "stop", but "kissed" -> "kiss": a doubled s, f or z belongs to the word.
     private static func trimTrailingDoubleConsonant(_ value: String) -> String {
         guard value.count >= 2,
               let last = value.last,
               last == value.dropLast().last,
-              !"aeiou".contains(last)
+              !"aeiousfz".contains(last)
         else {
             return value
         }

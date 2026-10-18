@@ -145,8 +145,8 @@ android {
         applicationId = "com.vocabreminder.android"
         minSdk = 26
         targetSdk = 33
-        versionCode = 6
-        versionName = "0.5.0"
+        versionCode = 7
+        versionName = "0.5.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEFAULT_SYNC_SERVER_URL", buildConfigString(defaultSyncServerUrl))
         buildConfigField("String", "DEFAULT_SYNC_BEARER_TOKEN", buildConfigString(defaultSyncBearerToken))
