@@ -1,3 +1,9 @@
+# Context meanings — 2026-10-18
+
+- The sync server picks the Korean meaning a captured sentence uses (guide 10.5, 10.6, 10.8): `POST /dict/batch` accepts `{items: [{lemma, sentence}]}`, asks Claude for one or two glosses given the dictionary candidates, caches by lemma + sentence hash, and falls back to the dictionary result with a `contextStatus` when the key is missing, the call fails or the model is unsure. The API key lives only in the server runtime `.env`.
+- Android's enrichment worker and the Mac auto sync send each card's sentence; blank cards take the result, dictionary meanings are upgraded once per sentence without touching the schedule, and meanings the user typed or chose are never replaced. Every result is kept as a definition candidate with its source (`llm_context`).
+- Add `shared/test-vectors/context_meanings.json` (same word, different sentences) used by server, Android and Mac tests with fixed LLM answers; add the context scenario to the real end-to-end run (live Claude when a key exists, otherwise SKIP plus a fixed-answer run); add `vocab-check store add-context` and `enrich`.
+
 # Mac app UI in the real end-to-end run — 2026-10-17
 
 - Add `mac/VocabReminderMac/UITests`, an XCUITest project that drives the packaged menu bar app: open it from the menu bar, type and preview a word, save, press "지금 동기화", edit a meaning in the card editor.

@@ -153,6 +153,17 @@ If `server/tunnel/.env` is missing, the command creates the template and pauses.
 
 3. Keep the generated `VOCAB_SYNC_TOKEN` in `server/.env`; release scripts read it automatically unless `VOCAB_SYNC_DEFAULT_TOKEN` is set.
 4. Release Android/MacBook clients use the fixed tunnel endpoint automatically; server URL/token fields are debug-only.
+5. Optional: to pick each word's meaning from the sentence it was captured in, add `ANTHROPIC_API_KEY=<key>` to the server runtime `.env` (`~/Library/Application Support/VocabReminderServer/.env`) and rerun `npm run sync:setup-mac-mini` or restart the service. The key stays on the Mac mini; clients never see it.
+
+### Context meanings
+
+A word has many senses, and the app keeps the sentence each word was captured in. When the server has a Claude API key, `POST /dict/batch` accepts `{"items": [{"lemma", "sentence"}]}` and asks Claude (`claude-opus-5-5`, low effort, structured JSON) for one or two Korean glosses that fit that sentence, given the dictionary's candidate meanings. "robust" in "The model showed robust decoding performance" becomes "견고한, 안정적인"; in "He was a robust man who rarely fell ill" it stays "튼튼한, 건장한".
+
+- Priority: a meaning the user typed or chose > the context pick (`llm_context`) > the dictionary gloss > translation. A pinned meaning is never replaced; the context pick is kept as an unselected candidate instead.
+- Android's enrichment worker and the Mac auto sync send each card's sentence. Blank cards take the result directly; cards that already have a dictionary meaning are upgraded once per sentence and keep their review schedule. Every result is kept in `definition_candidates` with its source.
+- Results are cached by lemma + sentence hash. If the key is missing, the call fails or the model is unsure, the dictionary result is returned with `contextStatus` (`disabled`, `failed`, `deferred`, `unresolved`) and clients retry later where that makes sense.
+- Server settings (runtime `.env`): `ANTHROPIC_API_KEY`; `VOCAB_CONTEXT_RESOLVER` = `claude` (default when a key is set) | `fixture` | `off`; `VOCAB_CONTEXT_FIXTURE_PATH` for fixed answers (tests and key-less runs); `VOCAB_CONTEXT_MODEL`, `VOCAB_CONTEXT_TIMEOUT_MS`, `VOCAB_CONTEXT_MIN_CONFIDENCE`.
+- The shared contract is `shared/test-vectors/context_meanings.json`; server, Android and Mac tests replace the LLM with its fixed answers.
 
 Release client configuration is injected at build/package time, not typed by the Android or MacBook user:
 
@@ -192,7 +203,7 @@ npm run e2e:real -- --serial emulator-5554
 npm run e2e:real -- --serial emulator-5554 --legacy-apk path/to/previous.apk   # also checks the upgrade
 ```
 
-Scenarios: a phone capture reaching the Mac; an offline phone review plus a Mac meaning edit both surviving; the same word captured on both devices folding into one card; a Mac deletion reaching the phone; a word typed and saved in the Mac app window appearing on the phone; a phone capture appearing in the Mac app window after "지금 동기화"; a meaning edited in the Mac card editor reaching the phone; reads never writing; outboxes draining. The device's app data is wiped, so use an emulator or test device.
+Scenarios: a phone capture reaching the Mac; an offline phone review plus a Mac meaning edit both surviving; the same word captured on both devices folding into one card; a Mac deletion reaching the phone; a word typed and saved in the Mac app window appearing on the phone; a phone capture appearing in the Mac app window after "지금 동기화"; a meaning edited in the Mac card editor reaching the phone; a word captured with its sentence getting the meaning that sentence uses (phone "acute" via the enrichment worker, Mac "keen" via `vocab-check store enrich`); reads never writing; outboxes draining. The context scenario uses live Claude when `ANTHROPIC_API_KEY` is in the environment or the Mac mini runtime `.env`; otherwise it reports the live run as SKIP with the reason and runs against the fixed answers in `shared/test-vectors/context_meanings.json`. The device's app data is wiped, so use an emulator or test device.
 
 The Mac app steps need Xcode and macOS Automation Mode (macOS asks for authentication the first time; `sudo automationmodetool enable-automationmode-without-authentication` makes that permanent). They launch a separate `VocabReminder-E2E.app` (own bundle id, scratch data directory, no login item, hotkey, Services entry or URL scheme) whose window floats at the left edge while the test runs, so leave the Mac alone for those few minutes. `--no-mac-ui` skips them.
 

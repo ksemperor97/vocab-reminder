@@ -14,6 +14,7 @@
     "pretest": "node tools/check_node_runtime.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "better-sqlite3": "^11.10.0"
   }
 }

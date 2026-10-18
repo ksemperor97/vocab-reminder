@@ -127,6 +127,25 @@ internal fun LocalVocabularyStore.applyDictionaryEnrichment(
     )
     val candidates = mutableListOf(primary)
     val existing = definitionCandidatesFor(updated.id) + primary
+    // The server picked this meaning from the captured sentence; the dictionary
+    // gloss it set aside stays restorable under its own source.
+    result.dictionary?.let { fallback ->
+        val duplicate = existing.any { it.source == fallback.sourceType && it.parsedMeaningKo == fallback.meaningKo }
+        if (fallback.meaningKo.isNotBlank() && !duplicate) {
+            candidates += primary.copy(
+                id = UUID.randomUUID().toString(),
+                source = fallback.sourceType,
+                rawText = listOf(fallback.meaningKo, fallback.definitionEn).filter { it.isNotBlank() }.joinToString("\n"),
+                parsedMeaningKo = fallback.meaningKo,
+                parsedDefinitionEn = fallback.definitionEn,
+                partOfSpeech = fallback.partOfSpeech,
+                exampleSentence = fallback.exampleSentence,
+                confidence = fallback.confidence,
+                selectedAsPrimary = false
+            )
+        }
+    }
+    val senseSource = result.dictionary?.sourceType ?: primary.source
     result.senses.take(20).forEach { sense ->
         val duplicate = (existing + candidates).any {
             it.parsedMeaningKo == sense.meaningKo && it.parsedDefinitionEn == sense.definitionEn && it.partOfSpeech == sense.partOfSpeech
@@ -134,6 +153,7 @@ internal fun LocalVocabularyStore.applyDictionaryEnrichment(
         if ((sense.meaningKo.isNotBlank() || sense.definitionEn.isNotBlank()) && !duplicate) {
             candidates += primary.copy(
                 id = UUID.randomUUID().toString(),
+                source = senseSource,
                 rawText = listOf(sense.meaningKo, sense.definitionEn).joinToString("\n"),
                 parsedMeaningKo = sense.meaningKo,
                 parsedDefinitionEn = sense.definitionEn,

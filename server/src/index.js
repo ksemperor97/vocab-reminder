@@ -11,17 +11,28 @@ const [
   { ensureDailyBackup },
   { readConfig },
   { openDatabase },
-  { createSyncServer }
+  { createSyncServer },
+  { createContextMeaningResolver }
 ] = await Promise.all([
   import("./backup.js"),
   import("./config.js"),
   import("./db.js"),
-  import("./http.js")
+  import("./http.js"),
+  import("./context_meaning.js")
 ]);
 
 const config = readConfig();
 const db = openDatabase(config.dbPath);
 await ensureDailyBackup(db, config.dbPath, config.backupDir, config.backupRetention);
+
+let contextResolver = null;
+try {
+  contextResolver = createContextMeaningResolver();
+} catch (error) {
+  // A bad resolver setting must not take sync down; dictionary results still work.
+  console.error(JSON.stringify({ event: "context_resolver_disabled", reason: error.message }));
+}
+console.log(JSON.stringify({ event: "context_resolver", provider: contextResolver?.providerName ?? "none" }));
 
 const { server, maintain } = createSyncServer({
   db,
@@ -31,6 +42,7 @@ const { server, maintain } = createSyncServer({
   token: config.token,
   maxBodyBytes: config.maxBodyBytes,
   maxCollectionItems: config.maxCollectionItems,
+  contextResolver,
   requestLogger(entry) {
     console.log(JSON.stringify({ event: "sync_request", ...entry }));
   }

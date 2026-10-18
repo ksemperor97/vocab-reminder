@@ -19,6 +19,13 @@ Options:
                          Automation Mode, which asks for authentication once)
     --out DIR            where evidence goes (default: a temp dir, printed at the end)
 
+Context meanings: when ANTHROPIC_API_KEY is set (in the environment, or in the
+Mac mini's runtime .env), the server asks Claude for the meaning a captured
+sentence uses. Without a key that live scenario is skipped with the reason, and
+the same scenario runs against fixed answers from
+shared/test-vectors/context_meanings.json. The key is passed to the server
+process only through its environment and never written to the evidence dir.
+
 The phone must be an emulator or test device: the app's data on it is wiped.
 """
 import argparse
@@ -43,6 +50,8 @@ JAVA_HOME = os.environ.get("JAVA_HOME", "/opt/homebrew/opt/openjdk@17")
 MAC_DIR = ROOT / "mac" / "VocabReminderMac"
 XCODE_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
 ANDROID_HOME = os.environ.get("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
+RUNTIME_ENV = Path.home() / "Library/Application Support/VocabReminderServer/.env"
+CONTEXT_VECTORS = ROOT / "shared/test-vectors/context_meanings.json"
 
 
 def log(message):
@@ -63,18 +72,36 @@ def wait_until(check, timeout=60.0, interval=1.0, what="condition"):
     raise TimeoutError(f"timed out waiting for {what} (last: {last})")
 
 
+def anthropic_api_key():
+    """The key the server would use: this environment first, then the Mac mini runtime .env."""
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        return os.environ["ANTHROPIC_API_KEY"].strip()
+    if RUNTIME_ENV.is_file():
+        for line in RUNTIME_ENV.read_text().splitlines():
+            key, _, value = line.strip().partition("=")
+            if key == "ANTHROPIC_API_KEY" and value.strip().strip("'\""):
+                return value.strip().strip("'\"")
+    return None
+
+
 class Server:
-    def __init__(self, workdir, port):
+    def __init__(self, workdir, port, api_key=None):
         self.dir = workdir / "server"
         self.dir.mkdir(parents=True)
         self.port = port
         self.token = secrets.token_hex(16)
         self.db = self.dir / "db.sqlite"
+        self.context_mode = "claude" if api_key else "fixture"
+        context_env = ("VOCAB_CONTEXT_RESOLVER=claude\n" if api_key else
+                       f"VOCAB_CONTEXT_RESOLVER=fixture\nVOCAB_CONTEXT_FIXTURE_PATH={CONTEXT_VECTORS}\n")
         (self.dir / ".env").write_text(
             f"VOCAB_SYNC_TOKEN={self.token}\nVOCAB_SYNC_PORT={port}\nVOCAB_SYNC_HOST=127.0.0.1\n"
-            f"VOCAB_SYNC_DB_PATH={self.db}\nVOCAB_SYNC_BACKUP_DIR={self.dir / 'backups'}\n"
+            f"VOCAB_SYNC_DB_PATH={self.db}\nVOCAB_SYNC_BACKUP_DIR={self.dir / 'backups'}\n{context_env}"
         )
         env = dict(os.environ, VOCAB_SYNC_RUNTIME_ROOT=str(self.dir), VOCAB_SYNC_ENV_PATH=str(self.dir / ".env"))
+        env.pop("ANTHROPIC_API_KEY", None)
+        if api_key:
+            env["ANTHROPIC_API_KEY"] = api_key
         self.log_file = open(self.dir / "server.log", "w")
         self.process = subprocess.Popen([NODE, "src/index.js"], cwd=ROOT / "server", env=env,
                                         stdout=self.log_file, stderr=subprocess.STDOUT)
@@ -95,6 +122,10 @@ class Server:
 
     def cards(self, lemma):
         rows = self.query("SELECT body_json FROM cards WHERE json_extract(body_json, '$.lemma') = ?", lemma)
+        return [json.loads(row[0]) for row in rows]
+
+    def candidates(self, card_id):
+        rows = self.query("SELECT body_json FROM definition_candidates WHERE json_extract(body_json, '$.card_id') = ?", card_id)
         return [json.loads(row[0]) for row in rows]
 
     def stop(self):
@@ -128,6 +159,13 @@ class Phone:
 
     def capture(self, word):
         phone.share_text(PACKAGE, word)
+        phone.scroll_tap("저장")
+        time.sleep(1)
+
+    def capture_from_sentence(self, word, sentence):
+        """Shares a whole sentence, picks the word among the offered chips, saves."""
+        phone.share_text(PACKAGE, sentence)
+        phone.tap(word)
         phone.scroll_tap("저장")
         time.sleep(1)
 
@@ -271,7 +309,8 @@ def main():
 
     workdir = Path(args.out or tempfile.mkdtemp(prefix="vocab-e2e-"))
     workdir.mkdir(parents=True, exist_ok=True)
-    server = Server(workdir, args.port)
+    server = Server(workdir, args.port, api_key=anthropic_api_key())
+    log(f"context meanings: {'Claude (live)' if server.context_mode == 'claude' else 'fixed responses'}")
     results = []
 
     def scenario(name):
@@ -421,6 +460,57 @@ def main():
                 handset.screenshot("mac-app-edit")
                 return "edited in the Mac card editor; the phone shows the new meaning"
 
+        context_cases = {(c["lemma"], c["sentence"]): c for c in json.loads(CONTEXT_VECTORS.read_text())["resolver_cases"]}
+
+        def context_meaning_matches(lemma, sentence, meaning):
+            case = context_cases[(lemma, sentence)]
+            if server.context_mode == "fixture":
+                return meaning == case["expected"]["meaningKo"]
+            return any(fragment in meaning for fragment in case["real_llm_expect_any"])
+
+        def context_card(lemma, sentence):
+            def check():
+                card = next(iter(active(server.cards(lemma))), None)
+                if not card or card.get("definition_source_primary") != "llm_context":
+                    return None
+                return card if context_meaning_matches(lemma, sentence, card["meaning_ko"]) else None
+            return check
+
+        live = "Claude" if server.context_mode == "claude" else "fixed responses"
+        if server.context_mode != "claude":
+            reason = (f"no ANTHROPIC_API_KEY in the environment or {RUNTIME_ENV}; "
+                      "the same scenario runs below against fixed responses")
+            results.append(("a word captured with its sentence gets the meaning that sentence uses (live Claude)", None, reason))
+            log(f"SKIP live Claude context scenario: {reason}")
+
+        @scenario(f"a word captured with its sentence gets the meaning that sentence uses ({live})")
+        def _():
+            phone_sentence = "The patient was admitted with acute appendicitis."
+            mac_sentence = "She has a keen sense of smell and noticed the smoke first."
+            handset.restart()
+            handset.capture_from_sentence("acute", phone_sentence)
+            card = wait_until(context_card("acute", phone_sentence), timeout=120, what="context meaning for acute on server")
+            assert card["source_sentence_primary"] == phone_sentence, f"server sentence {card['source_sentence_primary']!r}"
+            sources = {c["source"] for c in server.candidates(card["id"])}
+            assert "llm_context" in sources, f"candidate sources {sources}"
+            phone_card = wait_until(
+                lambda: next((c for c in active(handset.cards("acute")) if c["meaning_ko"] == card["meaning_ko"]), None),
+                what="context meaning on phone")
+            handset.restart()
+            assert card["meaning_ko"] in handset.screen_texts(), "phone screen does not show the context meaning"
+            handset.screenshot("context-meaning")
+
+            mac.run("add-context", "keen", mac_sentence)
+            mac.run("enrich", server.url, server.token)
+            keen = wait_until(context_card("keen", mac_sentence), timeout=60, what="context meaning for keen on server")
+            mac.sync()
+            mac_acute = active(mac.cards("acute"))
+            assert mac_acute and mac_acute[0]["meaning_ko"] == card["meaning_ko"], f"Mac acute {mac_acute}"
+            mac_keen = active(mac.cards("keen"))[0]
+            assert mac_keen["definition_source_primary"] == "llm_context", f"Mac keen source {mac_keen['definition_source_primary']}"
+            return (f"phone 'acute' in \"{phone_sentence}\" -> '{card['meaning_ko']}' (phone shows '{phone_card['meaning_ko']}'); "
+                    f"Mac 'keen' in \"{mac_sentence}\" -> '{keen['meaning_ko']}'; candidates {sorted(sources)}")
+
         @scenario("reads never write")
         def _():
             before = server.query("SELECT COUNT(*) FROM sync_changes")[0][0]
@@ -445,9 +535,10 @@ def main():
 
     print()
     for name, ok, evidence in results:
-        print(f"{'PASS' if ok else 'FAIL'}  {name}\n      {evidence}")
+        label = "SKIP" if ok is None else "PASS" if ok else "FAIL"
+        print(f"{label}  {name}\n      {evidence}")
     print(f"\nevidence: {workdir}")
-    return 0 if results and all(ok for _, ok, _ in results) else 1
+    return 0 if results and all(ok is not False for _, ok, _ in results) else 1
 
 
 if __name__ == "__main__":

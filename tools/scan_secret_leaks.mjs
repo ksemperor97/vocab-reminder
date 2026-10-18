@@ -48,9 +48,9 @@ function loadSecrets(options) {
   const secrets = [];
   const sourceFiles = new Set();
   const candidates = [
-    [options.serverEnv, [["sync", "VOCAB_SYNC_TOKEN"]]],
+    [options.serverEnv, [["sync", "VOCAB_SYNC_TOKEN"], ["anthropic", "ANTHROPIC_API_KEY"]]],
     [options.tunnelEnv, [["admin", "CF_WORKER_ADMIN_TOKEN"]]],
-    [path.join(repositoryRoot, "server", ".env"), [["sync", "VOCAB_SYNC_TOKEN"]]],
+    [path.join(repositoryRoot, "server", ".env"), [["sync", "VOCAB_SYNC_TOKEN"], ["anthropic", "ANTHROPIC_API_KEY"]]],
     [path.join(repositoryRoot, "server", "tunnel", ".env"), [["admin", "CF_WORKER_ADMIN_TOKEN"]]],
   ];
   for (const [file, mappings] of candidates) {
@@ -63,6 +63,7 @@ function loadSecrets(options) {
   addSecret(secrets, "sync", process.env.VOCAB_SYNC_DEFAULT_TOKEN);
   addSecret(secrets, "admin", process.env.CF_WORKER_ADMIN_TOKEN);
   addSecret(secrets, "cloudflare-api", process.env.CLOUDFLARE_API_TOKEN);
+  addSecret(secrets, "anthropic", process.env.ANTHROPIC_API_KEY);
   return { secrets, sourceFiles };
 }
 
@@ -165,6 +166,7 @@ function suspiciousLiteral(text) {
   const patterns = [
     /(?:VOCAB_SYNC_TOKEN|VOCAB_SYNC_DEFAULT_TOKEN|CF_WORKER_ADMIN_TOKEN|CLOUDFLARE_API_TOKEN|ADMIN_TOKEN)\s*[:=]\s*["']?([A-Za-z0-9+/_=-]{24,})/g,
     /Bearer\s+([A-Za-z0-9+/_=-]{24,})/gi,
+    /\b(sk-ant-[A-Za-z0-9_-]{20,})/g,
   ];
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {

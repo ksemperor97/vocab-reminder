@@ -9,12 +9,17 @@ import {
   normalizeDictionaryResult,
   pendingDictionaryResult
 } from "./dictionary.js";
+import { contextSourceType, normalizeContextSentence } from "./context_meaning.js";
 import { SyncStore } from "./sync.js";
 
 const defaultMaxBodyBytes = 16 * 1024 * 1024;
 const defaultMaxDictionaryBatchItems = 50;
 const hardMaxDictionaryBatchItems = 100;
 const dictionaryBatchConcurrency = 4;
+const contextBatchConcurrency = 8;
+// Context calls that have not started by this point in a request answer with
+// the dictionary result and contextStatus "deferred"; the client asks again.
+const defaultContextBudgetMs = 20_000;
 const defaultDictionaryRequestsPerMinute = 120;
 const hardMaxDictionaryRequestsPerMinute = 600;
 
@@ -27,6 +32,8 @@ export function createSyncServer({
   maxBodyBytes = defaultMaxBodyBytes,
   maxCollectionItems,
   dictionaryResolver = createDictionaryResolver(),
+  contextResolver = null,
+  contextBudgetMs = defaultContextBudgetMs,
   maxDictionaryBatchItems = defaultMaxDictionaryBatchItems,
   dictionaryRequestsPerMinute = defaultDictionaryRequestsPerMinute,
   recommendationCatalog = createRecommendationCatalogLoader(),
@@ -68,6 +75,8 @@ export function createSyncServer({
         token,
         maxBodyBytes: bodyByteLimit,
         dictionaryResolver,
+        contextResolver,
+        contextBudgetMs,
         maxDictionaryBatchItems: dictionaryBatchLimit,
         dictionaryRateLimiter,
         requestId, recommendationCatalog, now
@@ -118,16 +127,31 @@ async function route(context) {
     requireBearer(request, context.token);
     context.dictionaryRateLimiter.consume();
     const payload = await readJsonBody(request, context.maxBodyBytes);
-    const lemmas = dictionaryBatchLemmas(payload, context.maxDictionaryBatchItems);
-    const uniqueLemmas = [...new Set(lemmas)];
+    const items = dictionaryBatchItems(payload, context.maxDictionaryBatchItems);
+    const uniqueLemmas = [...new Set(items.map((item) => item.lemma))];
     const uniqueResults = await mapWithConcurrency(
       uniqueLemmas,
       dictionaryBatchConcurrency,
       (lemma) => lookupDictionary(context.dictionaryResolver, lemma)
     );
     const resultByLemma = new Map(uniqueResults.map((result) => [result.lemma, result]));
+    const contextEnabled = Boolean(context.contextResolver?.enabled);
+    const contextItems = [...new Map(
+      items.filter((item) => item.sentence !== "").map((item) => [itemKey(item), item])
+    ).values()];
+    const deadline = Date.now() + context.contextBudgetMs;
+    const contextResults = new Map(await mapWithConcurrency(
+      contextItems,
+      contextBatchConcurrency,
+      async (item) => [itemKey(item), await resolveInContext(
+        context.contextResolver, item, resultByLemma.get(item.lemma), deadline
+      )]
+    ));
     sendJson(response, 200, {
-      results: lemmas.map((lemma) => ({ ...resultByLemma.get(lemma) }))
+      context_resolver: contextEnabled ? "enabled" : "disabled",
+      results: items.map((item) => item.sentence === ""
+        ? { ...resultByLemma.get(item.lemma), ...(item.withContext ? { contextStatus: "no_context" } : {}) }
+        : { ...contextResults.get(itemKey(item)) })
     });
     return;
   }
@@ -184,14 +208,91 @@ function dictionaryLemmaFromPath(pathname) {
   return normalizeDictionaryLemma(decoded);
 }
 
-function dictionaryBatchLemmas(payload, limit) {
-  if (!payload || typeof payload !== "object" || !Array.isArray(payload.lemmas)) {
-    throw badRequest("Dictionary batch body must contain a lemmas array.");
+// Accepts the original {lemmas: [...]} body and the context-aware
+// {items: [{lemma, sentence}]} body. Results keep request order either way.
+function dictionaryBatchItems(payload, limit) {
+  if (!payload || typeof payload !== "object") {
+    throw badRequest("Dictionary batch body must contain a lemmas or items array.");
+  }
+  if (Array.isArray(payload.items)) {
+    if (payload.items.length === 0 || payload.items.length > limit) {
+      throw badRequest(`Dictionary batch must contain between 1 and ${limit} items.`);
+    }
+    return payload.items.map((item) => {
+      if (!item || typeof item !== "object") throw badRequest("Dictionary batch items must be objects.");
+      if (item.sentence != null && typeof item.sentence !== "string") {
+        throw badRequest("Dictionary batch item sentence must be a string.");
+      }
+      return {
+        lemma: normalizeDictionaryLemma(item.lemma),
+        sentence: normalizeContextSentence(item.sentence ?? ""),
+        withContext: true
+      };
+    });
+  }
+  if (!Array.isArray(payload.lemmas)) {
+    throw badRequest("Dictionary batch body must contain a lemmas or items array.");
   }
   if (payload.lemmas.length === 0 || payload.lemmas.length > limit) {
     throw badRequest(`Dictionary batch must contain between 1 and ${limit} lemmas.`);
   }
-  return payload.lemmas.map(normalizeDictionaryLemma);
+  return payload.lemmas.map((lemma) => ({ lemma: normalizeDictionaryLemma(lemma), sentence: "", withContext: false }));
+}
+
+function itemKey(item) {
+  return `${item.lemma}\u0000${item.sentence}`;
+}
+
+// Guide 10.8: an LLM pick from the captured sentence outranks the dictionary
+// gloss. The dictionary result stays attached so the client can keep it as a
+// candidate, and is the answer whenever the LLM is off, unsure, or failing.
+async function resolveInContext(resolver, item, dictionaryResult, deadline) {
+  const fallback = (contextStatus) => ({ ...dictionaryResult, contextStatus, contextSentence: item.sentence });
+  if (!resolver?.enabled) return fallback("disabled");
+  if (Date.now() >= deadline) return fallback("deferred");
+  let picked;
+  try {
+    picked = await resolver.resolve({
+      lemma: item.lemma,
+      sentence: item.sentence,
+      candidates: dictionaryCandidates(dictionaryResult)
+    });
+  } catch {
+    picked = { status: "failed" };
+  }
+  if (picked?.status !== "resolved") return fallback(picked?.status ?? "failed");
+  const resolved = normalizeDictionaryResult(item.lemma, {
+    meaningKo: picked.meaningsKo.join(", "),
+    definitionEn: dictionaryResult.definitionEn,
+    partOfSpeech: picked.partOfSpeech || dictionaryResult.partOfSpeech,
+    exampleSentence: item.sentence,
+    sourceType: contextSourceType,
+    confidence: picked.confidence,
+    ...(dictionaryResult.senses ? { senses: dictionaryResult.senses } : {})
+  });
+  return {
+    ...resolved,
+    contextStatus: "resolved",
+    contextSentence: item.sentence,
+    ...(dictionaryResult.status === "resolved" ? { dictionary: dictionaryFallbackSummary(dictionaryResult) } : {})
+  };
+}
+
+function dictionaryCandidates(result) {
+  if (!result || result.status !== "resolved") return [];
+  const primary = { meaningKo: result.meaningKo, definitionEn: result.definitionEn, partOfSpeech: result.partOfSpeech };
+  return [primary, ...(result.senses ?? [])];
+}
+
+function dictionaryFallbackSummary(result) {
+  return {
+    meaningKo: result.meaningKo,
+    definitionEn: result.definitionEn,
+    partOfSpeech: result.partOfSpeech,
+    exampleSentence: result.exampleSentence,
+    sourceType: result.sourceType,
+    confidence: result.confidence
+  };
 }
 
 async function mapWithConcurrency(items, concurrency, transform) {

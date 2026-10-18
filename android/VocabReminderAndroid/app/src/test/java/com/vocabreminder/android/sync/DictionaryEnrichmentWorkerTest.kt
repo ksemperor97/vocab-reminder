@@ -64,7 +64,8 @@ class DictionaryEnrichmentWorkerTest {
         DictionaryEnrichmentRuntime.clientFactory = { config ->
             assertEquals("https://sync.example.invalid", config.serverBaseUrl)
             assertEquals("test-token", config.bearerToken)
-            DictionaryLookupClient { lemmas ->
+            DictionaryLookupClient { items ->
+                val lemmas = items.map { it.lemma }
                 requestedLemmas = lemmas
                 listOf(resolved("resolvable", "해결할 수 있는"))
             }
@@ -92,7 +93,8 @@ class DictionaryEnrichmentWorkerTest {
         val cards = (0 until 200).map { index -> blankCard(indexedWord(index)) }
         val requestedPages = mutableListOf<List<String>>()
         DictionaryEnrichmentRuntime.clientFactory = {
-            DictionaryLookupClient { lemmas ->
+            DictionaryLookupClient { items ->
+                val lemmas = items.map { it.lemma }
                 requestedPages += lemmas
                 lemmas.map { lemma -> resolved(lemma, "meaning for $lemma") }
             }
@@ -115,7 +117,8 @@ class DictionaryEnrichmentWorkerTest {
         val cards = (0 until 75).map { index -> blankCard(indexedWord(index)) }
         var requestCount = 0
         DictionaryEnrichmentRuntime.clientFactory = {
-            DictionaryLookupClient { lemmas ->
+            DictionaryLookupClient { items ->
+                val lemmas = items.map { it.lemma }
                 requestCount += 1
                 if (requestCount == 2) throw CloudSyncException("offline", REQUEST_ID)
                 lemmas.map { lemma -> resolved(lemma, "meaning for $lemma") }
@@ -174,7 +177,8 @@ class DictionaryEnrichmentWorkerTest {
         val missing = blankCard("unknownword")
         val provider = blankCard("provider")
         DictionaryEnrichmentRuntime.clientFactory = {
-            DictionaryLookupClient { lemmas ->
+            DictionaryLookupClient { items ->
+                val lemmas = items.map { it.lemma }
                 lemmas.map { lemma ->
                     when (lemma) {
                         "unknownword" -> pending(lemma, DictionaryLookupErrorCode.NOT_FOUND)

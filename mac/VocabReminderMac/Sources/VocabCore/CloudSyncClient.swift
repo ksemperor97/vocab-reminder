@@ -159,6 +159,43 @@ package struct CloudDictionarySense: Equatable, Sendable {
     package var exampleSentence: String = ""
 }
 
+/// The dictionary result the server set aside when it picked a meaning from the sentence.
+package struct CloudDictionaryFallback: Equatable, Sendable {
+    package init(
+        meaningKo: String,
+        definitionEn: String = "",
+        partOfSpeech: String = "",
+        exampleSentence: String = "",
+        sourceType: String = "server_dictionary",
+        confidence: Double = 0
+    ) {
+        self.meaningKo = meaningKo
+        self.definitionEn = definitionEn
+        self.partOfSpeech = partOfSpeech
+        self.exampleSentence = exampleSentence
+        self.sourceType = sourceType
+        self.confidence = confidence
+    }
+
+    package var meaningKo: String
+    package var definitionEn: String
+    package var partOfSpeech: String
+    package var exampleSentence: String
+    package var sourceType: String
+    package var confidence: Double
+}
+
+/// One dictionary lookup: the lemma and, when known, the sentence it was captured in.
+package struct CloudDictionaryRequest: Equatable, Sendable {
+    package init(lemma: String, sentence: String = "") {
+        self.lemma = lemma
+        self.sentence = sentence
+    }
+
+    package var lemma: String
+    package var sentence: String
+}
+
 package struct CloudDictionaryLookupResult: Equatable, Sendable {
     package var lemma: String
     package var meaningKo: String
@@ -170,6 +207,11 @@ package struct CloudDictionaryLookupResult: Equatable, Sendable {
     package var attemptedAt: String
     package var errorCode: String?
     package var senses: [CloudDictionarySense]
+    /// How the server used the sentence: resolved, unresolved, failed, deferred,
+    /// disabled or no_context; nil from servers that predate context meanings.
+    package var contextStatus: String?
+    package var contextSentence: String
+    package var dictionary: CloudDictionaryFallback?
 
     package var outcome: CloudDictionaryOutcome {
         guard meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -198,7 +240,10 @@ package struct CloudDictionaryLookupResult: Equatable, Sendable {
         confidence: Double = 0,
         attemptedAt: String = "",
         errorCode: String? = nil,
-        senses: [CloudDictionarySense] = []
+        senses: [CloudDictionarySense] = [],
+        contextStatus: String? = nil,
+        contextSentence: String = "",
+        dictionary: CloudDictionaryFallback? = nil
     ) {
         self.lemma = lemma
         self.meaningKo = meaningKo
@@ -210,6 +255,9 @@ package struct CloudDictionaryLookupResult: Equatable, Sendable {
         self.attemptedAt = attemptedAt
         self.errorCode = errorCode
         self.senses = Array(senses.prefix(20))
+        self.contextStatus = contextStatus
+        self.contextSentence = contextSentence
+        self.dictionary = dictionary
     }
 
     package init(payload: [String: Any]) throws {
@@ -233,6 +281,19 @@ package struct CloudDictionaryLookupResult: Equatable, Sendable {
                     partOfSpeech: $0["partOfSpeech"] as? String ?? $0["part_of_speech"] as? String ?? "",
                     exampleSentence: $0["exampleSentence"] as? String ?? $0["example_sentence"] as? String ?? ""
                 )
+            },
+            contextStatus: (payload["contextStatus"] as? String ?? payload["context_status"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            contextSentence: payload["contextSentence"] as? String ?? payload["context_sentence"] as? String ?? "",
+            dictionary: (payload["dictionary"] as? [String: Any]).flatMap { fallback in
+                let parsed = CloudDictionaryFallback(
+                    meaningKo: fallback["meaningKo"] as? String ?? fallback["meaning_ko"] as? String ?? "",
+                    definitionEn: fallback["definitionEn"] as? String ?? fallback["definition_en"] as? String ?? "",
+                    partOfSpeech: fallback["partOfSpeech"] as? String ?? fallback["part_of_speech"] as? String ?? "",
+                    exampleSentence: fallback["exampleSentence"] as? String ?? fallback["example_sentence"] as? String ?? "",
+                    sourceType: fallback["sourceType"] as? String ?? fallback["source_type"] as? String ?? "server_dictionary",
+                    confidence: min(max((fallback["confidence"] as? NSNumber)?.doubleValue ?? 0, 0), 1)
+                )
+                return parsed.meaningKo.isEmpty && parsed.definitionEn.isEmpty ? nil : parsed
             }
         )
     }
@@ -324,10 +385,57 @@ package final class CloudSyncClient {
         return try rawResults.map(CloudDictionaryLookupResult.init(payload:))
     }
 
-    private func post(_ path: String, body: [String: Any]) async throws -> [String: Any] {
+    /// Sends each lemma with the sentence it was captured in, so the server can
+    /// pick the meaning that sentence uses (an LLM call, hence the longer wait).
+    package func lookupDictionary(items: [CloudDictionaryRequest]) async throws -> [CloudDictionaryLookupResult] {
+        let normalized = items.map {
+            CloudDictionaryRequest(
+                lemma: normalizeCloudDictionaryLemma($0.lemma),
+                sentence: String($0.sentence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+            )
+        }
+        guard normalized.isEmpty == false,
+              normalized.count <= Self.maxDictionaryItemsPerBatch,
+              normalized.allSatisfy({ $0.lemma.isEmpty == false })
+        else {
+            throw CloudSyncError.invalidConfig(
+                "Dictionary lookup requires 1...\(Self.maxDictionaryItemsPerBatch) non-empty lemmas."
+            )
+        }
+        let body: [[String: Any]] = normalized.map { item in
+            item.sentence.isEmpty ? ["lemma": item.lemma] : ["lemma": item.lemma, "sentence": item.sentence]
+        }
+        let hasSentence = normalized.contains { $0.sentence.isEmpty == false }
+        let payload: [String: Any]
+        do {
+            payload = try await post(
+                "dict/batch",
+                body: ["items": body],
+                timeout: hasSentence ? Self.contextLookupTimeout : 5
+            )
+        } catch CloudSyncError.http(400, _) {
+            // A server older than context meanings only reads {lemmas}; answers then carry no contextStatus.
+            return try await lookupDictionary(lemmas: normalized.map(\.lemma))
+        }
+        guard let rawResults = payload["results"] as? [[String: Any]],
+              rawResults.count == normalized.count
+        else {
+            throw CloudSyncError.invalidResponse
+        }
+        let results = try rawResults.map(CloudDictionaryLookupResult.init(payload:))
+        guard zip(results, normalized).allSatisfy({ $0.lemma == $1.lemma }) else {
+            throw CloudSyncError.invalidResponse
+        }
+        return results
+    }
+
+    // The server spends at most ~20 s starting LLM calls plus 15 s per call.
+    package static let contextLookupTimeout: TimeInterval = 45
+
+    private func post(_ path: String, body: [String: Any], timeout: TimeInterval = 5) async throws -> [String: Any] {
         var request = URLRequest(url: try config.endpoint(path))
         request.httpMethod = "POST"
-        request.timeoutInterval = 5
+        request.timeoutInterval = timeout
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(config.bearerToken)", forHTTPHeaderField: "Authorization")
         request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Request-Id")

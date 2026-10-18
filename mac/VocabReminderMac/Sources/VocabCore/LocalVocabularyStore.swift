@@ -763,9 +763,124 @@ package final class LocalVocabularyStore: ObservableObject {
             .map {
                 DictionaryEnrichmentTarget(
                     cardId: $0.id,
-                    lemma: Self.normalizedDictionaryLemma($0.lemma)
+                    lemma: Self.normalizedDictionaryLemma($0.lemma),
+                    sentence: ContextMeaning.sentence(of: $0),
+                    contextKey: ContextMeaning.key(of: $0)
                 )
             }
+    }
+
+    /// The user typed this meaning, chose a candidate, or restored one, on any device.
+    package func isMeaningPinned(_ card: VocabularyCard) -> Bool {
+        card.definitionSourcePrimary == "user" ||
+            reviewEvents.contains {
+                $0.cardId == card.id && $0.response == .manualEdit && $0.metadata["action"] != "rebalance"
+            }
+    }
+
+    /// Cards with a dictionary meaning whose captured sentence may pick a better one.
+    package func pendingContextMeaningTargets(
+        isEligible: (_ cardId: String, _ contextKey: String) -> Bool
+    ) -> [DictionaryEnrichmentTarget] {
+        cards
+            .filter {
+                $0.deletedAt == nil &&
+                    $0.wordbook == .user &&
+                    $0.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+                    $0.definitionSourcePrimary != "user" &&
+                    $0.definitionSourcePrimary != ContextMeaning.source &&
+                    ContextMeaning.sentence(of: $0).isEmpty == false &&
+                    Self.normalizedDictionaryLemma($0.lemma).isEmpty == false
+            }
+            .sorted {
+                if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+                return $0.id < $1.id
+            }
+            .filter { isEligible($0.id, ContextMeaning.key(of: $0)) && isMeaningPinned($0) == false }
+            .map {
+                DictionaryEnrichmentTarget(
+                    cardId: $0.id,
+                    lemma: Self.normalizedDictionaryLemma($0.lemma),
+                    sentence: ContextMeaning.sentence(of: $0),
+                    contextKey: ContextMeaning.key(of: $0)
+                )
+            }
+    }
+
+    /// Applies context results to cards that already have a meaning. Only an
+    /// llm_context pick replaces a meaning, never a pinned one (that card gains
+    /// the pick as an unselected candidate), and the schedule is left alone.
+    @discardableResult
+    package func applyContextMeanings(
+        _ pairs: [(target: DictionaryEnrichmentTarget, result: CloudDictionaryLookupResult)],
+        now: Date = Date()
+    ) -> [String] {
+        var appliedCardIds: [String] = []
+        var changed = false
+        for (target, result) in pairs where ContextMeaning.isResolvedFromContext(result) {
+            guard let index = cards.firstIndex(where: { $0.id == target.cardId }),
+                  cards[index].deletedAt == nil,
+                  cards[index].meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                  cards[index].definitionSourcePrimary != ContextMeaning.source,
+                  ContextMeaning.key(of: cards[index]) == target.contextKey
+            else { continue }
+            let previous = cards[index]
+            let meaning = result.meaningKo.trimmingCharacters(in: .whitespacesAndNewlines)
+            let partOfSpeech = result.partOfSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
+            var picked = previous
+            picked.meaningKo = meaning
+            if partOfSpeech.isEmpty == false { picked.partOfSpeech = partOfSpeech }
+
+            if isMeaningPinned(previous) {
+                let alreadyKept = definitionCandidates.contains {
+                    $0.cardId == previous.id && $0.source == ContextMeaning.source && $0.parsedMeaningKo == meaning
+                }
+                if alreadyKept == false {
+                    appendContextCandidate(picked, result: result, selected: false, now: now)
+                    changed = true
+                }
+                continue
+            }
+
+            ensureCardMeaningCandidate(previous, now: now)
+            picked.definitionSourcePrimary = ContextMeaning.source
+            picked.updatedAt = now
+            picked.version += 1
+            cards[index] = picked
+            appendContextCandidate(picked, result: result, selected: true, now: now, baseCardVersion: previous.version)
+            appliedCardIds.append(picked.id)
+            changed = true
+        }
+        if changed {
+            guard save() else { return [] }
+        }
+        return appliedCardIds
+    }
+
+    private func appendContextCandidate(
+        _ card: VocabularyCard,
+        result: CloudDictionaryLookupResult,
+        selected: Bool,
+        now: Date,
+        baseCardVersion: Int? = nil
+    ) {
+        definitionCandidates.append(
+            StoredDefinitionCandidate(
+                id: UUID().uuidString,
+                cardId: card.id,
+                source: ContextMeaning.source,
+                rawText: card.meaningKo,
+                parsedMeaningKo: card.meaningKo,
+                parsedDefinitionEn: card.definitionEn,
+                partOfSpeech: card.partOfSpeech,
+                exampleSentence: result.contextSentence.isEmpty ? card.exampleSentence : result.contextSentence,
+                confidence: min(max(result.confidence, 0), 1),
+                selectedAsPrimary: selected,
+                createdAt: now,
+                originDeviceId: selected ? SyncBatchFactory.deviceId() : nil,
+                baseCardVersion: baseCardVersion
+            )
+        )
     }
 
     @discardableResult
@@ -836,10 +951,25 @@ package final class LocalVocabularyStore: ObservableObject {
                     baseCardVersion: baseCardVersion
                 )
             )
+            // The server picked this meaning from the captured sentence; the
+            // dictionary gloss it set aside stays restorable under its own source.
+            if let fallback = result.dictionary,
+               fallback.meaningKo.isEmpty == false,
+               definitionCandidates.contains(where: { $0.cardId == card.id && $0.source == fallback.sourceType && $0.parsedMeaningKo == fallback.meaningKo }) == false {
+                definitionCandidates.append(StoredDefinitionCandidate(
+                    id: UUID().uuidString, cardId: card.id, source: fallback.sourceType,
+                    rawText: [fallback.meaningKo, fallback.definitionEn].filter { !$0.isEmpty }.joined(separator: "\n"),
+                    parsedMeaningKo: fallback.meaningKo, parsedDefinitionEn: fallback.definitionEn,
+                    partOfSpeech: fallback.partOfSpeech, exampleSentence: fallback.exampleSentence,
+                    confidence: min(max(fallback.confidence, 0), 1), selectedAsPrimary: false,
+                    createdAt: now, originDeviceId: SyncBatchFactory.deviceId(), baseCardVersion: baseCardVersion
+                ))
+            }
+            let senseSource = result.dictionary?.sourceType ?? card.definitionSourcePrimary
             for sense in result.senses where !sense.meaningKo.isEmpty || !sense.definitionEn.isEmpty {
                 guard !definitionCandidates.contains(where: { $0.cardId == card.id && $0.parsedMeaningKo == sense.meaningKo && $0.parsedDefinitionEn == sense.definitionEn && $0.partOfSpeech == sense.partOfSpeech }) else { continue }
                 definitionCandidates.append(StoredDefinitionCandidate(
-                    id: UUID().uuidString, cardId: card.id, source: card.definitionSourcePrimary,
+                    id: UUID().uuidString, cardId: card.id, source: senseSource,
                     rawText: [sense.meaningKo, sense.definitionEn].joined(separator: "\n"),
                     parsedMeaningKo: sense.meaningKo, parsedDefinitionEn: sense.definitionEn,
                     partOfSpeech: sense.partOfSpeech, exampleSentence: sense.exampleSentence,
@@ -1608,14 +1738,21 @@ package struct CloudSyncSummary {
 package struct DictionaryEnrichmentTarget: Hashable, Sendable {
     package init(
         cardId: String,
-        lemma: String
+        lemma: String,
+        sentence: String = "",
+        contextKey: String = ""
     ) {
         self.cardId = cardId
         self.lemma = lemma
+        self.sentence = sentence
+        self.contextKey = contextKey
     }
 
     package var cardId: String
     package var lemma: String
+    /// The captured sentence sent with the lemma, so the server can pick the meaning it uses.
+    package var sentence: String
+    package var contextKey: String
 }
 
 package struct DictionaryEnrichmentApplySummary: Equatable, Sendable {

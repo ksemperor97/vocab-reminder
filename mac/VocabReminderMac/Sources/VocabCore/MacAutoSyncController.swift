@@ -18,12 +18,14 @@ package final class MacAutoSyncController {
     private let session: URLSession
     private let nowProvider: @Sendable () -> Date
     private let retryLedger: DictionaryEnrichmentRetryLedger
+    private let contextLedger: ContextMeaningLedger
     private let scheduleRetryTasks: Bool
     private var networkMonitor: NWPathMonitor?
 
     package init(
         defaults: UserDefaults = .standard,
         retryDefaultsKey: String = "dictionaryEnrichmentRetryLedgerV1",
+        contextDefaultsKey: String = "contextMeaningLedgerV1",
         session: URLSession = .shared,
         nowProvider: @escaping @Sendable () -> Date = Date.init,
         monitorNetwork: Bool = false,
@@ -32,6 +34,7 @@ package final class MacAutoSyncController {
         self.session = session
         self.nowProvider = nowProvider
         self.retryLedger = DictionaryEnrichmentRetryLedger(defaults: defaults, key: retryDefaultsKey)
+        self.contextLedger = ContextMeaningLedger(defaults: defaults, key: contextDefaultsKey)
         self.scheduleRetryTasks = scheduleRetryTasks
         if monitorNetwork {
             startNetworkMonitor()
@@ -117,8 +120,59 @@ package final class MacAutoSyncController {
         }
     }
 
+    /// Fills blank cards, then lets captured sentences pick the meaning they
+    /// use for cards that only have a dictionary meaning.
     @discardableResult
     package func performDictionaryEnrichment(
+        store: LocalVocabularyStore,
+        config: CloudSyncConfig
+    ) async -> DictionaryEnrichmentRunSummary {
+        let blank = await performBlankCardEnrichment(store: store, config: config)
+        let context = await performContextMeaningPass(store: store, config: config)
+        return DictionaryEnrichmentRunSummary(
+            appliedCount: blank.appliedCount + context.appliedCount,
+            hasMoreEligibleTargets: blank.hasMoreEligibleTargets || context.hasMoreEligibleTargets,
+            nextRetryAt: blank.nextRetryAt
+        )
+    }
+
+    /// When this card's sentence may be sent again: nil if never asked,
+    /// .some(nil) if it never will be, otherwise the retry date.
+    package func contextRetryAt(cardId: String) -> Date?? {
+        contextLedger.retryAt(cardId: cardId)
+    }
+
+    private func performContextMeaningPass(
+        store: LocalVocabularyStore,
+        config: CloudSyncConfig
+    ) async -> DictionaryEnrichmentRunSummary {
+        let now = nowProvider()
+        contextLedger.prune(validCardIds: Set(store.cards.map(\.id)))
+        let targets = store.pendingContextMeaningTargets { cardId, contextKey in
+            contextLedger.isEligible(cardId: cardId, contextKey: contextKey, at: now)
+        }
+        guard targets.isEmpty == false else { return .idle }
+        let batch = Array(targets.prefix(CloudSyncClient.maxDictionaryItemsPerBatch))
+        do {
+            let results = try await CloudSyncClient(config: config, session: session)
+                .lookupDictionary(items: batch.map { CloudDictionaryRequest(lemma: $0.lemma, sentence: $0.sentence) })
+            let applied = store.applyContextMeanings(Array(zip(batch, results)).map { (target: $0.0, result: $0.1) }, now: now)
+            for (target, result) in zip(batch, results) {
+                contextLedger.record(cardId: target.cardId, contextKey: target.contextKey, contextStatus: result.contextStatus, at: now)
+            }
+            return DictionaryEnrichmentRunSummary(
+                appliedCount: applied.count,
+                hasMoreEligibleTargets: targets.count > batch.count
+            )
+        } catch {
+            for target in batch {
+                contextLedger.record(cardId: target.cardId, contextKey: target.contextKey, contextStatus: "failed", at: now)
+            }
+            return .idle
+        }
+    }
+
+    private func performBlankCardEnrichment(
         store: LocalVocabularyStore,
         config: CloudSyncConfig
     ) async -> DictionaryEnrichmentRunSummary {
@@ -158,7 +212,10 @@ package final class MacAutoSyncController {
 
         do {
             let results = try await CloudSyncClient(config: config, session: session)
-                .lookupDictionary(lemmas: batch.map(\.lemma))
+                .lookupDictionary(items: batch.map { CloudDictionaryRequest(lemma: $0.lemma, sentence: $0.sentence) })
+            for (target, result) in zip(batch, results) where target.sentence.isEmpty == false {
+                contextLedger.record(cardId: target.cardId, contextKey: target.contextKey, contextStatus: result.contextStatus, at: now)
+            }
             let resultByLemma = Dictionary(
                 results.map { (normalizeCloudDictionaryLemma($0.lemma), $0) },
                 uniquingKeysWith: { first, _ in first }

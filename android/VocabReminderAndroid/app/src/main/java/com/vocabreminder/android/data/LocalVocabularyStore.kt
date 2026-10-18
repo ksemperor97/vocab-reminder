@@ -696,6 +696,7 @@ class LocalVocabularyStore private constructor(
         val events: List<StoredReviewEvent> = emptyList(),
         val feedback: List<RecommendationFeedback> = emptyList(),
         val enrichmentStates: List<DictionaryEnrichmentState> = emptyList(),
+        val contextAttempts: Map<String, ContextAttempt> = emptyMap(),
         val settings: UserSettingsData? = null
     )
 
@@ -735,6 +736,9 @@ class LocalVocabularyStore private constructor(
                 db.markOutbox(tx, "recommendation_feedback", it.id)
             }
             changes.enrichmentStates.forEach { putEnrichmentState(tx, it) }
+            if (changes.contextAttempts.isNotEmpty()) {
+                db.putKv(tx, KEY_CONTEXT_ATTEMPTS, ContextMeaning.encode(contextAttempts() + changes.contextAttempts))
+            }
             changes.settings?.let {
                 db.putKv(tx, KEY_SETTINGS, SettingsJson.encode(it))
                 db.markOutbox(tx, "settings", "main")
@@ -756,6 +760,9 @@ class LocalVocabularyStore private constructor(
             android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE
         )
     }
+
+    // Device-local bookkeeping, never synced: which card sentences were already sent for a context meaning.
+    internal fun contextAttempts(): Map<String, ContextAttempt> = ContextMeaning.decode(db.kv(KEY_CONTEXT_ATTEMPTS))
 
     internal fun persistedDictionaryEnrichmentStates(): Map<String, DictionaryEnrichmentState> =
         db.bodies("SELECT body FROM enrichment_states").mapNotNull(DictionaryEnrichmentStateJson::decode).associateBy { it.cardId }
@@ -805,7 +812,7 @@ class LocalVocabularyStore private constructor(
     private fun hasDefinitionText(candidate: StoredDefinitionCandidate) =
         candidate.rawText.isNotBlank() || candidate.parsedMeaningKo.isNotBlank() || candidate.parsedDefinitionEn.isNotBlank()
 
-    private fun buildMeaningCandidateIfNeeded(
+    internal fun buildMeaningCandidateIfNeeded(
         card: VocabularyCard,
         existingCandidates: List<StoredDefinitionCandidate>,
         now: Instant
@@ -920,6 +927,7 @@ class LocalVocabularyStore private constructor(
 
     internal companion object {
         private const val KEY_SETTINGS = "settings"
+        private const val KEY_CONTEXT_ATTEMPTS = "context_meaning_attempts"
         private const val KEY_SYNC_CURSOR = "sync_cursor"
         private const val KEY_SYNC_CURSOR_ENDPOINT = "sync_cursor_endpoint"
         private const val KEY_CLOUD_SYNC = "cloud_sync"

@@ -9,15 +9,21 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.vocabreminder.android.data.ContextMeaning
 import com.vocabreminder.android.data.DictionaryEnrichmentFailure
 import com.vocabreminder.android.data.LocalVocabularyStore
+import com.vocabreminder.android.data.applyContextMeaning
 import com.vocabreminder.android.data.applyDictionaryDefinitionFallback
 import com.vocabreminder.android.data.applyDictionaryEnrichment
+import com.vocabreminder.android.data.cardsNeedingContextMeaning
 import com.vocabreminder.android.data.cardsNeedingDictionaryEnrichment
+import com.vocabreminder.android.data.hasCardsNeedingContextMeaning
 import com.vocabreminder.android.data.hasCardsNeedingDictionaryEnrichment
 import com.vocabreminder.android.data.markDictionaryEnrichmentPending
+import com.vocabreminder.android.data.recordContextAttempt
 import com.vocabreminder.android.data.recordDictionaryEnrichmentFailure
 import com.vocabreminder.android.dictionary.DictionaryLookupErrorCode
+import com.vocabreminder.android.dictionary.DictionaryLookupRequest
 import com.vocabreminder.android.dictionary.DictionaryLookupStatus
 import com.vocabreminder.android.notifications.ReminderScheduler
 import kotlinx.coroutines.CancellationException
@@ -47,7 +53,11 @@ class DictionaryEnrichmentWorker(
                 MAX_CARDS_PER_RUN,
                 MAX_CARDS_PER_WORK_INVOCATION - processedCards
             )
-            val queuedCards = store.cardsNeedingDictionaryEnrichment(pageSize)
+            // Blank cards first; then cards whose dictionary meaning may be
+            // replaced by the meaning their captured sentence uses.
+            val blankCards = store.cardsNeedingDictionaryEnrichment(pageSize)
+            val contextCards = store.cardsNeedingContextMeaning(pageSize - blankCards.size, DictionaryEnrichmentRuntime.now())
+            val queuedCards = blankCards + contextCards
             if (queuedCards.isEmpty()) break
             processedCards += queuedCards.size
 
@@ -61,13 +71,14 @@ class DictionaryEnrichmentWorker(
                 DictionaryEnrichmentFailure.NOT_FOUND,
                 now
             )
+            contextCards.filter { it.id in invalidIds }.forEach { store.recordContextAttempt(it, null, now) }
             if (validCards.isEmpty()) continue
 
             store.markDictionaryEnrichmentPending(validCards.map { it.id })
             val results = try {
                 val lookupClient = client
                     ?: DictionaryEnrichmentRuntime.clientFactory(config).also { client = it }
-                lookupClient.lookupDictionaryBatch(validCards.map { it.lemma })
+                lookupClient.lookupDictionary(validCards.map { DictionaryLookupRequest(it.lemma, ContextMeaning.sentence(it)) })
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 store.recordDictionaryEnrichmentFailure(
@@ -81,7 +92,17 @@ class DictionaryEnrichmentWorker(
             }
 
             var retryableFailure = false
+            val contextIds = contextCards.map { it.id }.toSet()
             validCards.zip(results).forEach { (card, result) ->
+                if (card.id in contextIds) {
+                    val updated = store.applyContextMeaning(card, result, now)
+                    if (updated != null) {
+                        ReminderScheduler.schedule(applicationContext, updated, now)
+                        appliedAnyDictionaryData = true
+                    }
+                    return@forEach
+                }
+                if (ContextMeaning.sentence(card).isNotBlank()) store.recordContextAttempt(card, result, now)
                 when {
                     result.status == DictionaryLookupStatus.RESOLVED && result.meaningKo.isNotBlank() -> {
                         val updated = store.applyDictionaryEnrichment(card.id, result, now)
@@ -119,7 +140,7 @@ class DictionaryEnrichmentWorker(
         }
 
         if (appliedAnyDictionaryData) SyncWorker.enqueueImmediate(applicationContext)
-        if (store.hasCardsNeedingDictionaryEnrichment()) {
+        if (store.hasCardsNeedingDictionaryEnrichment() || store.hasCardsNeedingContextMeaning(DictionaryEnrichmentRuntime.now())) {
             // Normal pagination must not consume WorkManager's failure-attempt budget.
             // A fresh request continues unusually large queues with a new attempt count.
             enqueue(applicationContext)

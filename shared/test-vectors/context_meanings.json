@@ -1,0 +1,566 @@
+{
+  "schema_version": 1,
+  "description": "Context meaning selection (guide 10.5, 10.6, 10.8). resolver_cases pin what POST /dict/batch returns for {lemma, sentence} given a dictionary result and a fixed LLM answer; the server's fixture provider also serves llm_response from this file for key-less end-to-end runs. apply_cases pin how Android and Mac apply a result to a local card. Priority: user > llm_context > dictionary > translation.",
+  "resolver_cases": [
+    {
+      "name": "robust in a results sentence picks the stability sense",
+      "lemma": "robust",
+      "sentence": "The model showed robust decoding performance across sessions.",
+      "dictionary": {
+        "meaningKo": "튼튼한, 건장한",
+        "definitionEn": "strong and healthy",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "confidence": 0.9,
+        "senses": [
+          {
+            "meaningKo": "견고한, 안정적인",
+            "definitionEn": "not likely to fail or break",
+            "partOfSpeech": "adjective",
+            "exampleSentence": ""
+          }
+        ]
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "견고한",
+          "안정적인"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.93
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "견고한, 안정적인",
+        "partOfSpeech": "adjective",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": "튼튼한, 건장한"
+      }
+    },
+    {
+      "name": "robust about a person picks the physical sense",
+      "lemma": "robust",
+      "sentence": "He was a robust man who rarely fell ill.",
+      "dictionary": {
+        "meaningKo": "튼튼한, 건장한",
+        "definitionEn": "strong and healthy",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "confidence": 0.9,
+        "senses": [
+          {
+            "meaningKo": "견고한, 안정적인",
+            "definitionEn": "not likely to fail or break",
+            "partOfSpeech": "adjective",
+            "exampleSentence": ""
+          }
+        ]
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "튼튼한",
+          "건장한"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.9
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "튼튼한, 건장한",
+        "partOfSpeech": "adjective",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": "튼튼한, 건장한"
+      }
+    },
+    {
+      "name": "bank beside a river is the riverbank, not the lender",
+      "lemma": "bank",
+      "sentence": "We had a picnic on the bank of the river.",
+      "dictionary": {
+        "meaningKo": "은행",
+        "definitionEn": "a financial institution",
+        "partOfSpeech": "noun",
+        "sourceType": "mac_dictionary",
+        "confidence": 0.8,
+        "senses": [
+          {
+            "meaningKo": "강둑, 둑",
+            "definitionEn": "land beside a river",
+            "partOfSpeech": "noun",
+            "exampleSentence": ""
+          }
+        ]
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "강둑",
+          "둑"
+        ],
+        "part_of_speech": "noun",
+        "confidence": 0.94
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "강둑, 둑",
+        "partOfSpeech": "noun",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": "은행"
+      }
+    },
+    {
+      "name": "bank with a deposit is the lender",
+      "lemma": "bank",
+      "sentence": "She deposited the check at the bank on Monday.",
+      "dictionary": {
+        "meaningKo": "은행",
+        "definitionEn": "a financial institution",
+        "partOfSpeech": "noun",
+        "sourceType": "mac_dictionary",
+        "confidence": 0.8,
+        "senses": [
+          {
+            "meaningKo": "강둑, 둑",
+            "definitionEn": "land beside a river",
+            "partOfSpeech": "noun",
+            "exampleSentence": ""
+          }
+        ]
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "은행"
+        ],
+        "part_of_speech": "noun",
+        "confidence": 0.97
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "은행",
+        "partOfSpeech": "noun",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": "은행"
+      }
+    },
+    {
+      "name": "acute in a diagnosis means sudden and severe, with no dictionary hit",
+      "lemma": "acute",
+      "sentence": "The patient was admitted with acute appendicitis.",
+      "dictionary": null,
+      "llm_response": {
+        "meanings_ko": [
+          "급성의"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.95
+      },
+      "real_llm_expect_any": [
+        "급성"
+      ],
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "급성의",
+        "partOfSpeech": "adjective",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": null
+      }
+    },
+    {
+      "name": "acute about the senses means sharp",
+      "lemma": "acute",
+      "sentence": "Dogs have an acute sense of smell.",
+      "dictionary": null,
+      "llm_response": {
+        "meanings_ko": [
+          "예민한",
+          "예리한"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.9
+      },
+      "real_llm_expect_any": [
+        "예민",
+        "예리",
+        "날카"
+      ],
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "예민한, 예리한",
+        "partOfSpeech": "adjective",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": null
+      }
+    },
+    {
+      "name": "keen about the senses means sharp",
+      "lemma": "keen",
+      "sentence": "She has a keen sense of smell and noticed the smoke first.",
+      "dictionary": null,
+      "llm_response": {
+        "meanings_ko": [
+          "예민한",
+          "날카로운"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.9
+      },
+      "real_llm_expect_any": [
+        "예민",
+        "예리",
+        "날카",
+        "민감"
+      ],
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "예민한, 날카로운",
+        "partOfSpeech": "adjective",
+        "sourceType": "llm_context",
+        "contextStatus": "resolved",
+        "dictionaryMeaningKo": null
+      }
+    },
+    {
+      "name": "a low-confidence pick falls back to the dictionary",
+      "lemma": "plastic",
+      "sentence": "It was plastic.",
+      "dictionary": {
+        "meaningKo": "플라스틱, 가소성의",
+        "definitionEn": "a synthetic material; easily shaped",
+        "partOfSpeech": "noun",
+        "sourceType": "mac_dictionary",
+        "confidence": 0.8
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "플라스틱의"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.3
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "플라스틱, 가소성의",
+        "partOfSpeech": "noun",
+        "sourceType": "mac_dictionary",
+        "contextStatus": "unresolved",
+        "dictionaryMeaningKo": null
+      }
+    },
+    {
+      "name": "an LLM failure falls back to the dictionary and asks for a retry",
+      "lemma": "volatile",
+      "sentence": "The market was volatile all week.",
+      "dictionary": {
+        "meaningKo": "변덕스러운, 불안정한",
+        "definitionEn": "liable to change rapidly",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "confidence": 0.9
+      },
+      "llm_response": {
+        "error": "timeout"
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "변덕스러운, 불안정한",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "contextStatus": "failed",
+        "dictionaryMeaningKo": null
+      }
+    },
+    {
+      "name": "an answer with no Korean gloss is not used",
+      "lemma": "salient",
+      "sentence": "The salient point was the delay.",
+      "dictionary": {
+        "meaningKo": "두드러진, 현저한",
+        "definitionEn": "most noticeable or important",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "confidence": 0.9
+      },
+      "llm_response": {
+        "meanings_ko": [
+          "noticeable"
+        ],
+        "part_of_speech": "adjective",
+        "confidence": 0.9
+      },
+      "expected": {
+        "status": "resolved",
+        "meaningKo": "두드러진, 현저한",
+        "partOfSpeech": "adjective",
+        "sourceType": "offline_catalog",
+        "contextStatus": "unresolved",
+        "dictionaryMeaningKo": null
+      }
+    }
+  ],
+  "apply_cases": [
+    {
+      "name": "a blank card takes the context meaning and keeps the dictionary gloss as a candidate",
+      "card": {
+        "lemma": "robust",
+        "meaning_ko": "",
+        "definition_source_primary": "pending_capture",
+        "source_sentence_primary": "The model showed robust decoding performance across sessions.",
+        "manual_edit": false
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "robust",
+        "meaningKo": "견고한, 안정적인",
+        "definitionEn": "strong and healthy",
+        "partOfSpeech": "adjective",
+        "exampleSentence": "The model showed robust decoding performance across sessions.",
+        "sourceType": "llm_context",
+        "confidence": 0.93,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "resolved",
+        "contextSentence": "The model showed robust decoding performance across sessions.",
+        "dictionary": {
+          "meaningKo": "튼튼한, 건장한",
+          "definitionEn": "strong and healthy",
+          "partOfSpeech": "adjective",
+          "exampleSentence": "",
+          "sourceType": "offline_catalog",
+          "confidence": 0.9
+        }
+      },
+      "expected": {
+        "applied": true,
+        "meaning_ko": "견고한, 안정적인",
+        "definition_source_primary": "llm_context",
+        "selected_candidate_source": "llm_context",
+        "new_candidate_sources": [
+          "llm_context",
+          "offline_catalog"
+        ],
+        "context_retry": "none"
+      }
+    },
+    {
+      "name": "a dictionary meaning is upgraded to the context meaning",
+      "card": {
+        "lemma": "bank",
+        "meaning_ko": "은행",
+        "definition_source_primary": "mac_dictionary",
+        "source_sentence_primary": "We had a picnic on the bank of the river.",
+        "manual_edit": false
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "bank",
+        "meaningKo": "강둑, 둑",
+        "definitionEn": "a financial institution",
+        "partOfSpeech": "noun",
+        "exampleSentence": "We had a picnic on the bank of the river.",
+        "sourceType": "llm_context",
+        "confidence": 0.94,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "resolved",
+        "contextSentence": "We had a picnic on the bank of the river.",
+        "dictionary": {
+          "meaningKo": "은행",
+          "definitionEn": "a financial institution",
+          "partOfSpeech": "noun",
+          "exampleSentence": "",
+          "sourceType": "mac_dictionary",
+          "confidence": 0.8
+        }
+      },
+      "expected": {
+        "applied": true,
+        "meaning_ko": "강둑, 둑",
+        "definition_source_primary": "llm_context",
+        "selected_candidate_source": "llm_context",
+        "new_candidate_sources": [
+          "llm_context"
+        ],
+        "context_retry": "none"
+      }
+    },
+    {
+      "name": "a meaning the user typed is never replaced; the context meaning is kept as an unselected candidate",
+      "card": {
+        "lemma": "bank",
+        "meaning_ko": "은행 (내가 쓴 뜻)",
+        "definition_source_primary": "user",
+        "source_sentence_primary": "We had a picnic on the bank of the river.",
+        "manual_edit": true
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "bank",
+        "meaningKo": "강둑, 둑",
+        "definitionEn": "",
+        "partOfSpeech": "noun",
+        "exampleSentence": "We had a picnic on the bank of the river.",
+        "sourceType": "llm_context",
+        "confidence": 0.94,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "resolved",
+        "contextSentence": "We had a picnic on the bank of the river."
+      },
+      "expected": {
+        "applied": false,
+        "meaning_ko": "은행 (내가 쓴 뜻)",
+        "definition_source_primary": "user",
+        "selected_candidate_source": null,
+        "new_candidate_sources": [
+          "llm_context"
+        ],
+        "context_retry": "none"
+      }
+    },
+    {
+      "name": "a dictionary candidate the user picked is never replaced; the context meaning is kept as an unselected candidate",
+      "card": {
+        "lemma": "bank",
+        "meaning_ko": "은행",
+        "definition_source_primary": "mac_dictionary",
+        "source_sentence_primary": "We had a picnic on the bank of the river.",
+        "manual_edit": true
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "bank",
+        "meaningKo": "강둑, 둑",
+        "definitionEn": "",
+        "partOfSpeech": "noun",
+        "exampleSentence": "We had a picnic on the bank of the river.",
+        "sourceType": "llm_context",
+        "confidence": 0.94,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "resolved",
+        "contextSentence": "We had a picnic on the bank of the river."
+      },
+      "expected": {
+        "applied": false,
+        "meaning_ko": "은행",
+        "definition_source_primary": "mac_dictionary",
+        "selected_candidate_source": null,
+        "new_candidate_sources": [
+          "llm_context"
+        ],
+        "context_retry": "none"
+      }
+    },
+    {
+      "name": "a dictionary fallback does not touch a card that already has a meaning",
+      "card": {
+        "lemma": "plastic",
+        "meaning_ko": "플라스틱",
+        "definition_source_primary": "mac_dictionary",
+        "source_sentence_primary": "It was plastic.",
+        "manual_edit": false
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "plastic",
+        "meaningKo": "플라스틱, 가소성의",
+        "definitionEn": "a synthetic material; easily shaped",
+        "partOfSpeech": "noun",
+        "exampleSentence": "",
+        "sourceType": "mac_dictionary",
+        "confidence": 0.8,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "unresolved",
+        "contextSentence": "It was plastic."
+      },
+      "expected": {
+        "applied": false,
+        "meaning_ko": "플라스틱",
+        "definition_source_primary": "mac_dictionary",
+        "selected_candidate_source": null,
+        "new_candidate_sources": [],
+        "context_retry": "none"
+      }
+    },
+    {
+      "name": "a blank card takes the dictionary meaning when the LLM failed, and context is retried later",
+      "card": {
+        "lemma": "volatile",
+        "meaning_ko": "",
+        "definition_source_primary": "pending_capture",
+        "source_sentence_primary": "The market was volatile all week.",
+        "manual_edit": false
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "volatile",
+        "meaningKo": "변덕스러운, 불안정한",
+        "definitionEn": "liable to change rapidly",
+        "partOfSpeech": "adjective",
+        "exampleSentence": "",
+        "sourceType": "offline_catalog",
+        "confidence": 0.9,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "failed",
+        "contextSentence": "The market was volatile all week."
+      },
+      "expected": {
+        "applied": true,
+        "meaning_ko": "변덕스러운, 불안정한",
+        "definition_source_primary": "offline_catalog",
+        "selected_candidate_source": "offline_catalog",
+        "new_candidate_sources": [
+          "offline_catalog"
+        ],
+        "context_retry": "soon"
+      }
+    },
+    {
+      "name": "a server without a resolver is asked again a day later",
+      "card": {
+        "lemma": "bank",
+        "meaning_ko": "은행",
+        "definition_source_primary": "mac_dictionary",
+        "source_sentence_primary": "We had a picnic on the bank of the river.",
+        "manual_edit": false
+      },
+      "result": {
+        "status": "resolved",
+        "lemma": "bank",
+        "meaningKo": "은행",
+        "definitionEn": "a financial institution",
+        "partOfSpeech": "noun",
+        "exampleSentence": "",
+        "sourceType": "mac_dictionary",
+        "confidence": 0.8,
+        "attemptedAt": "2026-10-18T01:00:00.000Z",
+        "errorCode": null,
+        "contextStatus": "disabled",
+        "contextSentence": "We had a picnic on the bank of the river."
+      },
+      "expected": {
+        "applied": false,
+        "meaning_ko": "은행",
+        "definition_source_primary": "mac_dictionary",
+        "selected_candidate_source": null,
+        "new_candidate_sources": [],
+        "context_retry": "later"
+      }
+    }
+  ],
+  "apply_rules": [
+    "A card is pinned when definition_source_primary is 'user' or the card has a manual_edit review event whose metadata action is not 'rebalance' (an edit, a chosen candidate, a restored candidate); a pinned card's meaning is never changed.",
+    "A blank card applies any resolved result. Its primary candidate carries result.sourceType; result.dictionary, when present, is added unselected with its own sourceType.",
+    "A card that already has a meaning changes only for contextStatus 'resolved' (sourceType llm_context); its schedule is not reset.",
+    "A resolved llm_context result for a pinned card is stored as an unselected candidate.",
+    "context_retry: 'none' for resolved, unresolved and no_context; 'soon' (15 minutes) for failed and deferred; 'later' (24 hours) for disabled.",
+    "A card with a meaning is queued for context only when it is not pinned, has a source sentence, is in the user wordbook, its source is not llm_context, and no attempt for this lemma and sentence is still in effect."
+  ]
+}

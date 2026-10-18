@@ -117,8 +117,19 @@ export function checkSecretBoundaries(options) {
   for (const forbidden of ["CF_WORKER_ADMIN_TOKEN", "ADMIN_TOKEN", "CLOUDFLARE_API_TOKEN"]) {
     if (server.has(forbidden)) throw new Error(`${forbidden} must not be stored in the server env.`);
   }
-  for (const forbidden of ["VOCAB_SYNC_TOKEN", "VOCAB_SYNC_DEFAULT_TOKEN", "CLOUDFLARE_API_TOKEN"]) {
+  for (const forbidden of ["VOCAB_SYNC_TOKEN", "VOCAB_SYNC_DEFAULT_TOKEN", "CLOUDFLARE_API_TOKEN", "ANTHROPIC_API_KEY"]) {
     if (tunnel.has(forbidden)) throw new Error(`${forbidden} must not be stored in the tunnel env.`);
+  }
+  // The Claude key for context meanings is server-only: never in client release artifacts.
+  const anthropicKey = String(server.get("ANTHROPIC_API_KEY") || "").trim();
+  if (anthropicKey) {
+    const keyBytes = Buffer.from(anthropicKey);
+    const keyLeaks = listFiles(options.artifactDir).filter((file) => artifactContains(file, keyBytes));
+    if (keyLeaks.length > 0) {
+      throw new Error(
+        `ANTHROPIC_API_KEY was embedded in release artifacts: ${keyLeaks.map((file) => path.relative(repositoryRoot, file)).join(", ")}`,
+      );
+    }
   }
 
   const adminBytes = Buffer.from(adminToken);

@@ -177,7 +177,7 @@ func clockMinutes(_ value: String) -> Int {
 @MainActor
 func runStore(_ arguments: [String]) async throws {
     guard arguments.count >= 3, arguments[0] == "--data-dir" else {
-        throw CheckFailure("usage: vocab-check store --data-dir DIR <add|review|edit|delete|sync|list> ...")
+        throw CheckFailure("usage: vocab-check store --data-dir DIR <add|add-context|review|edit|delete|sync|enrich|list> ...")
     }
     let directory = URL(filePath: arguments[1], directoryHint: .isDirectory)
     let store = LocalVocabularyStore(
@@ -203,6 +203,13 @@ func runStore(_ arguments: [String]) async throws {
         store.capture(text: word, method: .manual, sourceApp: "vocab-check")
         guard let preview = store.preview else { throw CheckFailure("capture produced no preview: \(store.message)") }
         store.savePreview(meaningOverride: rest.count > 1 ? rest[1] : preview.meaningKo, exampleOverride: preview.exampleSentence)
+    case "add-context":
+        // Captures a sentence and picks WORD from it, like selecting a word in the capture panel.
+        guard rest.count == 2 else { throw CheckFailure("add-context WORD SENTENCE") }
+        store.capture(text: rest[1], method: .manual, sourceApp: "vocab-check")
+        if store.pendingAnalysis != nil { store.selectCandidate(rest[0]) }
+        guard let preview = store.preview else { throw CheckFailure("capture produced no preview: \(store.message)") }
+        store.savePreview(meaningOverride: preview.meaningKo, exampleOverride: preview.sourceSentence)
     case "review":
         guard rest.count == 2, let response = ReviewResponse(rawValue: rest[1]) else {
             throw CheckFailure("review WORD remembered|forgotten|unavailable")
@@ -227,6 +234,17 @@ func runStore(_ arguments: [String]) async throws {
         guard rest.count == 2 else { throw CheckFailure("sync URL TOKEN") }
         let summary = try await store.syncWithServer(serverBaseURL: rest[0], authToken: rest[1])
         print("synced cards=\(summary.cards) events=\(summary.reviewEvents) skipped=\(summary.skippedSummary.isEmpty ? "none" : summary.skippedSummary)")
+    case "enrich":
+        // The dictionary step of the menu bar app's auto sync: blank cards, then context meanings.
+        guard rest.count == 2 else { throw CheckFailure("enrich URL TOKEN") }
+        let defaults = UserDefaults(suiteName: "vocab-check.\(directory.path)") ?? .standard
+        let controller = MacAutoSyncController(defaults: defaults)
+        let enrichment = await controller.performDictionaryEnrichment(
+            store: store,
+            config: CloudSyncConfig(serverBaseURL: rest[0], bearerToken: rest[1])
+        )
+        let summary = try await store.syncWithServer(serverBaseURL: rest[0], authToken: rest[1])
+        print("enriched applied=\(enrichment.appliedCount) synced cards=\(summary.cards)")
     case "list":
         break
     default:
@@ -239,6 +257,8 @@ func runStore(_ arguments: [String]) async throws {
             "id": card.id,
             "lemma": card.lemma,
             "meaning_ko": card.meaningKo,
+            "definition_source_primary": card.definitionSourcePrimary,
+            "example_sentence": card.exampleSentence,
             "status": card.status.rawValue,
             "interval_days": card.intervalDays,
             "wordbook": card.wordbook.rawValue,

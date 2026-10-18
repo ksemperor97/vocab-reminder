@@ -1,6 +1,8 @@
 package com.vocabreminder.android.sync
 
+import com.vocabreminder.android.dictionary.DictionaryFallback
 import com.vocabreminder.android.dictionary.DictionaryLookupErrorCode
+import com.vocabreminder.android.dictionary.DictionaryLookupRequest
 import com.vocabreminder.android.dictionary.DictionaryLookupResult
 import com.vocabreminder.android.dictionary.DictionaryLookupStatus
 import org.json.JSONArray
@@ -31,7 +33,8 @@ data class CloudSyncConfig(
 class CloudSyncException(
     message: String,
     val requestId: String? = null,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val httpStatus: Int? = null
 ) : RuntimeException(message, cause)
 
 data class CloudHttpResponse(
@@ -52,6 +55,15 @@ interface CloudSyncTransport {
         bearerToken: String,
         requestId: String
     ): CloudHttpResponse
+
+    /** A POST that may wait longer for its answer (context meanings call an LLM on the server). */
+    fun postJson(
+        url: String,
+        body: JSONObject,
+        bearerToken: String,
+        requestId: String,
+        readTimeoutMillis: Int
+    ): CloudHttpResponse = postJson(url, body, bearerToken, requestId)
 }
 
 class HttpUrlConnectionSyncTransport : CloudSyncTransport {
@@ -60,13 +72,21 @@ class HttpUrlConnectionSyncTransport : CloudSyncTransport {
         body: JSONObject,
         bearerToken: String,
         requestId: String
+    ): CloudHttpResponse = postJson(url, body, bearerToken, requestId, DEFAULT_READ_TIMEOUT_MILLIS)
+
+    override fun postJson(
+        url: String,
+        body: JSONObject,
+        bearerToken: String,
+        requestId: String,
+        readTimeoutMillis: Int
     ): CloudHttpResponse {
         val safeRequestId = normalizeUuidRequestId(requestId) ?: UUID.randomUUID().toString()
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
             connectTimeout = 3_000
-            readTimeout = 5_000
+            readTimeout = readTimeoutMillis
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Authorization", "Bearer $bearerToken")
             setRequestProperty("User-Agent", HTTP_USER_AGENT)
@@ -89,7 +109,7 @@ class HttpUrlConnectionSyncTransport : CloudSyncTransport {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 3_000
-            readTimeout = 5_000
+            readTimeout = DEFAULT_READ_TIMEOUT_MILLIS
             setRequestProperty("Authorization", "Bearer $bearerToken")
             setRequestProperty("User-Agent", HTTP_USER_AGENT)
             setRequestProperty(REQUEST_ID_HEADER, safeRequestId)
@@ -114,7 +134,7 @@ class HttpUrlConnectionSyncTransport : CloudSyncTransport {
 
         if (statusCode !in 200..299) {
             // Never include the response body here: upstream failures can echo request data.
-            throw CloudSyncException("Sync HTTP $statusCode.", responseRequestId)
+            throw CloudSyncException("Sync HTTP $statusCode.", responseRequestId, httpStatus = statusCode)
         }
         if (responseText.isBlank()) {
             throw CloudSyncException("Sync response was empty.", responseRequestId)
@@ -126,13 +146,14 @@ class HttpUrlConnectionSyncTransport : CloudSyncTransport {
     }
 
     private companion object {
+        const val DEFAULT_READ_TIMEOUT_MILLIS = 5_000
         const val HTTP_USER_AGENT = "VocabReminderAndroid/0.1"
         const val REQUEST_ID_HEADER = "X-Request-Id"
     }
 }
 
 fun interface DictionaryLookupClient {
-    fun lookupDictionaryBatch(lemmas: List<String>): List<DictionaryLookupResult>
+    fun lookupDictionary(items: List<DictionaryLookupRequest>): List<DictionaryLookupResult>
 }
 
 class CloudSyncClient(
@@ -181,33 +202,63 @@ class CloudSyncClient(
         return response.body.throwIfError(response.requestId)
     }
 
-    override fun lookupDictionaryBatch(lemmas: List<String>): List<DictionaryLookupResult> {
-        if (lemmas.isEmpty() || lemmas.size > MAX_DICTIONARY_ITEMS_PER_BATCH) {
+    fun lookupDictionaryBatch(lemmas: List<String>): List<DictionaryLookupResult> {
+        checkDictionaryBatchSize(lemmas.size)
+        val normalized = lemmas.map(::normalizeDictionaryLemma)
+        return postDictionaryBatch(JSONObject().put("lemmas", JSONArray(normalized)), normalized, SHORT_READ_TIMEOUT_MILLIS)
+    }
+
+    /** Sends each lemma with the sentence it was captured in, so the server can pick the meaning that sentence uses. */
+    override fun lookupDictionary(items: List<DictionaryLookupRequest>): List<DictionaryLookupResult> {
+        checkDictionaryBatchSize(items.size)
+        val normalized = items.map { DictionaryLookupRequest(normalizeDictionaryLemma(it.lemma), it.sentence.trim().take(MAX_CONTEXT_SENTENCE_LENGTH)) }
+        val body = JSONObject().put("items", JSONArray(normalized.map { item ->
+            JSONObject().put("lemma", item.lemma).apply { if (item.sentence.isNotBlank()) put("sentence", item.sentence) }
+        }))
+        val timeout = if (normalized.any { it.sentence.isNotBlank() }) CONTEXT_READ_TIMEOUT_MILLIS else SHORT_READ_TIMEOUT_MILLIS
+        return try {
+            postDictionaryBatch(body, normalized.map { it.lemma }, timeout)
+        } catch (error: CloudSyncException) {
+            // A server older than context meanings only reads {lemmas}; answers then carry no contextStatus.
+            if (error.httpStatus != 400) throw error
+            lookupDictionaryBatch(normalized.map { it.lemma })
+        }
+    }
+
+    private fun checkDictionaryBatchSize(size: Int) {
+        if (size == 0 || size > MAX_DICTIONARY_ITEMS_PER_BATCH) {
             throw IllegalArgumentException(
                 "Dictionary batch must contain between 1 and $MAX_DICTIONARY_ITEMS_PER_BATCH lemmas."
             )
         }
-        val normalized = lemmas.map(::normalizeDictionaryLemma)
-        val httpResponse = postJson(
-            config.endpoint("dict/batch"),
-            JSONObject().put("lemmas", JSONArray(normalized))
-        )
+    }
+
+    private fun postDictionaryBatch(body: JSONObject, lemmas: List<String>, readTimeoutMillis: Int): List<DictionaryLookupResult> {
+        val httpResponse = executeRequest { requestId ->
+            transport.postJson(
+                url = config.endpoint("dict/batch"),
+                body = body,
+                bearerToken = config.bearerToken,
+                requestId = requestId,
+                readTimeoutMillis = readTimeoutMillis
+            )
+        }
         val response = httpResponse.body.throwIfError(httpResponse.requestId)
         val results = response.optJSONArray("results")
             ?: throw CloudSyncException(
                 "Dictionary response did not contain results.",
                 httpResponse.requestId
             )
-        if (results.length() != normalized.size) {
+        if (results.length() != lemmas.size) {
             throw CloudSyncException(
                 "Dictionary response count did not match the request.",
                 httpResponse.requestId
             )
         }
-        return normalized.indices.map { index ->
+        return lemmas.indices.map { index ->
             parseDictionaryLookupResult(
                 results.optJSONObject(index),
-                normalized[index],
+                lemmas[index],
                 httpResponse.requestId
             )
         }
@@ -266,7 +317,7 @@ class CloudSyncClient(
             val responseRequestId = normalizeRequestId(error.requestId) ?: clientRequestId
             lastRequestId = responseRequestId
             if (error.requestId == responseRequestId) throw error
-            throw CloudSyncException(error.message ?: "Sync request failed.", responseRequestId, error)
+            throw CloudSyncException(error.message ?: "Sync request failed.", responseRequestId, error, error.httpStatus)
         } catch (error: Exception) {
             lastRequestId = clientRequestId
             throw CloudSyncException("Sync request failed.", clientRequestId, error)
@@ -335,6 +386,10 @@ class CloudSyncClient(
     companion object {
         internal const val MAX_ITEMS_PER_BATCH = 400
         const val MAX_DICTIONARY_ITEMS_PER_BATCH = 50
+        // The server spends at most ~20 s starting LLM calls plus 15 s per call.
+        internal const val CONTEXT_READ_TIMEOUT_MILLIS = 45_000
+        private const val SHORT_READ_TIMEOUT_MILLIS = 5_000
+        private const val MAX_CONTEXT_SENTENCE_LENGTH = 1_000
         private const val MAX_REMOTE_ERROR_LENGTH = 160
         private val COLLECTION_KEYS = listOf(
             "cards",
@@ -424,7 +479,19 @@ private fun parseDictionaryLookupResult(
                     )
                 }
             }
-        }.orEmpty()
+        }.orEmpty(),
+        contextStatus = json.stringValue("contextStatus", "context_status").ifBlank { null },
+        contextSentence = json.stringValue("contextSentence", "context_sentence"),
+        dictionary = json.optJSONObject("dictionary")?.let { fallback ->
+            DictionaryFallback(
+                meaningKo = fallback.stringValue("meaningKo", "meaning_ko"),
+                definitionEn = fallback.stringValue("definitionEn", "definition_en"),
+                partOfSpeech = fallback.stringValue("partOfSpeech", "part_of_speech"),
+                exampleSentence = fallback.stringValue("exampleSentence", "example_sentence"),
+                sourceType = fallback.stringValue("sourceType", "source_type").ifBlank { "dictionary" },
+                confidence = fallback.optDouble("confidence", 0.0).takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.0
+            )
+        }?.takeIf { it.meaningKo.isNotBlank() || it.definitionEn.isNotBlank() }
     )
 }
 

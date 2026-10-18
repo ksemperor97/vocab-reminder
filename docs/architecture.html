@@ -326,7 +326,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule)
 
           <rect x="640" y="278" width="280" height="50" rx="8" class="inner"/>
           <text x="656" y="300" style="font-weight:600;font-size:13.5px">사전 조회</text>
-          <text x="656" y="318" class="t-small">오프라인 카탈로그 · macOS 사전 · 캐시</text>
+          <text x="656" y="318" class="t-small">카탈로그 · macOS 사전 · 문맥 뜻(Claude) · 캐시</text>
 
           <rect x="640" y="338" width="280" height="62" rx="8" class="inner"/>
           <text x="656" y="360" style="font-weight:600;font-size:13.5px">SQLite (WAL)</text>
@@ -412,8 +412,9 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule)
             <tr><td>클립보드에서 가져오기</td><td class="yes">앱 안 버튼</td><td class="yes">⌘⌥V</td><td class="no">—</td></tr>
             <tr><td>문장이 오면 저장할 단어 고르기 (4단어 이상)</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
             <tr><td>출처(앱, URL, 페이지 제목)와 문맥 문장 보관</td><td class="yes">지원</td><td class="yes">지원</td><td class="srv">문맥 행 보관</td></tr>
-            <tr><td class="group" rowspan="3">뜻</td><td>저장 전 미리보기 (기기 사전)</td><td class="yes">오프라인 사전</td><td class="yes">macOS 사전</td><td class="no">—</td></tr>
+            <tr><td class="group" rowspan="4">뜻</td><td>저장 전 미리보기 (기기 사전)</td><td class="yes">오프라인 사전</td><td class="yes">macOS 사전</td><td class="no">—</td></tr>
             <tr><td>뜻 없이 저장 → 백그라운드에서 보강</td><td class="yes">보강 워커</td><td class="yes">자동 동기화 중</td><td class="srv">/dict/batch</td></tr>
+            <tr><td>캡처한 문장에 맞는 뜻 고르기 (사전 뜻도 문장당 한 번 교체)</td><td class="yes">보강 워커</td><td class="yes">자동 동기화 중</td><td class="srv">Claude, 키는 서버에만</td></tr>
             <tr><td>뜻 후보 보관과 이전 뜻 복원, 직접 고친 뜻 고정</td><td class="yes">지원</td><td class="yes">지원</td><td class="srv">후보 행 보관</td></tr>
             <tr><td class="group" rowspan="4">복습</td><td>알림에서 외움 / 잊음 / 나중에</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
             <tr><td>워치(Galaxy Fit3) 답장으로 복습</td><td class="yes">“네·아니오·나중에”</td><td class="no">—</td><td class="no">—</td></tr>
@@ -499,7 +500,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule)
             <tr><td><code>POST /sync/batch</code></td><td>카드·문맥·뜻 후보·복습 기록·추천 피드백·설정 업로드, 병합·접기·추천 채우기</td><td>씀</td></tr>
             <tr><td><code>GET /sync/changes</code></td><td>cursor 이후 바뀐 행 (400개씩, <code>has_more</code>)</td><td>읽기만</td></tr>
             <tr><td><code>GET /sync/snapshot</code></td><td>전체 사본 (구버전 호환)</td><td>읽기만</td></tr>
-            <tr><td><code>GET /dict/:lemma</code>, <code>POST /dict/batch</code></td><td>사전 조회 (분당 횟수 제한, 캐시)</td><td>읽기만</td></tr>
+            <tr><td><code>GET /dict/:lemma</code>, <code>POST /dict/batch</code></td><td>사전 조회, 문장이 있으면 문맥 뜻 선택 (분당 횟수 제한, 캐시)</td><td>읽기만</td></tr>
             <tr><td><code>GET /health</code></td><td>서버 상태와 카드 수</td><td>읽기만</td></tr>
           </tbody>
         </table>
