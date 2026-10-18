@@ -290,3 +290,17 @@ rm -rf "$PREVIOUS_DIR"
 fsync_release_parent
 trap - EXIT
 echo "Release artifacts written to: $DIST_DIR"
+
+# Phones update from the sync server (Settings > 앱 업데이트), so publish the
+# APK into the server runtime. The publish swaps the release atomically and
+# keeps the previous APK. SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1 builds only.
+if [[ "${SYNC_RELEASE_SKIP_ANDROID_PUBLISH:-0}" == "1" ]]; then
+  echo "Skipped publishing the Android update (SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1)."
+else
+  node "$ROOT_DIR/server/tools/publish_android_update.mjs" \
+    --runtime-root "$RUNTIME_ROOT" \
+    --apk "$DIST_DIR/VocabReminderAndroid-release.apk" \
+    --version-code "$ANDROID_VERSION_CODE" \
+    --version-name "$ANDROID_VERSION_NAME" \
+    --signer-sha256 "$ANDROID_SIGNER_SHA256"
+fi

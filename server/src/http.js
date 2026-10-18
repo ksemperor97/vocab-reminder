@@ -1,7 +1,10 @@
 import { createRecommendationCatalogLoader, maintainRecommendations } from "./recommendations.js";
 import { readChanges } from "./changes.js";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
+import { pipeline } from "node:stream/promises";
+import { androidUpdateDir, openAndroidApk, publicRelease, readAndroidRelease } from "./app_updates.js";
 import { ensureDailyBackup } from "./backup.js";
 import {
   createDictionaryResolver,
@@ -29,6 +32,7 @@ export function createSyncServer({
   backupDir,
   backupRetention,
   token,
+  appUpdateDir = null,
   maxBodyBytes = defaultMaxBodyBytes,
   maxCollectionItems,
   dictionaryResolver = createDictionaryResolver(),
@@ -73,6 +77,7 @@ export function createSyncServer({
         backupDir,
         backupRetention,
         token,
+        androidUpdates: appUpdateDir ? androidUpdateDir(appUpdateDir) : null,
         maxBodyBytes: bodyByteLimit,
         dictionaryResolver,
         contextResolver,
@@ -181,7 +186,49 @@ async function route(context) {
     return;
   }
 
+  if (url.pathname === "/app/android/latest" && request.method === "GET") {
+    requireBearer(request, context.token);
+    const release = context.androidUpdates ? readAndroidRelease(context.androidUpdates) : null;
+    if (!release) {
+      sendJson(response, 404, { error: { message: "No Android update has been published." } });
+      return;
+    }
+    sendJson(response, 200, publicRelease(release));
+    return;
+  }
+
+  if (url.pathname === "/app/android/apk" && request.method === "GET") {
+    requireBearer(request, context.token);
+    const opened = context.androidUpdates ? openAndroidApk(context.androidUpdates) : null;
+    if (!opened) {
+      sendJson(response, 404, { error: { message: "No Android update has been published." } });
+      return;
+    }
+    await sendApk(response, opened);
+    return;
+  }
+
   sendJson(response, 404, { error: { message: "Not found." } });
+}
+
+async function sendApk(response, { release, fd }) {
+  // The descriptor was opened before the headers, so a publish that swaps
+  // latest.json mid-download cannot mix two releases in one response.
+  const stream = fs.createReadStream(null, { fd, start: 0 });
+  response.writeHead(200, {
+    "Content-Type": "application/vnd.android.package-archive",
+    "Content-Length": release.size,
+    "Content-Disposition": `attachment; filename="${release.file}"`,
+    "Cache-Control": "no-store",
+    "X-Apk-Sha256": release.sha256,
+    "X-Apk-Version-Code": String(release.versionCode)
+  });
+  try {
+    await pipeline(stream, response);
+  } catch {
+    // The phone went away mid-download; it retries and checks the hash anyway.
+    response.destroy();
+  }
 }
 
 async function lookupDictionary(resolver, lemma) {
@@ -428,7 +475,10 @@ function safeRouteLabel(rawUrl) {
     return "invalid-url";
   }
   if (pathname.startsWith("/dict/") && pathname !== "/dict/batch") return "/dict/:lemma";
-  if (["/health", "/dict/batch", "/sync/batch", "/sync/changes", "/sync/snapshot"].includes(pathname)) {
+  if ([
+    "/health", "/dict/batch", "/sync/batch", "/sync/changes", "/sync/snapshot",
+    "/app/android/latest", "/app/android/apk"
+  ].includes(pathname)) {
     return pathname;
   }
   return "unmatched";

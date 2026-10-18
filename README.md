@@ -194,6 +194,33 @@ Check the Mac mini setup, tunnel, release endpoint, artifacts, and connected And
 VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:doctor
 ```
 
+## Updating the Android app without adb
+
+Release builds update themselves from the sync server; no USB cable, adb or Play Store is involved.
+
+1. Raise `versionCode` (and `versionName`) in `android/VocabReminderAndroid/app/build.gradle.kts`. Phones only offer a release whose `versionCode` is higher than the installed one.
+2. On the Mac mini, build and publish:
+
+```sh
+VOCAB_SYNC_DEFAULT_URL=https://vocab-sync.vocab-reminder-sjk.workers.dev npm run sync:release
+```
+
+`tools/build_sync_release.sh` signs the APK with the release key, checks the signer against `release-signer.sha256`, and then publishes it to `~/Library/Application Support/VocabReminderServer/app-updates/android/` (`VOCAB_SYNC_RUNTIME_ROOT`/`VOCAB_SYNC_APP_UPDATE_DIR` move it). The publish copies the APK in under a temporary name, renames it into place and swaps `latest.json` with a rename, so a phone downloading at that moment still gets one whole release. The previous APK stays as `previous.json` + its file; older ones are deleted. A lower `versionCode` is refused. `SYNC_RELEASE_SKIP_ANDROID_PUBLISH=1` builds without publishing.
+
+To publish an APK you already have (for example to roll back with `--allow-downgrade`, which phones will still not install over a newer version):
+
+```sh
+node server/tools/publish_android_update.mjs --apk dist/sync-release/VocabReminderAndroid-release.apk --version-code 6 --version-name 0.4.2
+```
+
+The server serves it with the sync token: `GET /app/android/latest` returns `versionCode`, `versionName`, `sha256`, `size` and `publishedAt` (404 when nothing is published), and `GET /app/android/apk` streams the file.
+
+On the phone, the app checks when it starts and from **설정 > 앱 업데이트 > 업데이트 확인**. When a newer version exists, a "새 버전 … 이 있습니다" strip appears with **업데이트**. The app downloads the APK into its cache, checks the size and SHA-256 from `/latest`, checks that the package name, `versionCode` and signing certificate match the installed app, and hands it to the system installer. Android always asks the user to confirm the install; cards, history and settings stay. The downloaded file is deleted as soon as the installer has its copy.
+
+The first time, Android asks to allow this app to install apps: the app explains it, opens **Install unknown apps**, and after **이 출처 허용 (Allow from this source)** is turned on and you go back, the update continues.
+
+Self-update is on only in release builds. Debug and deviceQa builds leave it off; the end-to-end run turns it on for its debug APKs with `VOCAB_E2E_SELF_UPDATE=1` (and `VOCAB_E2E_VERSION_CODE` for the newer build). Rotating the sync token (`npm run sync:rotate-tokens`) changes the token embedded in the app and its build does not publish, so the phone needs one adb install after a rotation.
+
 ## Real end-to-end run
 
 Tests pin the rules; this run shows the product working. It starts a fresh sync server, builds the debug APK against it, drives the app on an Android emulator through adb/uiautomator, uses the real Mac store through `vocab-check store`, and drives the packaged Mac menu bar app through XCUITest (`mac/VocabReminderMac/UITests`). Each scenario checks the server rows, both device databases, the phone screen and the Mac window, and saves screenshots:
@@ -201,9 +228,10 @@ Tests pin the rules; this run shows the product working. It starts a fresh sync 
 ```sh
 npm run e2e:real -- --serial emulator-5554
 npm run e2e:real -- --serial emulator-5554 --legacy-apk path/to/previous.apk   # also checks the upgrade
+npm run e2e:real -- --serial emulator-5554 --no-self-update                     # skip the second APK build
 ```
 
-Scenarios: a phone capture reaching the Mac; an offline phone review plus a Mac meaning edit both surviving; the same word captured on both devices folding into one card; a Mac deletion reaching the phone; a word typed and saved in the Mac app window appearing on the phone; a phone capture appearing in the Mac app window after "지금 동기화"; a meaning edited in the Mac card editor reaching the phone; a word captured with its sentence getting the meaning that sentence uses (phone "acute" via the enrichment worker, Mac "keen" via `vocab-check store enrich`); reads never writing; outboxes draining. The context scenario uses live Claude when `ANTHROPIC_API_KEY` is in the environment or the Mac mini runtime `.env`; otherwise it reports the live run as SKIP with the reason and runs against the fixed answers in `shared/test-vectors/context_meanings.json`. The device's app data is wiped, so use an emulator or test device.
+Scenarios: a phone capture reaching the Mac; an offline phone review plus a Mac meaning edit both surviving; the same word captured on both devices folding into one card; a Mac deletion reaching the phone; a word typed and saved in the Mac app window appearing on the phone; a phone capture appearing in the Mac app window after "지금 동기화"; a meaning edited in the Mac card editor reaching the phone; a word captured with its sentence getting the meaning that sentence uses (phone "acute" via the enrichment worker, Mac "keen" via `vocab-check store enrich`); reads never writing; the app updating itself to a higher `versionCode` published on the server (banner, "이 출처 허용", system installer) with every card kept; outboxes draining. The context scenario uses live Claude when `ANTHROPIC_API_KEY` is in the environment or the server runtime `.env`; otherwise it reports the live run as SKIP with the reason and runs against the fixed answers in `shared/test-vectors/context_meanings.json`. The device's app data is wiped, so use an emulator or test device.
 
 The Mac app steps need Xcode and macOS Automation Mode (macOS asks for authentication the first time; `sudo automationmodetool enable-automationmode-without-authentication` makes that permanent). They launch a separate `VocabReminder-E2E.app` (own bundle id, scratch data directory, no login item, hotkey, Services entry or URL scheme) whose window floats at the left edge while the test runs, so leave the Mac alone for those few minutes. `--no-mac-ui` skips them.
 

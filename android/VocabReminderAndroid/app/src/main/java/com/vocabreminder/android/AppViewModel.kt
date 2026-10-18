@@ -42,6 +42,12 @@ import com.vocabreminder.android.sync.CloudSyncConfig
 import com.vocabreminder.android.sync.CloudSyncException
 import com.vocabreminder.android.sync.SyncCoordinator
 import com.vocabreminder.android.sync.SyncWorker
+import com.vocabreminder.android.update.AppRelease
+import com.vocabreminder.android.update.AppUpdateClient
+import com.vocabreminder.android.update.AppUpdateException
+import com.vocabreminder.android.update.AppUpdateInstaller
+import com.vocabreminder.android.update.AppUpdatePolicy
+import com.vocabreminder.android.update.AppUpdateState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -134,6 +140,16 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
 
     private var initialCaptureHandled = false
 
+    var appUpdate by mutableStateOf<AppUpdateState>(
+        if (AppUpdateInstaller.enabled) AppUpdateState.Idle else AppUpdateState.Disabled
+    )
+        private set
+    var showInstallPermissionDialog by mutableStateOf(false)
+        private set
+    val installedVersionLabel: String = runCatching {
+        "${AppUpdateInstaller.installedVersionName(application)} (${AppUpdateInstaller.installedVersionCode(application)})"
+    }.getOrDefault(BuildConfig.VERSION_NAME)
+
     init {
         reload()
         // Workers, notification actions and sync write from other threads; follow them.
@@ -141,6 +157,11 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
             StoreChanges.revision.drop(1).collect {
                 reload()
                 syncStatus = store.cloudSyncStatus()
+            }
+        }
+        if (AppUpdateInstaller.enabled) {
+            viewModelScope.launch {
+                AppUpdateInstaller.installOutcomes.collect(::onInstallOutcome)
             }
         }
     }
@@ -167,6 +188,11 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
         SyncWorker.ensureScheduled(context)
         SyncWorker.enqueueImmediate(context)
         refreshDeviceReadiness()
+        // Only on the first start of this screen, not when it is recreated mid-download.
+        if (appUpdate == AppUpdateState.Idle && initial.text.isBlank()) {
+            AppUpdateInstaller.cleanupDownloads(context)
+            checkForUpdate()
+        }
         if (!initialCaptureHandled && initial.text.isNotBlank()) {
             initialCaptureHandled = true
             capture.showSheet = true
@@ -608,6 +634,101 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
             },
             onFailure = { "Sync 가져오기 실패: ${it.message ?: it::class.java.simpleName}" }
         )
+    }
+
+    // ---- App update -----------------------------------------------------------------------
+
+    fun checkForUpdate() {
+        if (!AppUpdateInstaller.enabled || appUpdate.busy) return
+        val config = updateConfigOrNull() ?: return
+        appUpdate = AppUpdateState.Checking
+        viewModelScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { AppUpdateClient(config).fetchLatest() } }
+            appUpdate = result.fold(
+                onSuccess = { release ->
+                    if (release != null && AppUpdatePolicy.isNewer(release, AppUpdateInstaller.installedVersionCode(context))) {
+                        AppUpdateState.Available(release)
+                    } else {
+                        AppUpdateState.UpToDate
+                    }
+                },
+                onFailure = { AppUpdateState.Failed(it.message ?: "업데이트 확인 실패") }
+            )
+        }
+    }
+
+    /** Downloads, verifies and hands the release to the system installer. */
+    fun startUpdate(release: AppRelease) {
+        if (!AppUpdateInstaller.enabled || appUpdate.busy) return
+        val config = updateConfigOrNull() ?: return
+        if (!AppUpdateInstaller.canRequestInstalls(context)) {
+            appUpdate = AppUpdateState.NeedsPermission(release)
+            showInstallPermissionDialog = true
+            return
+        }
+        appUpdate = AppUpdateState.Downloading(release, 0)
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    AppUpdateInstaller.cleanupDownloads(context)
+                    val apk = AppUpdateInstaller.downloadFile(context, release)
+                    AppUpdateClient(config).download(release, apk) { written, total ->
+                        val percent = (written * 100 / total).toInt()
+                        if ((appUpdate as? AppUpdateState.Downloading)?.percent != percent) {
+                            appUpdate = AppUpdateState.Downloading(release, percent)
+                        }
+                    }
+                    AppUpdateInstaller.verify(context, apk, release)?.let { reason ->
+                        apk.delete()
+                        throw AppUpdateException(reason)
+                    }
+                    AppUpdateInstaller.install(context, apk)
+                }
+            }
+            result.onFailure { AppUpdateInstaller.cleanupDownloads(context) }
+            appUpdate = result.fold(
+                onSuccess = { AppUpdateState.Installing(release) },
+                onFailure = { AppUpdateState.Failed(it.message ?: it::class.java.simpleName, release) }
+            )
+        }
+    }
+
+    fun openInstallPermissionSettings() {
+        showInstallPermissionDialog = false
+        context.startActivity(AppUpdateInstaller.unknownSourcesSettingsIntent(context))
+    }
+
+    fun dismissInstallPermissionDialog() {
+        showInstallPermissionDialog = false
+    }
+
+    /** Back from the "Install unknown apps" screen: continue if the switch is now on. */
+    fun onResumeForUpdate() {
+        val pending = appUpdate as? AppUpdateState.NeedsPermission ?: return
+        if (AppUpdateInstaller.canRequestInstalls(context)) startUpdate(pending.release)
+    }
+
+    private fun onInstallOutcome(outcome: AppUpdateInstaller.InstallOutcome) {
+        val release = when (val state = appUpdate) {
+            is AppUpdateState.Installing -> state.release
+            is AppUpdateState.Downloading -> state.release
+            else -> null
+        }
+        appUpdate = when (outcome) {
+            AppUpdateInstaller.InstallOutcome.WaitingForUser -> release?.let { AppUpdateState.Installing(it) } ?: appUpdate
+            AppUpdateInstaller.InstallOutcome.Installed -> AppUpdateState.UpToDate
+            is AppUpdateInstaller.InstallOutcome.Failed -> AppUpdateState.Failed(outcome.message, release)
+        }
+    }
+
+    private fun updateConfigOrNull(): CloudSyncConfig? {
+        val serverUrl = syncServerUrl.trim()
+        val token = syncBearerToken.trim()
+        if (serverUrl.isBlank() || token.isBlank()) {
+            appUpdate = AppUpdateState.Failed("동기화 설정이 없어 업데이트를 확인할 수 없습니다.")
+            return null
+        }
+        return CloudSyncConfig(serverUrl, token)
     }
 
     private fun localSyncFile(): File =

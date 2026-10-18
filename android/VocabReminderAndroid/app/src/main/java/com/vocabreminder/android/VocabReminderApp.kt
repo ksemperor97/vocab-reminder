@@ -80,6 +80,7 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
             if (event == Lifecycle.Event.ON_RESUME) {
                 model.reload()
                 model.refreshDeviceReadiness()
+                model.onResumeForUpdate()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -138,9 +139,17 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
         )
     }
 
+    if (model.showInstallPermissionDialog) {
+        InstallPermissionDialog(
+            onOpenSettings = model::openInstallPermissionSettings,
+            onDismiss = model::dismissInstallPermissionDialog
+        )
+    }
+
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            topBar = { AppUpdateBanner(state = model.appUpdate, onUpdate = model::startUpdate) },
             bottomBar = {
                 AppNavigationBar(selectedTab = selectedTab, onTabSelected = { tab ->
                     selectedTab = tab
@@ -215,6 +224,15 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
                             showSyncSettings = true
                         },
                         onBackFromSync = { showSyncSettings = false },
+                        updateContent = {
+                            AppUpdatePanel(
+                                state = model.appUpdate,
+                                installedVersion = model.installedVersionLabel,
+                                onCheck = model::checkForUpdate,
+                                onUpdate = model::startUpdate,
+                                onOpenInstallPermission = model::openInstallPermissionSettings
+                            )
+                        },
                         syncContent = {
                             CloudSyncPanel(
                                 serverUrl = model.syncServerUrl,
