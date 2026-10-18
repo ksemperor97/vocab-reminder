@@ -1,22 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TUNNEL_DIR="$SERVER_DIR/tunnel"
-ENV_FILE="$TUNNEL_DIR/.env"
-ENV_EXAMPLE="$TUNNEL_DIR/.env.example"
-PLIST_SRC="$SERVER_DIR/com.vocabreminder.tunnel.plist"
+SOURCE_SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RUNTIME_ROOT="${VOCAB_SYNC_RUNTIME_ROOT:-$HOME/Library/Application Support/VocabReminderServer}"
+CURRENT_DIR="$RUNTIME_ROOT/current"
+TUNNEL_DIR="$CURRENT_DIR/tunnel"
+ENV_FILE="${VOCAB_SYNC_TUNNEL_ENV_FILE:-$RUNTIME_ROOT/tunnel.env}"
+SERVER_ENV="$RUNTIME_ROOT/.env"
+LEGACY_ENV_FILE="$SOURCE_SERVER_DIR/tunnel/.env"
+ENV_EXAMPLE="$SOURCE_SERVER_DIR/tunnel/.env.example"
+PLIST_SRC="$SOURCE_SERVER_DIR/com.vocabreminder.tunnel.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/com.vocabreminder.tunnel.plist"
+LOG_DIR="$RUNTIME_ROOT/logs"
+STATE_FILE="$RUNTIME_ROOT/state/tunnel-supervisor.json"
 
-mkdir -p "$SERVER_DIR/logs" "$HOME/Library/LaunchAgents"
+if [[ ! -d "$CURRENT_DIR/tunnel" ]]; then
+  echo "Runtime release is missing at $CURRENT_DIR. Run server/install_launchd.sh first." >&2
+  exit 78
+fi
+
+if [[ ! -f "$SERVER_ENV" ]]; then
+  echo "Runtime server environment is missing at $SERVER_ENV. Run server/install_launchd.sh first." >&2
+  exit 78
+fi
+
+mkdir -p "$LOG_DIR" "$RUNTIME_ROOT/state" "$HOME/Library/LaunchAgents"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
-  cp "$ENV_EXAMPLE" "$ENV_FILE"
-  echo "Created $ENV_FILE."
-  echo "Edit it for cloudflare_quick_worker or cloudflare_named, then rerun this script." >&2
-  exit 78
+  if [[ -f "$LEGACY_ENV_FILE" ]]; then
+    cp "$LEGACY_ENV_FILE" "$ENV_FILE"
+    echo "Migrated the existing tunnel environment to $ENV_FILE."
+  else
+    # New installs publish through Tailscale Funnel; that script creates the env file.
+    exec "$SOURCE_SERVER_DIR/tunnel/install_tailscale_funnel.sh" "$@"
+  fi
 fi
+chmod 600 "$ENV_FILE"
 
 set -a
 # shellcheck disable=SC1090
@@ -26,6 +46,10 @@ set +a
 provider="${TUNNEL_PROVIDER:-}"
 if [[ -z "$provider" ]]; then
   provider="cloudflare_quick_worker"
+fi
+
+if [[ "$provider" == "tailscale_funnel" ]]; then
+  exec "$SOURCE_SERVER_DIR/tunnel/install_tailscale_funnel.sh" "$@"
 fi
 
 if ! command -v cloudflared >/dev/null 2>&1; then
@@ -39,7 +63,19 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 fi
 
 CLOUDFLARED_BIN="$(command -v cloudflared)"
-NODE_BIN="$(command -v node || true)"
+SERVER_PLIST="$HOME/Library/LaunchAgents/com.vocabreminder.sync.plist"
+NODE_BIN="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$SERVER_PLIST" 2>/dev/null || true)"
+if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+  NODE_BIN="$(command -v node || true)"
+fi
+# Keep Homebrew's major-version opt path: Cellar patch-version paths disappear
+# after brew upgrade/cleanup. The tunnel does not load native SQLite modules.
+for stable_node in /opt/homebrew/opt/node@22/bin/node /usr/local/opt/node@22/bin/node; do
+  if [[ -x "$stable_node" ]] && [[ "$("$stable_node" -p 'process.versions.node.split(".")[0]')" == "22" ]]; then
+    NODE_BIN="$stable_node"
+    break
+  fi
+done
 
 case "$provider" in
   cloudflare_quick_worker|cloudflare-worker|quick-worker)
@@ -85,7 +121,12 @@ escape_sed() {
 }
 
 sed \
-  -e "s|__SERVER_DIR__|$(escape_sed "$SERVER_DIR")|g" \
+  -e "s|__CURRENT_DIR__|$(escape_sed "$CURRENT_DIR")|g" \
+  -e "s|__RUNTIME_ROOT__|$(escape_sed "$RUNTIME_ROOT")|g" \
+  -e "s|__SERVER_ENV__|$(escape_sed "$SERVER_ENV")|g" \
+  -e "s|__TUNNEL_ENV__|$(escape_sed "$ENV_FILE")|g" \
+  -e "s|__LOG_DIR__|$(escape_sed "$LOG_DIR")|g" \
+  -e "s|__STATE_FILE__|$(escape_sed "$STATE_FILE")|g" \
   -e "s|__CLOUDFLARED_BIN__|$(escape_sed "$CLOUDFLARED_BIN")|g" \
   -e "s|__NODE_BIN__|$(escape_sed "$NODE_BIN")|g" \
   "$PLIST_SRC" > "$PLIST_DST"
@@ -96,4 +137,5 @@ launchctl kickstart -k "gui/$(id -u)/com.vocabreminder.tunnel"
 
 echo "Installed launchd agent: $PLIST_DST"
 echo "Tunnel provider: $provider"
-echo "Tunnel logs: $SERVER_DIR/logs/tunnel.out.log and tunnel.err.log"
+echo "Tunnel logs: $LOG_DIR/tunnel.out.log and tunnel.err.log"
+echo "Tunnel state: $STATE_FILE"

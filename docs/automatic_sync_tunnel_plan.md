@@ -120,7 +120,7 @@ Android 일반 사용자 모드:
 ```text
 - sync 설정 화면에 서버 주소/토큰 필드 없음.
 - 앱 실행 시 자동 sync.
-- 저장/복습 후 5분 debounce sync.
+- 저장/복습 후 즉시 sync.
 - WorkManager 6시간 주기 sync.
 - 실패 시 로컬 큐 유지.
 - 마지막 성공 시각, 마지막 오류 요약만 표시.
@@ -130,7 +130,7 @@ MacBook Air 일반 사용자 모드:
 
 ```text
 - 앱 실행 시 자동 sync.
-- 카드 편집/복습 후 debounce sync.
+- 카드 편집/복습 후 즉시 sync.
 - 메뉴/설정에는 마지막 sync 상태만 표시.
 - 서버 주소/토큰 입력은 debug-only.
 ```
@@ -197,10 +197,10 @@ Mac mini 운영자 모드:
 ### D. 자동 sync
 
 - [x] Android 앱 foreground 진입 시 sync enqueue.
-- [x] Android 저장/복습/recommendation action 후 debounce sync enqueue.
+- [x] Android 저장/복습/recommendation action 후 immediate sync enqueue.
 - [x] Android WorkManager 6시간 주기 sync 유지.
 - [x] Mac 앱 실행 시 sync.
-- [x] Mac 저장/설정/복습/recommendation/delete 후 debounce sync.
+- [x] Mac 저장/설정/복습/recommendation/delete 후 immediate sync enqueue.
 - [x] Mac 1시간 timer sync.
 - [ ] 서버/tunnel down일 때 앱 저장/복습은 정상 동작하고 sync만 retry된다.
 
@@ -288,7 +288,7 @@ Mac mini 운영자 모드:
   - 2026-07-03 운영 URL release APK sync 화면 UI dump에서 `자동 동기화: 준비됨`만 보이고 서버 주소/토큰/VPN/WireGuard/endpoint/testTag 문자열 없음.
 - [x] QC-A3. Android에서 단어 저장 후 sync로 서버에 반영된다.
   - 2026-07-03 `synchronize` 저장 후 수동 `지금 동기화`, Worker snapshot 6 -> 7.
-- [ ] QC-A4. Android에서 복습 action 후 debounce sync로 review event가 서버에 반영된다.
+- [ ] QC-A4. Android에서 복습 action 후 immediate sync로 review event가 서버에 반영된다.
 - [ ] QC-A5. Mac mini/tunnel down 상태에서 저장/복습이 정상 동작하고 오류 팝업이 뜨지 않는다.
 - [ ] QC-A6. Mac mini/tunnel 복구 후 누적 변경분이 자동 반영된다.
 - [x] QC-A7. AdGuard VPN이 켜진 상태에서도 sync가 성공한다.

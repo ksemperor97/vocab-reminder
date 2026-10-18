@@ -44,9 +44,29 @@ LOG="$HOME/Library/Logs/VocabReminderService.log"
 {
   printf '%s start argc=%s\n' "$(/bin/date '+%Y-%m-%d %H:%M:%S')" "$#"
   text="$(cat 2>/dev/null || true)"
+  append_text() {
+    if [ -z "$1" ]; then
+      return
+    fi
+    if [ -z "$text" ]; then
+      text="$1"
+    else
+      text="${text}
+$1"
+    fi
+  }
+
   for arg in "$@"; do
-    text="${text}
-${arg}"
+    if [ -f "$arg" ]; then
+      file_text="$(cat "$arg" 2>/dev/null || true)"
+      if [ -n "$file_text" ]; then
+        append_text "$file_text"
+      else
+        append_text "$arg"
+      fi
+    else
+      append_text "$arg"
+    fi
   done
 
   text="$(printf '%s' "$text" | /usr/bin/python3 -c 'import sys; print(sys.stdin.read().strip())')"

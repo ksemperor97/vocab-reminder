@@ -100,6 +100,7 @@
         "source_sentence_primary": { "type": ["string", "null"] },
         "source_url_primary": { "type": ["string", "null"], "format": "uri" },
         "source_app_primary": { "type": ["string", "null"] },
+        "primary_definition_candidate_id": { "type": ["string", "null"], "minLength": 1 },
         "definition_source_primary": { "$ref": "#/$defs/definitionSource" },
         "status": { "$ref": "#/$defs/cardStatus" },
         "due_at": { "$ref": "#/$defs/timestamp" },
@@ -109,11 +110,17 @@
         "difficulty": { "type": ["number", "null"] },
         "lapse_count": { "type": "integer", "minimum": 0 },
         "interval_before_lapse": { "type": ["number", "null"], "minimum": 0 },
+        "recommendation_started_at": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
         "deleted_at": { "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "merged_into": { "type": ["string", "null"], "description": "On a tombstone made by server duplicate folding, the surviving card id." },
         "created_device_id": { "type": "string" },
         "created_at": { "$ref": "#/$defs/timestamp" },
         "updated_at": { "$ref": "#/$defs/timestamp" },
-        "version": { "type": "integer", "minimum": 1 }
+        "version": { "type": "integer", "minimum": 1 },
+        "content_version": { "type": "integer", "minimum": 1, "description": "Clock for the content field group (sync protocol 3); defaults to version." },
+        "content_updated_at": { "$ref": "#/$defs/timestamp" },
+        "schedule_version": { "type": "integer", "minimum": 1, "description": "Clock for the schedule field group (sync protocol 3); defaults to version." },
+        "schedule_updated_at": { "$ref": "#/$defs/timestamp" }
       }
     },
     "context": {
@@ -167,6 +174,8 @@
         "example_sentence": { "type": ["string", "null"] },
         "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
         "selected_as_primary": { "type": "boolean" },
+        "origin_device_id": { "type": ["string", "null"], "minLength": 1 },
+        "base_card_version": { "type": ["integer", "null"], "minimum": 1 },
         "created_at": { "$ref": "#/$defs/timestamp" }
       }
     },

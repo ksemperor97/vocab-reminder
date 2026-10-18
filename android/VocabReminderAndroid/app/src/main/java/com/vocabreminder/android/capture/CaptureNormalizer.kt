@@ -69,7 +69,7 @@ object CaptureNormalizer {
     }
 
     fun normalizeText(value: String): String {
-        return value
+        return stripNonAsciiSymbols(value)
             .trim()
             .replace(Regex("""\s+"""), " ")
             .replace(edgePunctuation, "")
@@ -87,9 +87,9 @@ object CaptureNormalizer {
         return when {
             normalized.endsWith("ies") && normalized.length > 4 -> normalized.dropLast(3) + "y"
             normalized.endsWith("ied") && normalized.length > 4 -> normalized.dropLast(3) + "y"
-            normalized.endsWith("ing") && normalized.length > 5 -> normalized.dropLast(3).trimTrailingDoubleConsonant()
+            normalized.endsWith("ing") && normalized.length > 5 -> normalized.dropLast(3).trimTrailingDoubleConsonant().restoreSilentE()
             normalized.endsWith("ated") && normalized.length > 5 -> normalized.dropLast(1)
-            normalized.endsWith("ed") && normalized.length > 4 -> normalized.dropLast(2).trimTrailingDoubleConsonant()
+            normalized.endsWith("ed") && normalized.length > 4 -> normalized.dropLast(2).trimTrailingDoubleConsonant().restoreSilentE()
             normalized.endsWith("ly") && normalized.length > 5 -> normalized.dropLast(2)
             normalized.endsWith("s") &&
                 !normalized.endsWith("ss") &&
@@ -100,10 +100,30 @@ object CaptureNormalizer {
         }
     }
 
+    // "stopped" -> "stop", but "kissed" -> "kiss": a doubled s, f or z belongs to the word.
     private fun String.trimTrailingDoubleConsonant(): String {
         if (length < 2) return this
         val last = last()
         val previous = this[length - 2]
-        return if (last == previous && last !in setOf('a', 'e', 'i', 'o', 'u')) dropLast(1) else this
+        return if (last == previous && last !in setOf('a', 'e', 'i', 'o', 'u', 's', 'f', 'z')) dropLast(1) else this
+    }
+
+    // "baptiz" -> "baptize", "lov" -> "love", "judg" -> "judge": stems that
+    // cannot end an English word lost a silent e to the -ed/-ing ending.
+    private fun String.restoreSilentE(): String = if (silentEStem.containsMatchIn(this)) this + "e" else this
+
+    private val silentEStem = Regex("(?:[^aeiou]iz|yz|[^aeious]is|v|[^k]c|dg|u|[^aeiou]os)$")
+
+    private fun stripNonAsciiSymbols(value: String): String {
+        return value.filter { char ->
+            char.code < 128 || when (Character.getType(char)) {
+                Character.MATH_SYMBOL.toInt(),
+                Character.CURRENCY_SYMBOL.toInt(),
+                Character.MODIFIER_SYMBOL.toInt(),
+                Character.OTHER_SYMBOL.toInt(),
+                Character.SURROGATE.toInt() -> false
+                else -> true
+            }
+        }
     }
 }

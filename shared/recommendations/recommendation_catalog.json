@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 2,
+  "catalogVersion": "2026-09-21.1",
   "source": {
     "package": "subtlex-word-frequencies",
     "version": "2.0.0",
@@ -6,7 +8,29 @@
     "repository": "https://github.com/words/subtlex-word-frequencies",
     "rankDefinition": "1-based index in index.json sorted by descending SUBTLEXus count"
   },
-  "generatedAt": "2026-07-02",
+  "contentSources": [
+    {
+      "sourceId": "vocabreminder-project-authored-seed-v1",
+      "kind": "project_authored",
+      "datasetName": "VocabReminder curated seed content",
+      "datasetVersion": "2026-07-02",
+      "rightsBasis": "project_authored",
+      "attribution": "VocabReminder project-authored curated seed content",
+      "redistributionAllowed": true,
+      "shareAlikeRequired": false,
+      "humanReviewPolicy": "curated_at_authoring"
+    }
+  ],
+  "build": {
+    "policyVersion": 1,
+    "reviewedPromotionsIncluded": 0,
+    "reviewedPromotionsChecksumSha256": null,
+    "deterministicInputs": [
+      "subtlex-word-frequencies@2.0.0",
+      "project-authored-seed-v1"
+    ]
+  },
+  "generatedAt": "2026-09-21",
   "entries": [
     {
       "lemma": "prior",
@@ -16,7 +40,11 @@
       "exampleSentence": "Prior knowledge affected recall.",
       "frequencyRank": 4944,
       "frequencyCount": 422,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "core",
+      "entryId": "recommendation:prior",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "exhibit",
@@ -26,7 +54,11 @@
       "exampleSentence": "Participants exhibited faster responses.",
       "frequencyRank": 5233,
       "frequencyCount": 388,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:exhibit",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "protocol",
@@ -36,7 +68,11 @@
       "exampleSentence": "The protocol included a practice block.",
       "frequencyRank": 5284,
       "frequencyCount": 382,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:protocol",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "subtle",
@@ -46,7 +82,11 @@
       "exampleSentence": "The change produced a subtle improvement.",
       "frequencyRank": 5566,
       "frequencyCount": 354,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:subtle",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "preliminary",
@@ -56,7 +96,11 @@
       "exampleSentence": "These are preliminary results.",
       "frequencyRank": 7066,
       "frequencyCount": 244,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:preliminary",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "elaborate",
@@ -66,7 +110,25 @@
       "exampleSentence": "The discussion elaborated the mechanism.",
       "frequencyRank": 7107,
       "frequencyCount": 242,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:elaborate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "souvenir",
+      "meaningKo": "기념품",
+      "definitionEn": "an object kept to remember a place or occasion",
+      "partOfSpeech": "noun",
+      "exampleSentence": "She brought home a small souvenir from the market.",
+      "frequencyRank": 7143,
+      "frequencyCount": 240,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:souvenir",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "phenomenon",
@@ -76,7 +138,25 @@
       "exampleSentence": "The phenomenon appeared in both groups.",
       "frequencyRank": 7248,
       "frequencyCount": 234,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:phenomenon",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "errand",
+      "meaningKo": "심부름, 볼일",
+      "definitionEn": "a short trip to complete a small task",
+      "partOfSpeech": "noun",
+      "exampleSentence": "I have an errand to run before dinner.",
+      "frequencyRank": 7885,
+      "frequencyCount": 204,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:errand",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "mechanism",
@@ -86,7 +166,11 @@
       "exampleSentence": "The mechanism remains unclear.",
       "frequencyRank": 8247,
       "frequencyCount": 190,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:mechanism",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "substantial",
@@ -96,7 +180,11 @@
       "exampleSentence": "The model showed a substantial improvement.",
       "frequencyRank": 8446,
       "frequencyCount": 182,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:substantial",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "manipulate",
@@ -106,7 +194,11 @@
       "exampleSentence": "The experiment manipulated task difficulty.",
       "frequencyRank": 8595,
       "frequencyCount": 177,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:manipulate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "assumption",
@@ -116,7 +208,11 @@
       "exampleSentence": "The assumption was tested directly.",
       "frequencyRank": 8777,
       "frequencyCount": 170,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:assumption",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "fundamental",
@@ -126,7 +222,11 @@
       "exampleSentence": "The task measured a fundamental process.",
       "frequencyRank": 8878,
       "frequencyCount": 167,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:fundamental",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "distribution",
@@ -136,7 +236,11 @@
       "exampleSentence": "The distribution was skewed.",
       "frequencyRank": 9204,
       "frequencyCount": 157,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:distribution",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "isolate",
@@ -146,7 +250,11 @@
       "exampleSentence": "The analysis isolated the relevant factor.",
       "frequencyRank": 9559,
       "frequencyCount": 147,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:isolate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "threshold",
@@ -156,7 +264,11 @@
       "exampleSentence": "Responses above the threshold were counted.",
       "frequencyRank": 9788,
       "frequencyCount": 141,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:threshold",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "imply",
@@ -166,7 +278,11 @@
       "exampleSentence": "The pattern may imply a causal link.",
       "frequencyRank": 9968,
       "frequencyCount": 137,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:imply",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "persistent",
@@ -176,7 +292,11 @@
       "exampleSentence": "The bias was persistent across sessions.",
       "frequencyRank": 10178,
       "frequencyCount": 132,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:persistent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "domain",
@@ -186,7 +306,53 @@
       "exampleSentence": "The result generalized across domains.",
       "frequencyRank": 10194,
       "frequencyCount": 132,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:domain",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "heritage",
+      "meaningKo": "유산",
+      "definitionEn": "traditions and places passed down from earlier generations",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The festival celebrates the town's cultural heritage.",
+      "frequencyRank": 10342,
+      "frequencyCount": 129,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:heritage",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "reluctant",
+      "meaningKo": "내키지 않는",
+      "definitionEn": "not willing or eager to do something",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "She was reluctant to ask for help.",
+      "frequencyRank": 10373,
+      "frequencyCount": 128,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:reluctant",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "improvise",
+      "meaningKo": "즉흥적으로 하다",
+      "definitionEn": "to create or do something without advance preparation",
+      "partOfSpeech": "verb",
+      "exampleSentence": "We had to improvise a meal with what was left.",
+      "frequencyRank": 10445,
+      "frequencyCount": 127,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:improvise",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "enhance",
@@ -196,7 +362,11 @@
       "exampleSentence": "Sleep enhanced memory retention.",
       "frequencyRank": 10568,
       "frequencyCount": 125,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:enhance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "viable",
@@ -206,7 +376,11 @@
       "exampleSentence": "The approach was viable with fewer trials.",
       "frequencyRank": 10734,
       "frequencyCount": 121,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:viable",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "compatible",
@@ -216,7 +390,11 @@
       "exampleSentence": "The results are compatible with the hypothesis.",
       "frequencyRank": 10792,
       "frequencyCount": 120,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:compatible",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "clarify",
@@ -226,7 +404,25 @@
       "exampleSentence": "A follow-up analysis clarified the result.",
       "frequencyRank": 11093,
       "frequencyCount": 114,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:clarify",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "advocate",
+      "meaningKo": "옹호하다",
+      "definitionEn": "to speak in support of an idea or cause",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Residents advocate safer streets for children.",
+      "frequencyRank": 11149,
+      "frequencyCount": 113,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:advocate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "transform",
@@ -236,7 +432,11 @@
       "exampleSentence": "The values were transformed before analysis.",
       "frequencyRank": 11215,
       "frequencyCount": 112,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:transform",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "minimal",
@@ -246,7 +446,25 @@
       "exampleSentence": "The task required minimal training.",
       "frequencyRank": 11327,
       "frequencyCount": 110,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:minimal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "civic",
+      "meaningKo": "시민의, 지역 사회의",
+      "definitionEn": "relating to a town or the responsibilities of its people",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Volunteering is part of civic life.",
+      "frequencyRank": 11348,
+      "frequencyCount": 110,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:civic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "dense",
@@ -256,7 +474,11 @@
       "exampleSentence": "The dense matrix was hard to inspect.",
       "frequencyRank": 11486,
       "frequencyCount": 108,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:dense",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "dynamic",
@@ -266,7 +488,53 @@
       "exampleSentence": "The model captured dynamic behavior.",
       "frequencyRank": 11539,
       "frequencyCount": 107,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:dynamic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "detour",
+      "meaningKo": "우회로",
+      "definitionEn": "a different route taken to avoid the usual way",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Road repairs forced us to take a detour.",
+      "frequencyRank": 11552,
+      "frequencyCount": 107,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:detour",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "surplus",
+      "meaningKo": "잉여분",
+      "definitionEn": "an amount left after needs have been met",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The farm donated its surplus to a food bank.",
+      "frequencyRank": 11756,
+      "frequencyCount": 104,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:surplus",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "candid",
+      "meaningKo": "솔직한",
+      "definitionEn": "honest and direct in expressing thoughts",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We had a candid conversation about our plans.",
+      "frequencyRank": 11865,
+      "frequencyCount": 102,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:candid",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "neural",
@@ -276,7 +544,11 @@
       "exampleSentence": "Neural responses predicted behavior.",
       "frequencyRank": 12028,
       "frequencyCount": 100,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:neural",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "compelling",
@@ -286,7 +558,11 @@
       "exampleSentence": "The evidence was compelling.",
       "frequencyRank": 12186,
       "frequencyCount": 97,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:compelling",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "trajectory",
@@ -296,7 +572,25 @@
       "exampleSentence": "The learning trajectory changed over time.",
       "frequencyRank": 12459,
       "frequencyCount": 94,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:trajectory",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "thrive",
+      "meaningKo": "잘 자라다, 번성하다",
+      "definitionEn": "to grow or develop very well",
+      "partOfSpeech": "verb",
+      "exampleSentence": "These plants thrive in sunny gardens.",
+      "frequencyRank": 12785,
+      "frequencyCount": 89,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:thrive",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "visualize",
@@ -306,7 +600,81 @@
       "exampleSentence": "The graph visualized the distribution.",
       "frequencyRank": 12891,
       "frequencyCount": 88,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:visualize",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "simmer",
+      "meaningKo": "뭉근히 끓이다",
+      "definitionEn": "to cook liquid gently just below boiling",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Let the soup simmer for twenty minutes.",
+      "frequencyRank": 12951,
+      "frequencyCount": 87,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:simmer",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "sturdy",
+      "meaningKo": "튼튼한",
+      "definitionEn": "strong enough to withstand regular use",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We need a sturdy shelf for these books.",
+      "frequencyRank": 13048,
+      "frequencyCount": 86,
+      "topic": "everyday",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:sturdy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "ordinance",
+      "meaningKo": "조례",
+      "definitionEn": "a rule made by a local government",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The new ordinance limits noise at night.",
+      "frequencyRank": 13070,
+      "frequencyCount": 86,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:ordinance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "canopy",
+      "meaningKo": "나뭇가지가 이루는 덮개",
+      "definitionEn": "an overhead cover formed by branches or material",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The forest canopy sheltered us from the rain.",
+      "frequencyRank": 13095,
+      "frequencyCount": 86,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:canopy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "itinerary",
+      "meaningKo": "여행 일정",
+      "definitionEn": "a plan listing the places and times of a trip",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Our itinerary leaves one afternoon free.",
+      "frequencyRank": 13176,
+      "frequencyCount": 85,
+      "topic": "travel",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:itinerary",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "assess",
@@ -316,7 +684,11 @@
       "exampleSentence": "The survey assessed confidence after each trial.",
       "frequencyRank": 13298,
       "frequencyCount": 83,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:assess",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "plausible",
@@ -326,7 +698,11 @@
       "exampleSentence": "The authors offered a plausible explanation.",
       "frequencyRank": 13330,
       "frequencyCount": 83,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:plausible",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "induce",
@@ -336,7 +712,11 @@
       "exampleSentence": "The manipulation induced a response bias.",
       "frequencyRank": 13402,
       "frequencyCount": 82,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:induce",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "bias",
@@ -346,7 +726,11 @@
       "exampleSentence": "Sampling bias affected the result.",
       "frequencyRank": 13443,
       "frequencyCount": 82,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:bias",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "adaptation",
@@ -356,7 +740,11 @@
       "exampleSentence": "Adaptation occurred after repeated exposure.",
       "frequencyRank": 13523,
       "frequencyCount": 81,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:adaptation",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "lateral",
@@ -366,7 +754,11 @@
       "exampleSentence": "The lateral region showed stronger activation.",
       "frequencyRank": 13817,
       "frequencyCount": 78,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:lateral",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "apparatus",
@@ -376,7 +768,25 @@
       "exampleSentence": "The apparatus recorded responses automatically.",
       "frequencyRank": 13949,
       "frequencyCount": 77,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:apparatus",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "resentment",
+      "meaningKo": "분개, 원망",
+      "definitionEn": "anger that remains after unfair treatment",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Talking openly helped ease her resentment.",
+      "frequencyRank": 14020,
+      "frequencyCount": 76,
+      "topic": "relationships",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:resentment",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "suppress",
@@ -386,7 +796,25 @@
       "exampleSentence": "The mask suppressed the response.",
       "frequencyRank": 14026,
       "frequencyCount": 76,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:suppress",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "livelihood",
+      "meaningKo": "생계 수단",
+      "definitionEn": "the way a person earns enough to live",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Fishing provides a livelihood for many families.",
+      "frequencyRank": 14035,
+      "frequencyCount": 76,
+      "topic": "society",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:livelihood",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "magnitude",
@@ -396,7 +824,11 @@
       "exampleSentence": "The magnitude of the effect was small.",
       "frequencyRank": 14314,
       "frequencyCount": 73,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:magnitude",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "explicit",
@@ -406,7 +838,39 @@
       "exampleSentence": "The instructions made the rule explicit.",
       "frequencyRank": 14550,
       "frequencyCount": 71,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:explicit",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "brittle",
+      "meaningKo": "잘 부러지는",
+      "definitionEn": "hard but easily broken into pieces",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "The dry branches were brittle.",
+      "frequencyRank": 14590,
+      "frequencyCount": 71,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:brittle",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "drought",
+      "meaningKo": "가뭄",
+      "definitionEn": "a long period with very little rain",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The drought left the fields dry.",
+      "frequencyRank": 14694,
+      "frequencyCount": 70,
+      "topic": "nature_food",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:drought",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "temporal",
@@ -416,7 +880,11 @@
       "exampleSentence": "The temporal pattern changed after learning.",
       "frequencyRank": 14800,
       "frequencyCount": 69,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:temporal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "adjacent",
@@ -426,7 +894,11 @@
       "exampleSentence": "Adjacent trials were grouped together.",
       "frequencyRank": 14891,
       "frequencyCount": 68,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:adjacent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "prospective",
@@ -436,7 +908,11 @@
       "exampleSentence": "The prospective analysis was preregistered.",
       "frequencyRank": 14926,
       "frequencyCount": 68,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "intermediate",
+      "entryId": "recommendation:prospective",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "cluster",
@@ -446,7 +922,11 @@
       "exampleSentence": "Items formed a semantic cluster.",
       "frequencyRank": 15030,
       "frequencyCount": 67,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:cluster",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "accelerate",
@@ -456,7 +936,11 @@
       "exampleSentence": "Feedback can accelerate learning.",
       "frequencyRank": 15295,
       "frequencyCount": 65,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:accelerate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "subsequent",
@@ -466,7 +950,25 @@
       "exampleSentence": "Subsequent trials used a shorter delay.",
       "frequencyRank": 15388,
       "frequencyCount": 64,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:subsequent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "embark",
+      "meaningKo": "승선하다, 시작하다",
+      "definitionEn": "to begin a journey or an undertaking",
+      "partOfSpeech": "verb",
+      "exampleSentence": "They will embark on their voyage tomorrow.",
+      "frequencyRank": 15390,
+      "frequencyCount": 64,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:embark",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "approximate",
@@ -476,7 +978,11 @@
       "exampleSentence": "The approximate value was sufficient.",
       "frequencyRank": 15415,
       "frequencyCount": 64,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:approximate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "residual",
@@ -486,7 +992,11 @@
       "exampleSentence": "The residual was modeled as noise.",
       "frequencyRank": 15424,
       "frequencyCount": 64,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:residual",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "anomaly",
@@ -496,7 +1006,25 @@
       "exampleSentence": "The anomaly disappeared after preprocessing.",
       "frequencyRank": 15544,
       "frequencyCount": 63,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:anomaly",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "cordial",
+      "meaningKo": "다정한, 정중한",
+      "definitionEn": "friendly and polite toward others",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Our neighbors gave us a cordial welcome.",
+      "frequencyRank": 15737,
+      "frequencyCount": 62,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:cordial",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "selective",
@@ -506,7 +1034,11 @@
       "exampleSentence": "Selective attention modulated the response.",
       "frequencyRank": 15918,
       "frequencyCount": 60,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:selective",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "confound",
@@ -516,7 +1048,11 @@
       "exampleSentence": "Motion can confound the measurement.",
       "frequencyRank": 16083,
       "frequencyCount": 59,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:confound",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "likelihood",
@@ -526,7 +1062,25 @@
       "exampleSentence": "The likelihood favored the simpler model.",
       "frequencyRank": 16180,
       "frequencyCount": 58,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:likelihood",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "reconcile",
+      "meaningKo": "화해시키다, 조화시키다",
+      "definitionEn": "to bring people or ideas back into agreement",
+      "partOfSpeech": "verb",
+      "exampleSentence": "They tried to reconcile after the argument.",
+      "frequencyRank": 16232,
+      "frequencyCount": 58,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:reconcile",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "artifact",
@@ -536,7 +1090,11 @@
       "exampleSentence": "The signal contained a measurement artifact.",
       "frequencyRank": 16645,
       "frequencyCount": 56,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:artifact",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "contingent",
@@ -546,7 +1104,11 @@
       "exampleSentence": "The effect was contingent on task difficulty.",
       "frequencyRank": 16696,
       "frequencyCount": 55,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:contingent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "sensory",
@@ -556,7 +1118,25 @@
       "exampleSentence": "Sensory evidence accumulated over time.",
       "frequencyRank": 16758,
       "frequencyCount": 55,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:sensory",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "scenic",
+      "meaningKo": "경치가 좋은",
+      "definitionEn": "offering attractive views of the landscape",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We took the scenic route along the coast.",
+      "frequencyRank": 17026,
+      "frequencyCount": 53,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:scenic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "coherent",
@@ -566,7 +1146,25 @@
       "exampleSentence": "The model produced a coherent summary.",
       "frequencyRank": 17048,
       "frequencyCount": 53,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:coherent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "secluded",
+      "meaningKo": "외딴, 한적한",
+      "definitionEn": "away from busy places and other people",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "We found a secluded beach near the village.",
+      "frequencyRank": 17221,
+      "frequencyCount": 52,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:secluded",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "arbitrary",
@@ -576,7 +1174,11 @@
       "exampleSentence": "The cutoff was not arbitrary.",
       "frequencyRank": 17225,
       "frequencyCount": 52,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:arbitrary",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "facilitate",
@@ -586,7 +1188,25 @@
       "exampleSentence": "Feedback facilitated learning.",
       "frequencyRank": 17531,
       "frequencyCount": 50,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:facilitate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "clutter",
+      "meaningKo": "잡동사니, 어수선함",
+      "definitionEn": "things left together in an untidy space",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We cleared the clutter from the kitchen table.",
+      "frequencyRank": 18046,
+      "frequencyCount": 48,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:clutter",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "attribute",
@@ -596,7 +1216,25 @@
       "exampleSentence": "The authors attribute the effect to attention.",
       "frequencyRank": 18535,
       "frequencyCount": 45,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:attribute",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "reassure",
+      "meaningKo": "안심시키다",
+      "definitionEn": "to help someone feel less worried",
+      "partOfSpeech": "verb",
+      "exampleSentence": "I called to reassure him that everyone was safe.",
+      "frequencyRank": 18560,
+      "frequencyCount": 45,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:reassure",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "interval",
@@ -606,7 +1244,11 @@
       "exampleSentence": "The interval increased after each success.",
       "frequencyRank": 18631,
       "frequencyCount": 45,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:interval",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "hypothesis",
@@ -616,7 +1258,11 @@
       "exampleSentence": "The hypothesis predicted a delayed response.",
       "frequencyRank": 18879,
       "frequencyCount": 44,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:hypothesis",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "reinforcement",
@@ -626,7 +1272,25 @@
       "exampleSentence": "Reinforcement improved choice accuracy.",
       "frequencyRank": 18899,
       "frequencyCount": 44,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:reinforcement",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "lodging",
+      "meaningKo": "임시 숙소",
+      "definitionEn": "a place to stay for a short period",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We arranged lodging near the station.",
+      "frequencyRank": 18959,
+      "frequencyCount": 43,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:lodging",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "activation",
@@ -636,7 +1300,11 @@
       "exampleSentence": "Activation was stronger in the left cortex.",
       "frequencyRank": 19095,
       "frequencyCount": 43,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:activation",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "diminish",
@@ -646,7 +1314,11 @@
       "exampleSentence": "The effect diminished after practice.",
       "frequencyRank": 19207,
       "frequencyCount": 42,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:diminish",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "validate",
@@ -656,7 +1328,11 @@
       "exampleSentence": "A second dataset validated the model.",
       "frequencyRank": 19496,
       "frequencyCount": 41,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:validate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "integrate",
@@ -666,7 +1342,11 @@
       "exampleSentence": "The model integrated sensory evidence.",
       "frequencyRank": 19815,
       "frequencyCount": 40,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:integrate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "complement",
@@ -676,7 +1356,11 @@
       "exampleSentence": "The behavioral result complemented the neural data.",
       "frequencyRank": 19918,
       "frequencyCount": 39,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:complement",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "latent",
@@ -686,7 +1370,11 @@
       "exampleSentence": "The latent variable captured task difficulty.",
       "frequencyRank": 19950,
       "frequencyCount": 39,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:latent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "variable",
@@ -696,7 +1384,11 @@
       "exampleSentence": "The dependent variable was reaction time.",
       "frequencyRank": 19995,
       "frequencyCount": 39,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:variable",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "baseline",
@@ -706,7 +1398,11 @@
       "exampleSentence": "Accuracy was compared with baseline.",
       "frequencyRank": 20346,
       "frequencyCount": 38,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:baseline",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "ambiguous",
@@ -716,7 +1412,11 @@
       "exampleSentence": "The ambiguous result required another experiment.",
       "frequencyRank": 20465,
       "frequencyCount": 37,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:ambiguous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "replicate",
@@ -726,7 +1426,11 @@
       "exampleSentence": "The lab tried to replicate the finding.",
       "frequencyRank": 20588,
       "frequencyCount": 37,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:replicate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "deviation",
@@ -736,7 +1440,11 @@
       "exampleSentence": "The deviation was largest in the noisy condition.",
       "frequencyRank": 20591,
       "frequencyCount": 37,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:deviation",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "sampling",
@@ -746,7 +1454,11 @@
       "exampleSentence": "Sampling was stratified by age.",
       "frequencyRank": 20597,
       "frequencyCount": 37,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:sampling",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "paradigm",
@@ -756,7 +1468,11 @@
       "exampleSentence": "The paradigm separated memory and attention.",
       "frequencyRank": 20673,
       "frequencyCount": 37,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:paradigm",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "robust",
@@ -766,7 +1482,11 @@
       "exampleSentence": "The model showed robust decoding performance.",
       "frequencyRank": 20743,
       "frequencyCount": 36,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:robust",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "characterize",
@@ -776,7 +1496,11 @@
       "exampleSentence": "The study characterized individual differences.",
       "frequencyRank": 21049,
       "frequencyCount": 35,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:characterize",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "derive",
@@ -786,7 +1510,11 @@
       "exampleSentence": "The score was derived from reaction times.",
       "frequencyRank": 21072,
       "frequencyCount": 35,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:derive",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "regression",
@@ -796,7 +1524,11 @@
       "exampleSentence": "Regression explained additional variance.",
       "frequencyRank": 21789,
       "frequencyCount": 33,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:regression",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "converge",
@@ -806,7 +1538,25 @@
       "exampleSentence": "The estimates converge after many trials.",
       "frequencyRank": 21937,
       "frequencyCount": 32,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:converge",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "rapport",
+      "meaningKo": "친밀한 관계",
+      "definitionEn": "a comfortable connection based on mutual understanding",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The teacher built a warm rapport with the class.",
+      "frequencyRank": 22053,
+      "frequencyCount": 32,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:rapport",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "posterior",
@@ -816,7 +1566,11 @@
       "exampleSentence": "The posterior estimate shifted upward.",
       "frequencyRank": 22209,
       "frequencyCount": 31,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:posterior",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "feasible",
@@ -826,7 +1580,11 @@
       "exampleSentence": "The shorter protocol was feasible.",
       "frequencyRank": 22296,
       "frequencyCount": 31,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:feasible",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "systematic",
@@ -836,7 +1594,11 @@
       "exampleSentence": "The error was systematic, not random.",
       "frequencyRank": 22577,
       "frequencyCount": 30,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:systematic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "simultaneous",
@@ -846,7 +1608,11 @@
       "exampleSentence": "Simultaneous cues improved detection.",
       "frequencyRank": 22937,
       "frequencyCount": 29,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:simultaneous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "abundant",
@@ -856,7 +1622,11 @@
       "exampleSentence": "The corpus provided abundant examples.",
       "frequencyRank": 23020,
       "frequencyCount": 29,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:abundant",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "infer",
@@ -866,7 +1636,25 @@
       "exampleSentence": "The model inferred the hidden state.",
       "frequencyRank": 23151,
       "frequencyCount": 29,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:infer",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "tactful",
+      "meaningKo": "재치 있게 배려하는",
+      "definitionEn": "careful to avoid upsetting someone when speaking",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "He offered a tactful response to the awkward question.",
+      "frequencyRank": 23189,
+      "frequencyCount": 29,
+      "topic": "relationships",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:tactful",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "intermittent",
@@ -876,7 +1664,39 @@
       "exampleSentence": "Intermittent feedback changed behavior.",
       "frequencyRank": 23487,
       "frequencyCount": 28,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:intermittent",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "replenish",
+      "meaningKo": "다시 채우다",
+      "definitionEn": "to fill a supply again after it has been used",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Please replenish the water before we leave.",
+      "frequencyRank": 24244,
+      "frequencyCount": 26,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:replenish",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "upkeep",
+      "meaningKo": "유지 관리",
+      "definitionEn": "the work needed to keep something in good condition",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The old house requires regular upkeep.",
+      "frequencyRank": 24256,
+      "frequencyCount": 26,
+      "topic": "everyday",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:upkeep",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "stimulus",
@@ -886,7 +1706,11 @@
       "exampleSentence": "The stimulus elicited a strong response.",
       "frequencyRank": 24323,
       "frequencyCount": 26,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:stimulus",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "elicit",
@@ -896,7 +1720,25 @@
       "exampleSentence": "The stimulus elicited a strong response.",
       "frequencyRank": 24533,
       "frequencyCount": 25,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:elicit",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "layover",
+      "meaningKo": "경유지 체류",
+      "definitionEn": "a break between parts of a journey",
+      "partOfSpeech": "noun",
+      "exampleSentence": "We explored the city during our long layover.",
+      "frequencyRank": 24587,
+      "frequencyCount": 25,
+      "topic": "travel",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:layover",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "tentative",
@@ -906,7 +1748,11 @@
       "exampleSentence": "The results are tentative.",
       "frequencyRank": 24715,
       "frequencyCount": 25,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:tentative",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "synaptic",
@@ -916,7 +1762,11 @@
       "exampleSentence": "Synaptic plasticity supports learning.",
       "frequencyRank": 25333,
       "frequencyCount": 24,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:synaptic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "empirical",
@@ -926,7 +1776,11 @@
       "exampleSentence": "The claim needs empirical support.",
       "frequencyRank": 25594,
       "frequencyCount": 23,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:empirical",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "ubiquitous",
@@ -936,7 +1790,11 @@
       "exampleSentence": "Smartphones are ubiquitous these days.",
       "frequencyRank": 25633,
       "frequencyCount": 23,
-      "topic": "general"
+      "topic": "general",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:ubiquitous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "inhibition",
@@ -946,7 +1804,11 @@
       "exampleSentence": "Inhibition improved with practice.",
       "frequencyRank": 26282,
       "frequencyCount": 22,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:inhibition",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "nuance",
@@ -956,7 +1818,11 @@
       "exampleSentence": "The analysis captured an important nuance.",
       "frequencyRank": 26569,
       "frequencyCount": 21,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:nuance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "mitigate",
@@ -966,7 +1832,11 @@
       "exampleSentence": "The protocol mitigated measurement noise.",
       "frequencyRank": 26651,
       "frequencyCount": 21,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:mitigate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "medial",
@@ -976,7 +1846,11 @@
       "exampleSentence": "The medial region was active during retrieval.",
       "frequencyRank": 26718,
       "frequencyCount": 21,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:medial",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "framework",
@@ -986,7 +1860,11 @@
       "exampleSentence": "The framework links attention and memory.",
       "frequencyRank": 27124,
       "frequencyCount": 20,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:framework",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "negligible",
@@ -996,7 +1874,11 @@
       "exampleSentence": "The residual error was negligible.",
       "frequencyRank": 27140,
       "frequencyCount": 20,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:negligible",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "weighted",
@@ -1006,7 +1888,11 @@
       "exampleSentence": "A weighted average reduced noise.",
       "frequencyRank": 27177,
       "frequencyCount": 20,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:weighted",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "rationale",
@@ -1016,7 +1902,11 @@
       "exampleSentence": "The rationale for exclusion was documented.",
       "frequencyRank": 27670,
       "frequencyCount": 19,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:rationale",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "correlate",
@@ -1026,7 +1916,11 @@
       "exampleSentence": "Reaction time correlated with confidence.",
       "frequencyRank": 27829,
       "frequencyCount": 19,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:correlate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "variance",
@@ -1036,7 +1930,11 @@
       "exampleSentence": "The variance increased in the noisy condition.",
       "frequencyRank": 28071,
       "frequencyCount": 19,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:variance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "incidence",
@@ -1046,7 +1944,11 @@
       "exampleSentence": "The incidence of errors decreased.",
       "frequencyRank": 28247,
       "frequencyCount": 18,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:incidence",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "decoding",
@@ -1056,7 +1958,11 @@
       "exampleSentence": "Decoding accuracy was above chance.",
       "frequencyRank": 28526,
       "frequencyCount": 18,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:decoding",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "discrete",
@@ -1066,7 +1972,11 @@
       "exampleSentence": "Responses were coded as discrete categories.",
       "frequencyRank": 29088,
       "frequencyCount": 17,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:discrete",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "anomalous",
@@ -1076,7 +1986,11 @@
       "exampleSentence": "An anomalous value was inspected before analysis.",
       "frequencyRank": 29288,
       "frequencyCount": 17,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:anomalous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "pervasive",
@@ -1086,7 +2000,25 @@
       "exampleSentence": "The bias was pervasive across datasets.",
       "frequencyRank": 29739,
       "frequencyCount": 16,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:pervasive",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "forage",
+      "meaningKo": "먹이를 찾아다니다",
+      "definitionEn": "to search for food in the surrounding area",
+      "partOfSpeech": "verb",
+      "exampleSentence": "Birds forage among the fallen leaves.",
+      "frequencyRank": 29920,
+      "frequencyCount": 16,
+      "topic": "nature_food",
+      "difficultyBand": "boundary",
+      "entryId": "recommendation:forage",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "retrospective",
@@ -1096,7 +2028,11 @@
       "exampleSentence": "The retrospective analysis used existing records.",
       "frequencyRank": 30633,
       "frequencyCount": 15,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:retrospective",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "efficacy",
@@ -1106,7 +2042,11 @@
       "exampleSentence": "The trial tested the efficacy of feedback.",
       "frequencyRank": 30870,
       "frequencyCount": 15,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:efficacy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "salient",
@@ -1116,7 +2056,11 @@
       "exampleSentence": "The salient feature was the delayed response.",
       "frequencyRank": 32241,
       "frequencyCount": 13,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:salient",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "parameter",
@@ -1126,7 +2070,25 @@
       "exampleSentence": "The parameter was estimated for each subject.",
       "frequencyRank": 32370,
       "frequencyCount": 13,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:parameter",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "perishable",
+      "meaningKo": "상하기 쉬운",
+      "definitionEn": "likely to spoil unless stored properly",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Keep perishable food in the refrigerator.",
+      "frequencyRank": 32372,
+      "frequencyCount": 13,
+      "topic": "everyday",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:perishable",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "quantify",
@@ -1136,7 +2098,11 @@
       "exampleSentence": "The score quantified uncertainty.",
       "frequencyRank": 32385,
       "frequencyCount": 13,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:quantify",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "inference",
@@ -1146,7 +2112,11 @@
       "exampleSentence": "Inference depended on the prior distribution.",
       "frequencyRank": 33336,
       "frequencyCount": 12,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:inference",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "calibration",
@@ -1156,7 +2126,11 @@
       "exampleSentence": "Calibration improved confidence estimates.",
       "frequencyRank": 33896,
       "frequencyCount": 11,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:calibration",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "criterion",
@@ -1166,7 +2140,25 @@
       "exampleSentence": "The exclusion criterion was defined in advance.",
       "frequencyRank": 33929,
       "frequencyCount": 11,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:criterion",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "savory",
+      "meaningKo": "짭짤하고 풍미 있는",
+      "definitionEn": "having a rich taste that is not sweet",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "She served a savory pie for lunch.",
+      "frequencyRank": 34104,
+      "frequencyCount": 11,
+      "topic": "nature_food",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:savory",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "sparse",
@@ -1176,7 +2168,11 @@
       "exampleSentence": "The sparse representation improved interpretability.",
       "frequencyRank": 34121,
       "frequencyCount": 11,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:sparse",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "fluctuate",
@@ -1186,7 +2182,11 @@
       "exampleSentence": "Performance fluctuated across sessions.",
       "frequencyRank": 34291,
       "frequencyCount": 11,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:fluctuate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "aggregate",
@@ -1196,7 +2196,11 @@
       "exampleSentence": "The results were aggregated across subjects.",
       "frequencyRank": 35039,
       "frequencyCount": 10,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:aggregate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "encompass",
@@ -1206,7 +2210,11 @@
       "exampleSentence": "The framework encompasses several accounts.",
       "frequencyRank": 35147,
       "frequencyCount": 10,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:encompass",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "intrinsic",
@@ -1216,7 +2224,11 @@
       "exampleSentence": "The task measured intrinsic motivation.",
       "frequencyRank": 35213,
       "frequencyCount": 10,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:intrinsic",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "cohort",
@@ -1226,7 +2238,11 @@
       "exampleSentence": "The cohort completed the same protocol.",
       "frequencyRank": 35444,
       "frequencyCount": 10,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:cohort",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "cortical",
@@ -1236,7 +2252,25 @@
       "exampleSentence": "Cortical activity increased during encoding.",
       "frequencyRank": 35452,
       "frequencyCount": 10,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:cortical",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "frugal",
+      "meaningKo": "절약하는, 검소한",
+      "definitionEn": "careful about spending money or using resources",
+      "partOfSpeech": "adjective",
+      "exampleSentence": "Her frugal habits helped her save for a trip.",
+      "frequencyRank": 36446,
+      "frequencyCount": 9,
+      "topic": "everyday",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:frugal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "gradient",
@@ -1246,7 +2280,11 @@
       "exampleSentence": "The gradient was steeper in the control group.",
       "frequencyRank": 37167,
       "frequencyCount": 9,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:gradient",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "allocate",
@@ -1256,7 +2294,11 @@
       "exampleSentence": "The model allocated more weight to recent trials.",
       "frequencyRank": 37688,
       "frequencyCount": 8,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:allocate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "equivocal",
@@ -1266,7 +2308,11 @@
       "exampleSentence": "The evidence remained equivocal.",
       "frequencyRank": 38706,
       "frequencyCount": 8,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:equivocal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "encoding",
@@ -1276,7 +2322,11 @@
       "exampleSentence": "Encoding improved after repeated exposure.",
       "frequencyRank": 39479,
       "frequencyCount": 7,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:encoding",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "neuron",
@@ -1286,7 +2336,11 @@
       "exampleSentence": "The neuron responded to visual input.",
       "frequencyRank": 40231,
       "frequencyCount": 7,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:neuron",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "connectivity",
@@ -1296,7 +2350,25 @@
       "exampleSentence": "Functional connectivity increased after training.",
       "frequencyRank": 42069,
       "frequencyCount": 6,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:connectivity",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "estuary",
+      "meaningKo": "하구",
+      "definitionEn": "the area where a river meets the sea",
+      "partOfSpeech": "noun",
+      "exampleSentence": "Many birds gather at the estuary in winter.",
+      "frequencyRank": 43522,
+      "frequencyCount": 5,
+      "topic": "nature_food",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:estuary",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "hierarchical",
@@ -1306,7 +2378,11 @@
       "exampleSentence": "The hierarchical model captured subject effects.",
       "frequencyRank": 43643,
       "frequencyCount": 5,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:hierarchical",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "modulate",
@@ -1316,7 +2392,11 @@
       "exampleSentence": "Attention modulated the neural response.",
       "frequencyRank": 43834,
       "frequencyCount": 5,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:modulate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "specificity",
@@ -1326,7 +2406,25 @@
       "exampleSentence": "The measure had high specificity.",
       "frequencyRank": 44219,
       "frequencyCount": 5,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:specificity",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "subsidy",
+      "meaningKo": "보조금",
+      "definitionEn": "money provided to help cover a cost",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The subsidy made bus travel more affordable.",
+      "frequencyRank": 44263,
+      "frequencyCount": 5,
+      "topic": "society",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:subsidy",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "oscillation",
@@ -1336,7 +2434,11 @@
       "exampleSentence": "Theta oscillation increased during recall.",
       "frequencyRank": 45289,
       "frequencyCount": 5,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:oscillation",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "analogous",
@@ -1346,7 +2448,11 @@
       "exampleSentence": "The task was analogous to a memory test.",
       "frequencyRank": 45780,
       "frequencyCount": 4,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:analogous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "generalize",
@@ -1356,7 +2462,11 @@
       "exampleSentence": "The finding may not generalize to children.",
       "frequencyRank": 46393,
       "frequencyCount": 4,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:generalize",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "longitudinal",
@@ -1366,7 +2476,11 @@
       "exampleSentence": "The longitudinal design tracked change.",
       "frequencyRank": 46652,
       "frequencyCount": 4,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:longitudinal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "plasticity",
@@ -1376,7 +2490,11 @@
       "exampleSentence": "Plasticity was strongest early in training.",
       "frequencyRank": 46947,
       "frequencyCount": 4,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:plasticity",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "perceptual",
@@ -1386,7 +2504,11 @@
       "exampleSentence": "Perceptual learning improved discrimination.",
       "frequencyRank": 48602,
       "frequencyCount": 4,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:perceptual",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "attenuate",
@@ -1396,7 +2518,11 @@
       "exampleSentence": "The control reduced but did not attenuate the effect.",
       "frequencyRank": 49112,
       "frequencyCount": 3,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:attenuate",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "homogeneous",
@@ -1406,7 +2532,11 @@
       "exampleSentence": "The sample was relatively homogeneous.",
       "frequencyRank": 50243,
       "frequencyCount": 3,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:homogeneous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "constrain",
@@ -1416,7 +2546,11 @@
       "exampleSentence": "The prior constrained the parameter estimate.",
       "frequencyRank": 54418,
       "frequencyCount": 2,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:constrain",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "covariance",
@@ -1426,7 +2560,11 @@
       "exampleSentence": "The covariance matrix was regularized.",
       "frequencyRank": 54494,
       "frequencyCount": 2,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "advanced",
+      "entryId": "recommendation:covariance",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "mediated",
@@ -1436,7 +2574,11 @@
       "exampleSentence": "The effect was mediated by attention.",
       "frequencyRank": 56308,
       "frequencyCount": 2,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:mediated",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "qualitative",
@@ -1446,7 +2588,25 @@
       "exampleSentence": "The interviews provided qualitative evidence.",
       "frequencyRank": 57242,
       "frequencyCount": 2,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:qualitative",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
+    },
+    {
+      "lemma": "stewardship",
+      "meaningKo": "책임 있는 관리",
+      "definitionEn": "the careful protection and management of something",
+      "partOfSpeech": "noun",
+      "exampleSentence": "The park depends on responsible stewardship.",
+      "frequencyRank": 58002,
+      "frequencyCount": 2,
+      "topic": "society",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:stewardship",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "heterogeneous",
@@ -1456,7 +2616,11 @@
       "exampleSentence": "The population was heterogeneous.",
       "frequencyRank": 59533,
       "frequencyCount": 2,
-      "topic": "methods"
+      "topic": "methods",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:heterogeneous",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "canonical",
@@ -1466,7 +2630,11 @@
       "exampleSentence": "The canonical response appeared after 300 ms.",
       "frequencyRank": 62053,
       "frequencyCount": 1,
-      "topic": "academic"
+      "topic": "academic",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:canonical",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "diverge",
@@ -1476,7 +2644,11 @@
       "exampleSentence": "The two trajectories diverge after training.",
       "frequencyRank": 63833,
       "frequencyCount": 1,
-      "topic": "statistics"
+      "topic": "statistics",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:diverge",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "excitatory",
@@ -1486,7 +2658,11 @@
       "exampleSentence": "Excitatory input changed the response.",
       "frequencyRank": 64507,
       "frequencyCount": 1,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:excitatory",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     },
     {
       "lemma": "hippocampal",
@@ -1496,7 +2672,11 @@
       "exampleSentence": "Hippocampal activity supported memory.",
       "frequencyRank": 65874,
       "frequencyCount": 1,
-      "topic": "neuroscience"
+      "topic": "neuroscience",
+      "difficultyBand": "rare",
+      "entryId": "recommendation:hippocampal",
+      "contentSourceId": "vocabreminder-project-authored-seed-v1",
+      "reviewStatus": "curated_at_authoring"
     }
   ]
 }

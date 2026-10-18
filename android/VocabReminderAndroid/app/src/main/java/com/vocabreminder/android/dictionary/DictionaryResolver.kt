@@ -16,10 +16,11 @@ data class DictionaryResult(
     val confidence: Double = 0.0,
     val sourceSentence: String = "",
     val sourceApp: String = "",
-    val sourceUrl: String = ""
+    val sourceUrl: String = "",
+    val sourceTitle: String = ""
 )
 
-private data class LocalEntry(
+internal data class LocalEntry(
     val meaningKo: String,
     val definitionEn: String,
     val partOfSpeech: String,
@@ -70,6 +71,12 @@ object DictionaryResolver {
             partOfSpeech = "adjective",
             exampleSentence = "The salient feature was the delayed response."
         ),
+        "resilient" to LocalEntry(
+            meaningKo = "회복력 있는, 탄력 있는",
+            definitionEn = "able to recover quickly from difficulty",
+            partOfSpeech = "adjective",
+            exampleSentence = "A resilient system recovers quickly."
+        ),
         "mitigate" to LocalEntry(
             meaningKo = "완화하다, 줄이다",
             definitionEn = "to make something less harmful or serious",
@@ -77,13 +84,25 @@ object DictionaryResolver {
             exampleSentence = "The protocol mitigated measurement noise."
         )
     )
-
-    fun resolve(rawText: String, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
-        return resolve(CaptureNormalizer.analyze(rawText), sourceApp, sourceUrl)
+    fun resolve(
+        rawText: String,
+        sourceApp: String = "",
+        sourceUrl: String = "",
+        sourceTitle: String = ""
+    ): DictionaryResult {
+        return resolve(CaptureNormalizer.analyze(rawText), sourceApp, sourceUrl, sourceTitle)
     }
 
-    fun resolve(analysis: CaptureAnalysis, sourceApp: String = "", sourceUrl: String = ""): DictionaryResult {
-        val entry = localEntries[analysis.lemma] ?: localEntries[analysis.displayWord.lowercase()]
+    fun resolve(
+        analysis: CaptureAnalysis,
+        sourceApp: String = "",
+        sourceUrl: String = "",
+        sourceTitle: String = ""
+    ): DictionaryResult {
+        val entry = localEntries[analysis.lemma]
+            ?: localEntries[analysis.displayWord.lowercase()]
+            ?: OfflineDictionary.entries[analysis.lemma]
+            ?: OfflineDictionary.entries[analysis.displayWord.lowercase()]
         val exampleSentence = analysis.sourceSentence.ifBlank { entry?.exampleSentence.orEmpty() }
         return if (entry != null) {
             // guide 10.4: Android uses app/local dictionary before cloud fallback.
@@ -99,7 +118,8 @@ object DictionaryResolver {
                 confidence = 0.82,
                 sourceSentence = analysis.sourceSentence,
                 sourceApp = sourceApp,
-                sourceUrl = sourceUrl
+                sourceUrl = sourceUrl,
+                sourceTitle = sourceTitle
             )
         } else {
             // guide 2.8/10.8: saving is allowed even when automatic meaning lookup fails.
@@ -110,11 +130,12 @@ object DictionaryResolver {
                 definitionEn = "",
                 exampleSentence = analysis.sourceSentence,
                 rawSource = "",
-                sourceType = "user",
+                sourceType = "pending_capture",
                 confidence = 0.0,
                 sourceSentence = analysis.sourceSentence,
                 sourceApp = sourceApp,
-                sourceUrl = sourceUrl
+                sourceUrl = sourceUrl,
+                sourceTitle = sourceTitle
             )
         }
     }

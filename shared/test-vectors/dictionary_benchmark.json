@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "description": "Fixed product-quality dictionary coverage benchmark. Polysemous contexts require a separate human review.",
+  "general": [
+    "abandon", "ability", "absorb", "accurate", "adapt", "admire", "afford", "alert", "alter", "ancient",
+    "anxious", "appear", "approach", "arrange", "arrive", "avoid", "balance", "behave", "benefit", "borrow",
+    "brief", "calm", "capture", "careful", "challenge", "choose", "clarify", "combine", "comfort", "compare",
+    "complete", "concern", "confirm", "connect", "consider", "contain", "continue", "courage", "create", "curious",
+    "damage", "decide", "decline", "deliver", "demand", "depend", "describe", "design", "discover", "discuss",
+    "eager", "effort", "enable", "encourage", "endure", "enhance", "ensure", "escape", "essential", "examine",
+    "expand", "expect", "explain", "explore", "familiar", "feature", "flexible", "focus", "forgive", "gather",
+    "gentle", "improve", "include", "increase", "influence", "inform", "intend", "involve", "journey", "judge",
+    "maintain", "manage", "measure", "mention", "notice", "obtain", "occur", "offer", "ordinary", "organize",
+    "patient", "perform", "prefer", "prevent", "protect", "provide", "realize", "reduce", "reflect", "refuse",
+    "remain", "remove", "require", "respond", "reveal", "secure", "select", "separate", "solve", "suggest",
+    "support", "survive", "teach", "understand", "useful", "value", "wonder", "achieve", "admit", "advance"
+  ],
+  "academic": [
+    "analyze", "assess", "assume", "coherent", "compile", "concept", "constitute", "constrain", "context", "correlate",
+    "criterion", "derive", "empirical", "evaluate", "evidence", "facilitate", "framework", "hypothesis", "indicate", "infer",
+    "interpret", "methodology", "paradigm", "parameter", "phenomenon", "preliminary", "qualitative", "quantitative", "relevant", "replicate",
+    "significant", "simulate", "synthesize", "theory", "validate", "variable", "whereas", "approximate", "robust", "longitudinal"
+  ],
+  "inflected": [
+    "running", "studies", "carried", "better", "children", "mice", "went", "written", "analyses", "hypotheses",
+    "derived", "evaluating", "misunderstood", "reorganized", "strongest", "leaves", "lying", "planned", "swimming", "forgotten"
+  ],
+  "phrases": [
+    "carry out", "figure out", "look up", "put off", "run into", "set up", "take over", "turn down", "work out", "break down"
+  ],
+  "polysemous": [
+    { "lemma": "bank", "context": "We rested on the river bank after the hike." },
+    { "lemma": "bat", "context": "The bat flew out of the cave at dusk." },
+    { "lemma": "cell", "context": "The scientist examined the cell under a microscope." },
+    { "lemma": "charge", "context": "The hotel did not charge us for breakfast." },
+    { "lemma": "current", "context": "The swimmer struggled against the strong current." },
+    { "lemma": "file", "context": "Please attach the file to your message." },
+    { "lemma": "light", "context": "This suitcase is light enough to carry." },
+    { "lemma": "match", "context": "The two samples match in color and size." },
+    { "lemma": "scale", "context": "The map uses a scale of one to ten thousand." },
+    { "lemma": "spring", "context": "Wildflowers appear here every spring." }
+  ]
+}

@@ -21,6 +21,12 @@ captures/
 *.apk
 *.aab
 
+# Android release signing material (must remain outside the repository)
+**/release-signing.properties
+**/*.jks
+**/*.keystore
+**/token-rotation/
+
 # Firebase client config and secrets
 google-services.json
 GoogleService-Info.plist
@@ -41,3 +47,7 @@ server/wireguard/generated/
 tools/scrcpy.app/
 shared/recommendations/recommendation_enriched_candidates.json
 shared/recommendations/recommendation_definition_cache.json
+server/tunnel/state.json
+mac/VocabReminderMac/VocabReminder-E2E.app/
+mac/VocabReminderMac/UITests/build/
+mac/VocabReminderMac/UITests/**/xcuserdata/

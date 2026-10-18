@@ -1,0 +1,35 @@
+{
+  "version": "0.3.0",
+  "recordedAt": "2026-09-08T12:45:10.213985+00:00",
+  "android": {
+    "tests": 145,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "mac": {
+    "tests": 50,
+    "failures": 0
+  },
+  "server": {
+    "tests": 65,
+    "failures": 0
+  },
+  "tunnelWorker": {
+    "tests": 14,
+    "failures": 0
+  },
+  "securityRecommendationPipeline": {
+    "tests": 18,
+    "failures": 0
+  },
+  "recommendations": {
+    "entries": 149,
+    "minimumLongTerm": 1095,
+    "longTermReady": false
+  },
+  "deviceAcceptance": "pending USB debugging authorization",
+  "liveEndpointAcceptance": "pending approval after automatic review rejection",
+  "soak24Hours": "not started",
+  "sourceState": "contains pre-existing and current uncommitted changes"
+}

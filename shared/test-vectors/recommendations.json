@@ -1,13 +1,13 @@
 [
   {
-    "name": "recommendations_stay_off_before_fifty_user_words",
+    "name": "recommendations_start_with_empty_wordbook",
     "kind": "chooseRecommendations",
     "user_signals": [
-      { "lemma": "unknown", "count": 49 }
+      { "lemma": "unknown", "count": 0 }
     ],
     "due_user_count": 0,
     "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
-    "then": { "selected_count": 0 }
+    "then": { "selected_count": 10 }
   },
   {
     "name": "due_reviews_fill_goal_before_recommendations",
@@ -61,7 +61,25 @@
     "then": {
       "selected_count": 4,
       "frequency_rank_between": [11000, 35000],
-      "first_topic_in": ["academic", "methods"]
+      "minimum_distinct_topics": 4,
+      "excluded_lemmas": ["subtle", "plausible", "hypothesis", "tentative"]
+    }
+  },
+  {
+    "name": "known_feedback_excludes_exact_lemma",
+    "kind": "chooseRecommendations",
+    "user_signals": [
+      { "lemma": "unknown", "count": 50 }
+    ],
+    "feedback_signals": [
+      { "lemma": "subtle", "action": "known" }
+    ],
+    "due_user_count": 0,
+    "settings": { "daily_word_goal": 10, "max_queue_size": 20 },
+    "limit": 4,
+    "then": {
+      "selected_count": 4,
+      "excluded_lemmas": ["subtle"]
     }
   },
   {

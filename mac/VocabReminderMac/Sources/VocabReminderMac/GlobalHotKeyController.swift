@@ -1,3 +1,4 @@
+import VocabCore
 import AppKit
 import Carbon
 import Foundation
@@ -25,7 +26,10 @@ final class GlobalHotKeyController: ObservableObject {
         }, 1, &eventType, selfPointer, &eventHandler)
 
         let hotKeyID = EventHotKeyID(signature: fourCharCode("VCRD"), id: 1)
-        RegisterEventHotKey(UInt32(kVK_ANSI_V), UInt32(cmdKey | optionKey), hotKeyID, GetEventDispatcherTarget(), 0, &hotKeyRef)
+        let status = RegisterEventHotKey(UInt32(kVK_ANSI_V), UInt32(cmdKey | optionKey), hotKeyID, GetEventDispatcherTarget(), 0, &hotKeyRef)
+        if status != noErr {
+            LocalVocabularyStore.shared.message = "⌘⌥V 단축키 등록 실패 — 다른 앱과 충돌"
+        }
     }
 }
 

@@ -27,11 +27,18 @@ class ReviewActionReceiver : BroadcastReceiver() {
             ReminderNotifications.clearStalePrompt(context, store)
             return
         }
-        val now = Instant.now()
+        val now = NotificationClock.now()
+        val activeState = ReminderNotifications.activeNotificationState(context)
+        if (activeState == null || activeState.cardId != card.id || activeState.phase != NotificationPhase.PROMPT) {
+            if (activeState?.cardId == card.id && activeState.phase == NotificationPhase.FEEDBACK) {
+                ReminderNotifications.restoreActiveNotification(context, store, now)
+            }
+            return
+        }
         if (card.status == CardStatus.SUSPENDED || card.dueAt.isAfter(now)) {
             ReminderNotifications.clearActivePrompt(context, card.id)
             ReminderNotifications.cancel(context, card)
-            ReminderNotifications.scheduleQueueAdvance(context)
+            ReminderNotifications.scheduleQueueAdvance(context, now = now)
             return
         }
         applyReviewResponse(context, store, card, response, now)
@@ -42,12 +49,12 @@ class ReviewActionReceiver : BroadcastReceiver() {
             context: Context,
             store: LocalVocabularyStore,
             card: VocabularyCard,
-            now: Instant = Instant.now()
+            now: Instant = NotificationClock.now()
         ) {
             applyReviewResponse(context, store, card, ReviewResponse.UNAVAILABLE, now)
         }
 
-        private fun applyReviewResponse(
+        internal fun applyReviewResponse(
             context: Context,
             store: LocalVocabularyStore,
             card: VocabularyCard,
@@ -70,12 +77,11 @@ class ReviewActionReceiver : BroadcastReceiver() {
             )
 
             val updated = card.withSchedulerCard(result.card, now)
-            store.updateCard(updated)
-            store.appendEvent(result.event, now)
+            store.updateCardAndAppendEvent(updated, result.event, now)
 
             when (response) {
-                ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated)
-                ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated)
+                ReviewResponse.REMEMBERED -> ReminderNotifications.showRememberedConfirmation(context, updated, now)
+                ReviewResponse.FORGOTTEN -> ReminderNotifications.showForgottenMeaning(context, updated, now)
                 ReviewResponse.UNAVAILABLE -> {
                     ReminderNotifications.clearActivePrompt(context, updated.id)
                     ReminderNotifications.cancel(context, updated)
@@ -88,9 +94,9 @@ class ReviewActionReceiver : BroadcastReceiver() {
 
             ReminderScheduler.schedule(context, updated, now)
             if (response != ReviewResponse.REMEMBERED && response != ReviewResponse.FORGOTTEN) {
-                ReminderNotifications.scheduleQueueAdvance(context)
+                ReminderNotifications.scheduleQueueAdvance(context, now = now)
             }
-            SyncWorker.enqueueDebounced(context)
+            SyncWorker.enqueueImmediate(context)
         }
     }
 }

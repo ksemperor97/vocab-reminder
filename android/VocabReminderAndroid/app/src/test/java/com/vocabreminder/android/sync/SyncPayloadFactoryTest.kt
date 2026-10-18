@@ -59,7 +59,9 @@ class SyncPayloadFactoryTest {
                     exampleSentence = "",
                     confidence = 1.0,
                     selectedAsPrimary = true,
-                    createdAt = now
+                    createdAt = now,
+                    originDeviceId = "android-1234abcd",
+                    baseCardVersion = 4
                 )
             ),
             reviewEvents = emptyList(),
@@ -73,6 +75,8 @@ class SyncPayloadFactoryTest {
         assertEquals("android-1234abcd", payload.getJSONArray("cards").getJSONObject(0).getString("created_device_id"))
         assertEquals("android_process_text", payload.getJSONArray("contexts").getJSONObject(0).getString("capture_method"))
         assertEquals("android-1234abcd", payload.getJSONArray("contexts").getJSONObject(0).getString("created_device_id"))
+        assertEquals("android-1234abcd", payload.getJSONArray("definition_candidates").getJSONObject(0).getString("origin_device_id"))
+        assertEquals(4, payload.getJSONArray("definition_candidates").getJSONObject(0).getInt("base_card_version"))
         assertEquals(10, payload.getJSONObject("settings").getInt("daily_word_goal"))
         assertEquals("2026-07-02T00:00:00Z", payload.getJSONObject("settings").getString("recommendations_introduced_at"))
         assertEquals("2026-07-02T00:00:00Z", payload.getJSONObject("settings").getString("settings_updated_at"))
@@ -161,5 +165,44 @@ class SyncPayloadFactoryTest {
 
         assertTrue(payload.getJSONArray("review_events").getJSONObject(0).getString("device_id").matches(Regex("^android-[0-9a-f]{8}$")))
         assertEquals("android-1234abcd", payload.getJSONArray("review_events").getJSONObject(0).getString("device_id"))
+        assertTrue(!payload.getJSONArray("review_events").getJSONObject(0).has("server_created_at"))
+    }
+
+    @Test
+    fun recommendationStartedAtRoundTripsThroughCardPayload() {
+        val now = Instant.parse("2026-07-02T00:00:00Z")
+        val startedAt = now.plusSeconds(60)
+        val payload = SyncPayloadFactory.build(
+            cards = listOf(
+                VocabularyCard(
+                    id = "started-recommendation",
+                    lemma = "tentative",
+                    displayWord = "tentative",
+                    meaningKo = "잠정적인",
+                    status = CardStatus.LEARNING,
+                    wordbook = Wordbook.RECOMMENDED,
+                    dueAt = now.plusSeconds(600),
+                    intervalDays = 1,
+                    lapseCount = 0,
+                    recommendationStartedAt = startedAt,
+                    notificationId = 42,
+                    createdAt = now,
+                    updatedAt = startedAt,
+                    version = 2
+                )
+            ),
+            contexts = emptyList(),
+            definitionCandidates = emptyList(),
+            reviewEvents = emptyList(),
+            recommendationFeedback = emptyList(),
+            settings = UserSettingsData(updatedAt = now),
+            deviceId = "android-1234abcd"
+        )
+
+        assertEquals(
+            startedAt.toString(),
+            payload.getJSONArray("cards").getJSONObject(0).getString("recommendation_started_at")
+        )
+        assertEquals(startedAt, SyncPayloadFactory.parse(payload).cards.single().recommendationStartedAt)
     }
 }

@@ -1,6 +1,9 @@
+import AppKit
 import Carbon.HIToolbox
+import VocabCore
 import ServiceManagement
 import SwiftUI
+import CoreImage
 
 @main
 struct VocabReminderMacApp: App {
@@ -9,7 +12,7 @@ struct VocabReminderMacApp: App {
     @StateObject private var store = LocalVocabularyStore.shared
 
     init() {
-        SchedulerVectorCommand.runAndExitIfRequested()
+        AppDiagnosticsCommand.runAndExitIfRequested()
     }
 
     var body: some Scene {
@@ -32,6 +35,17 @@ struct VocabReminderMacApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
+    private var recommendationTimer: Timer?
+
+    /// End-to-end runs point the app at a scratch data directory; they must not
+    /// register login items, grab the global hotkey or prompt for notifications.
+    /// VocabReminder-E2E.app is always treated as one, however it was started:
+    /// opened without the scratch directory (Finder, `open`) it once registered
+    /// itself as a login item.
+    private var isIsolatedRun: Bool {
+        ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"] != nil
+            || Bundle.main.bundleIdentifier == "com.vocabreminder.mac.e2e"
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -43,13 +57,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
         NSUpdateDynamicServices()
-        GlobalHotKeyController.shared.onPressed = { [weak self] in
-            LocalVocabularyStore.shared.captureClipboard()
-            self?.showMainWindow()
+        if !isIsolatedRun {
+            GlobalHotKeyController.shared.onPressed = { [weak self] in
+                LocalVocabularyStore.shared.captureClipboard(NSPasteboard.general.string(forType: .string))
+                self?.showMainWindow()
+            }
+            MacNotificationScheduler.shared.requestAuthorization()
         }
-        MacNotificationScheduler.shared.requestAuthorization()
-        LocalVocabularyStore.shared.refreshNotifications()
-        LoginItemController.registerAtLaunchIfNeeded(store: LocalVocabularyStore.shared)
+        LocalVocabularyStore.shared.maintainRecommendations()
+        recommendationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in LocalVocabularyStore.shared.maintainRecommendations() }
+        }
+        if !isIsolatedRun { LoginItemController.registerAtLaunchIfNeeded(store: LocalVocabularyStore.shared) }
         MacAutoSyncController.shared.start(store: LocalVocabularyStore.shared)
     }
 
@@ -59,40 +78,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? ""
         guard !text.isEmpty else {
             error.pointee = "No text found on pasteboard" as NSString
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "service_input_empty",
+                mechanismOverride: "mac_service"
+            )
             return
         }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Services")
+        LocalVocabularyStore.shared.capture(
+            text: text,
+            method: .macService,
+            sourceApp: MacCaptureSource.service
+        )
         showMainWindow()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let text = urls.compactMap(captureText(from:)).first else { return }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Quick Action")
+        if let pairing = urls.first(where: { $0.scheme == "vocabreminder" && $0.host == "pair" }) {
+            pair(with: pairing)
+            return
+        }
+        guard let payload = urls.compactMap(MacCaptureURLParser.parse).first else {
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "url_scheme_invalid",
+                mechanismOverride: "url_scheme"
+            )
+            return
+        }
+        LocalVocabularyStore.shared.capture(
+            text: payload.text,
+            method: .macService,
+            sourceApp: payload.sourceApp,
+            sourceURL: payload.sourceURL
+        )
         showMainWindow()
+    }
+
+    /// vocabreminder://pair?server=…&code=… (the pairing page's link): exchange
+    /// the code for this Mac's own token, keep it in the Keychain, sync.
+    private func pair(with url: URL) {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let server = items.first { $0.name == "server" }?.value ?? ""
+        let code = items.first { $0.name == "code" }?.value ?? ""
+        showMainWindow()
+        Task { @MainActor in
+            do {
+                let paired = try await CloudSyncClient.claimPairing(
+                    serverBaseURL: server,
+                    code: code,
+                    deviceName: Host.current().localizedName ?? "Mac"
+                )
+                guard PairedServerStore.save(paired) else {
+                    LocalVocabularyStore.shared.message = "키체인에 저장하지 못했어요."
+                    return
+                }
+                LocalVocabularyStore.shared.message = "서버에 연결했어요. 단어장을 받아오는 중이에요."
+                MacAutoSyncController.shared.syncNow(reason: "paired")
+            } catch {
+                LocalVocabularyStore.shared.message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
-        guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let url = URL(string: urlString),
-              let text = captureText(from: url)
-        else {
+        if let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+           let url = URL(string: urlString), url.scheme == "vocabreminder", url.host == "pair" {
+            pair(with: url)
             return
         }
-        LocalVocabularyStore.shared.capture(text: text, method: .macService, sourceApp: "macOS Quick Action")
-        showMainWindow()
-    }
-
-    private func captureText(from url: URL) -> String? {
-        guard url.scheme == "vocabreminder",
-              url.host == "capture",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let text = components.queryItems?.first(where: { $0.name == "text" })?.value?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty
+        guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: urlString),
+              let payload = MacCaptureURLParser.parse(url)
         else {
-            return nil
+            LocalVocabularyStore.shared.recordCaptureFailure(
+                method: .macService,
+                detailCode: "url_scheme_invalid",
+                mechanismOverride: "url_scheme"
+            )
+            return
         }
-        return text
+        LocalVocabularyStore.shared.capture(
+            text: payload.text,
+            method: .macService,
+            sourceApp: payload.sourceApp,
+            sourceURL: payload.sourceURL
+        )
+        showMainWindow()
     }
 
     private func showMainWindow() {
@@ -175,6 +247,9 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Vocabulary Reminder")
                 .font(.headline)
+            if !store.notificationWarning.isEmpty {
+                NotificationWarningBanner(warning: store.notificationWarning)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("오늘 due: \(store.dueCount)개")
                 Text("새 단어: \(store.activeCards.filter { $0.status == .new }.count)개")
@@ -184,6 +259,7 @@ struct MenuBarView: View {
             Button("오늘 복습하기") { openMainWindow() }
                 .disabled(store.dueCount == 0)
             Button("최근 저장 단어") { openMainWindow() }
+                .accessibilityIdentifier("menu_open_main")
             Button("설정") { openMainWindow() }
         }
         .padding(12)
@@ -201,6 +277,10 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedCardId) {
+                if store.activeCards.isEmpty {
+                    Text("아직 저장된 단어가 없습니다. ⌘⌥V로 첫 단어를 잡아보세요.")
+                        .foregroundStyle(.secondary)
+                }
                 Section("내 단어장 \(userCards.count)") {
                     ForEach(userCards) { card in
                         SidebarCardRow(card: card)
@@ -225,6 +305,14 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if !store.notificationWarning.isEmpty {
+                            NotificationWarningBanner(warning: store.notificationWarning)
+                        }
+                        if store.activeCards.isEmpty {
+                            Text("아직 저장된 단어가 없습니다. ⌘⌥V로 첫 단어를 잡아보세요.")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
                         Text("Vocabulary Reminder")
                             .font(.title2)
                             .fontWeight(.semibold)
@@ -232,11 +320,17 @@ struct ContentView: View {
                         HStack {
                             TextField("단어 또는 문장", text: $manualText)
                                 .textFieldStyle(.roundedBorder)
+                                .accessibilityIdentifier("capture_text_field")
                             Button("미리보기") {
-                                store.capture(text: manualText, method: .manual, sourceApp: "Mac manual")
+                                store.capture(
+                                    text: manualText,
+                                    method: .manual,
+                                    sourceApp: MacCaptureSource.manual
+                                )
                             }
+                            .accessibilityIdentifier("capture_preview_button")
                             Button("클립보드") {
-                                store.captureClipboard()
+                                store.captureClipboard(NSPasteboard.general.string(forType: .string))
                             }
                             .keyboardShortcut("v", modifiers: [.command, .option])
                         }
@@ -259,8 +353,7 @@ struct ContentView: View {
                                     manualText = ""
                                 },
                                 onCancel: {
-                                    store.preview = nil
-                                    store.pendingAnalysis = nil
+                                    store.cancelCapture()
                                 }
                             )
                         }
@@ -270,6 +363,7 @@ struct ContentView: View {
                         Text(store.message)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("status_message")
 
                         Divider()
 
@@ -283,6 +377,9 @@ struct ContentView: View {
                 }
             }
         }
+        .onAppear(perform: sanitizeSelection)
+        .onChange(of: store.activeCards.map(\.id)) { _, _ in sanitizeSelection() }
+        .background(IsolatedRunWindowPlacement())
     }
 
     private var selectedCard: VocabularyCard? {
@@ -297,6 +394,47 @@ struct ContentView: View {
     private var recommendedCards: [VocabularyCard] {
         store.activeCards.filter { $0.wordbook == .recommended }
     }
+
+    private func sanitizeSelection() {
+        guard let selectedCardId else { return }
+        if store.activeCards.contains(where: { $0.id == selectedCardId }) == false {
+            self.selectedCardId = nil
+        }
+    }
+}
+
+/// In end-to-end runs (VOCAB_REMINDER_DATA_DIR set) the window floats above other
+/// apps at a fixed, tall frame so UI automation clicks reach it no matter what
+/// else is open on the desktop. Normal launches are untouched.
+private struct IsolatedRunWindowPlacement: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        ProcessInfo.processInfo.environment["VOCAB_REMINDER_DATA_DIR"] == nil ? NSView() : PlacementView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class PlacementView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            // Place once, after SwiftUI has applied its own initial frame. Moving
+            // the window repeatedly sets off Stage Manager animations mid-test.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.place() }
+        }
+
+        private func place() {
+            guard let window, let screen = NSScreen.main else { return }
+            let visible = screen.visibleFrame
+            window.isRestorable = false
+            window.setFrameAutosaveName("")
+            window.level = .floating
+            window.setFrame(
+                NSRect(x: visible.minX, y: visible.minY, width: min(960, visible.width), height: visible.height),
+                display: true
+            )
+            window.orderFrontRegardless()
+        }
+    }
 }
 
 struct SidebarCardRow: View {
@@ -306,9 +444,8 @@ struct SidebarCardRow: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(card.displayWord)
                 .font(.headline)
-            Text(card.meaningKo.isEmpty ? "뜻 없음" : card.meaningKo)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .accessibilityIdentifier("sidebar_word_\(card.lemma)")
+            MeaningFallbackText(card: card, missingText: "뜻 없음")
             Text("\(card.status.rawValue) · 다음 학습: \(relativeDueLabel(card.dueAt))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -362,6 +499,11 @@ struct PreviewView: View {
                     .foregroundStyle(.secondary)
                 TextField("뜻", text: $meaning)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("preview_meaning_field")
+                if meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !result.definitionEn.isEmpty {
+                    EnglishDefinitionFallback(definition: result.definitionEn)
+                }
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("예문")
@@ -383,6 +525,7 @@ struct PreviewView: View {
             HStack {
                 Button("저장", action: onSave)
                     .keyboardShortcut(.return)
+                    .accessibilityIdentifier("preview_save_button")
                 Button("취소", action: onCancel)
             }
         }
@@ -390,6 +533,11 @@ struct PreviewView: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onAppear(perform: onAppear)
         .onChange(of: result.lemma) { _, _ in onAppear() }
+        .onChange(of: result.meaningKo) { _, newMeaning in
+            if meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                meaning = newMeaning
+            }
+        }
     }
 }
 
@@ -402,8 +550,16 @@ struct SettingsView: View {
     @AppStorage("lastLocalSyncSkipped") private var lastLocalSyncSkipped = ""
     @State private var connectionTestRunning = false
     @State private var cloudSyncRunning = false
+    @State private var paired: PairedServer? = PairedServerStore.load()
+    @State private var pairServerText = ""
+    @State private var pairCodeText = ""
+    @State private var pairRunning = false
+    @State private var codeForOtherDevice: String?
     @State private var launchAtLoginEnabled = LoginItemController.isEnabled
     @State private var syncingLaunchAtLoginState = false
+    @State private var quietStartText = ""
+    @State private var quietEndText = ""
+    @State private var quietHoursError = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -415,8 +571,31 @@ struct SettingsView: View {
                 Stepper("미루기 \(store.settings.snoozeDurationMinutes)분", value: $store.settings.snoozeDurationMinutes, in: 5...240, step: 5)
             }
             Toggle("추천 단어", isOn: $store.settings.enableWordRecommendations)
+            Text(store.recommendationStatusMessage).font(.caption).foregroundStyle(.secondary)
+            if let error = store.storageError { Text(error).foregroundStyle(.red) }
             Toggle("로그인 시 자동 시작", isOn: $launchAtLoginEnabled)
                 .disabled(!LoginItemController.canManageLoginItem)
+            Text("한글 뜻은 macOS 사전 앱 > 설정에서 영한사전을 활성화하면 자동으로 채워집니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            MacSetupDiagnosticsView(store: store)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("잠자는 시간")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("시작 HH:mm", text: $quietStartText)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("끝 HH:mm", text: $quietEndText)
+                        .textFieldStyle(.roundedBorder)
+                    Button("저장") { saveQuietHours() }
+                }
+                if !quietHoursError.isEmpty {
+                    Text(quietHoursError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
             HStack {
                 Button("복습 재조정") { store.rebalanceDueCards() }
                 Button("추천 채우기") { store.fillRecommendations() }
@@ -428,6 +607,11 @@ struct SettingsView: View {
                 Text(syncStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !store.dictionaryEnrichmentStatus.userFacingSummary.isEmpty {
+                    Text(store.dictionaryEnrichmentStatus.userFacingSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text("마지막 동기화: \(lastLocalSyncSummary.isEmpty ? "없음" : lastLocalSyncSummary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -442,6 +626,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            serverConnectionSection
 #if DEBUG
             TextField("서버 주소", text: $syncServerURL)
                 .textFieldStyle(.roundedBorder)
@@ -456,6 +641,7 @@ struct SettingsView: View {
                 Button(cloudSyncRunning ? "동기화 중" : "지금 동기화") {
                     runCloudSync()
                 }
+                .accessibilityIdentifier("sync_now_button")
                 .disabled(cloudSyncRunning || !canCloudSync)
             }
 #if DEBUG
@@ -473,6 +659,7 @@ struct SettingsView: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         .onAppear {
             launchAtLoginEnabled = LoginItemController.isEnabled
+            loadQuietHoursText()
         }
         .onChange(of: launchAtLoginEnabled) { _, enabled in
             guard !syncingLaunchAtLoginState else { return }
@@ -490,6 +677,7 @@ struct SettingsView: View {
             guard settingsUserFieldsChanged(oldValue, newValue) else { return }
             store.persistSettings()
         }
+        .onChange(of: store.settings.updatedAt) { _, _ in loadQuietHoursText() }
     }
 
     private var canCloudSync: Bool {
@@ -497,13 +685,105 @@ struct SettingsView: View {
     }
 
     private var resolvedServerURL: String {
-        SyncDefaults.effectiveServerURL(stored: syncServerURL)
+        (paired?.serverBaseURL ?? SyncDefaults.effectiveServerURL(stored: syncServerURL))
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var resolvedBearerToken: String {
-        SyncDefaults.effectiveBearerToken(stored: syncBearerToken)
+        (paired?.token ?? SyncDefaults.effectiveBearerToken(stored: syncBearerToken))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Pairing: connect this Mac with a code, or make a code for another device.
+    @ViewBuilder
+    private var serverConnectionSection: some View {
+        if canCloudSync == false {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("서버에 연결").font(.subheadline.weight(.semibold))
+                Text("이미 연결된 폰이나 Mac의 설정에서 \"다른 기기 연결\"을 누르면 6자리 코드가 나와요.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("서버 주소 (https://…ts.net)", text: $pairServerText)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("pair_server_field")
+                HStack {
+                    TextField("6자리 코드", text: $pairCodeText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .accessibilityIdentifier("pair_code_field")
+                    Button(pairRunning ? "연결하는 중" : "연결") { connectWithCode() }
+                        .disabled(pairRunning)
+                        .accessibilityIdentifier("pair_connect_button")
+                }
+            }
+        } else {
+            HStack {
+                Button("다른 기기 연결") { createCodeForOtherDevice() }
+                    .accessibilityIdentifier("pair_create_code_button")
+                if paired != nil {
+                    Button("연결 해제") { disconnectServer() }
+                }
+            }
+            if let code = codeForOtherDevice {
+                HStack(alignment: .top, spacing: 14) {
+                    if let qr = PairingQRCode.image(for: "\(resolvedServerURL)/pair?code=\(code)") {
+                        Image(nsImage: qr).interpolation(.none).resizable().frame(width: 120, height: 120)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(code.prefix(3) + " " + code.suffix(3))
+                            .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                            .accessibilityIdentifier("pair_code_value")
+                        Text("폰 카메라로 QR을 찍거나, 새 기기에 서버 주소와 이 코드를 입력하세요. 10분 동안 한 번만 쓸 수 있어요.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(resolvedServerURL).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                        Button("닫기") { codeForOtherDevice = nil }
+                    }
+                }
+            }
+        }
+    }
+
+    private func connectWithCode() {
+        pairRunning = true
+        let server = pairServerText
+        let code = pairCodeText
+        Task { @MainActor in
+            defer { pairRunning = false }
+            do {
+                let result = try await CloudSyncClient.claimPairing(
+                    serverBaseURL: server,
+                    code: code,
+                    deviceName: Host.current().localizedName ?? "Mac"
+                )
+                guard PairedServerStore.save(result) else {
+                    store.message = "키체인에 저장하지 못했어요."
+                    return
+                }
+                paired = result
+                pairCodeText = ""
+                store.message = "서버에 연결했어요. 단어장을 받아오는 중이에요."
+                runCloudSync()
+            } catch {
+                store.message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func createCodeForOtherDevice() {
+        let config = CloudSyncConfig(serverBaseURL: resolvedServerURL, bearerToken: resolvedBearerToken)
+        Task { @MainActor in
+            do {
+                codeForOtherDevice = try await CloudSyncClient(config: config).createPairingCode()
+            } catch {
+                store.message = "코드를 만들지 못했어요. \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+            }
+        }
+    }
+
+    private func disconnectServer() {
+        PairedServerStore.clear()
+        paired = nil
+        codeForOtherDevice = nil
+        store.message = "이 Mac의 서버 연결을 해제했어요. 단어는 이 Mac에 그대로 있어요."
     }
 
     private var syncStatusText: String {
@@ -549,13 +829,24 @@ struct SettingsView: View {
         Task { @MainActor in
             defer { cloudSyncRunning = false }
             do {
-                let summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                var summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                let enrichment = await MacAutoSyncController.shared.performDictionaryEnrichment(
+                    store: store,
+                    config: CloudSyncConfig(serverBaseURL: serverURL, bearerToken: token)
+                )
+                if enrichment.appliedCount > 0 {
+                    // A dictionary result changes both the card and its
+                    // append-only selected candidate. Push both before the
+                    // manual sync operation reports completion.
+                    summary = try await store.syncWithServer(serverBaseURL: serverURL, authToken: token)
+                }
                 MacSyncStatusStore.recordSuccess(skippedSummary: summary.skippedSummary)
                 store.message = summary.skippedSummary.isEmpty
                     ? "동기화 완료 · 카드 \(summary.cards), 이벤트 \(summary.reviewEvents)"
                     : "동기화 완료 · 스킵 \(summary.skippedSummary)"
             } catch {
                 MacSyncStatusStore.recordFailure(error.localizedDescription)
+                store.recordSyncFailure(error)
                 store.message = "동기화 실패: \(error.localizedDescription)"
             }
         }
@@ -578,6 +869,27 @@ struct SettingsView: View {
             oldValue.timezone != newValue.timezone ||
             oldValue.enableWordRecommendations != newValue.enableWordRecommendations ||
             oldValue.recommendationsIntroducedAt != newValue.recommendationsIntroducedAt
+    }
+
+    private func loadQuietHoursText() {
+        quietStartText = store.settings.quietHoursStart
+        quietEndText = store.settings.quietHoursEnd
+        quietHoursError = ""
+    }
+
+    private func saveQuietHours() {
+        let start = quietStartText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let end = quietEndText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isHHMM(start), isHHMM(end) else {
+            quietHoursError = "HH:mm 형식으로 입력하세요."
+            loadQuietHoursText()
+            quietHoursError = "HH:mm 형식으로 입력하세요."
+            return
+        }
+        quietHoursError = ""
+        store.settings.quietHoursStart = start
+        store.settings.quietHoursEnd = end
+        store.persistSettings()
     }
 }
 
@@ -602,6 +914,7 @@ struct CardEditorView: View {
                         .fontWeight(.semibold)
                     Spacer()
                     Button("닫기", action: onClose)
+                        .accessibilityIdentifier("editor_close_button")
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -616,6 +929,11 @@ struct CardEditorView: View {
                     LabeledContent("뜻") {
                         TextField("뜻", text: $meaningKo)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier("editor_meaning_field")
+                    }
+                    if meaningKo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       !definitionEn.isEmpty {
+                        EnglishDefinitionFallback(definition: definitionEn)
                     }
                     LabeledContent("품사") {
                         TextField("품사", text: $partOfSpeech)
@@ -644,6 +962,7 @@ struct CardEditorView: View {
                         )
                     }
                     .keyboardShortcut(.return)
+                    .accessibilityIdentifier("editor_save_button")
                     Button("되돌리기") { load(card) }
                     Button("삭제") {
                         store.softDeleteCard(card)
@@ -657,29 +976,42 @@ struct CardEditorView: View {
                     Text("\(card.status.rawValue) · \(wordbookLabel(card.wordbook)) · 다음 학습: \(relativeDueLabel(card.dueAt))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if card.wordbook == .recommended {
+                        Text(RecommendationEngine.reason(lemma: card.lemma, contexts: store.contexts.filter { context in store.cards.contains { $0.id == context.cardId && $0.wordbook == .user } }.map(\.sourceSentence)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if card.wordbook == .recommended && card.recommendationStartedAt == nil {
                         HStack {
                             Button("시작하기") { store.markRecommendationStarted(card) }
                             Button("알아요") { store.softDeleteRecommendation(card, action: "known") }
                             Button("관심 없음") { store.softDeleteRecommendation(card, action: "dismissed") }
                         }
+                    } else if card.status == .suspended {
+                        Button("복습 복구") { store.review(card: card, response: .restore) }
                     } else {
                         HStack {
                             Button("외웠다") { store.review(card: card, response: .remembered) }
                             Button("모르겠음") { store.review(card: card, response: .forgotten) }
                             Button("나중에") { store.review(card: card, response: .unavailable) }
+                            Button("보류") { store.review(card: card, response: .suspend) }
                         }
                     }
                 }
 
+                Divider()
+
+                CardBiographyView(card: card, store: store)
+
                 Text(store.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("status_message")
             }
             .padding(24)
         }
         .onAppear { load(card) }
         .onChange(of: card.id) { _, _ in load(card) }
+        .onChange(of: card.version) { _, _ in load(card) }
     }
 
     private func load(_ card: VocabularyCard) {
@@ -700,7 +1032,9 @@ struct CardRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.displayWord)
                 .font(.headline)
-            Text(card.meaningKo.isEmpty ? "뜻 없음 · 알림 보류" : card.meaningKo)
+                .accessibilityIdentifier("card_word_\(card.lemma)")
+            MeaningFallbackText(card: card, missingText: "뜻 없음 · 알림 보류")
+                .accessibilityIdentifier("card_meaning_\(card.lemma)")
             if !card.exampleSentence.isEmpty {
                 Text(card.exampleSentence)
                     .font(.caption)
@@ -715,16 +1049,77 @@ struct CardRow: View {
                     Button("알아요") { store.softDeleteRecommendation(card, action: "known") }
                     Button("관심 없음") { store.softDeleteRecommendation(card, action: "dismissed") }
                 }
+            } else if card.status == .suspended {
+                HStack {
+                    Button("복습 복구") { store.review(card: card, response: .restore) }
+                    Button("삭제") { store.softDeleteCard(card) }
+                }
             } else {
                 HStack {
                     Button("외웠다") { store.review(card: card, response: .remembered) }
                     Button("모르겠음") { store.review(card: card, response: .forgotten) }
                     Button("나중에") { store.review(card: card, response: .unavailable) }
+                    Button("보류") { store.review(card: card, response: .suspend) }
                     Button("삭제") { store.softDeleteCard(card) }
                 }
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+struct NotificationWarningBanner: View {
+    var warning: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(warning)
+                .font(.caption)
+            Spacer()
+            Button("시스템 설정 열기") {
+                openNotificationSettings()
+            }
+        }
+        .padding(8)
+        .background(.yellow.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct MeaningFallbackText: View {
+    var card: VocabularyCard
+    var missingText: String
+
+    var body: some View {
+        if !card.meaningKo.isEmpty {
+            Text(card.meaningKo)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        } else if !card.definitionEn.isEmpty {
+            EnglishDefinitionFallback(definition: card.definitionEn)
+        } else {
+            Text(missingText)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}
+
+struct EnglishDefinitionFallback: View {
+    var definition: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("EN")
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+            Text(definition)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
     }
 }
 
@@ -763,6 +1158,25 @@ private func relativeDueLabel(_ dueAt: Date, now: Date = Date()) -> String {
     return "\(days)일 뒤"
 }
 
+private func openNotificationSettings() {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
+    NSWorkspace.shared.open(url)
+}
+
+private func isHHMM(_ value: String) -> Bool {
+    let parts = value.split(separator: ":")
+    guard parts.count == 2,
+          let hour = Int(parts[0]),
+          let minute = Int(parts[1]),
+          (0...23).contains(hour),
+          (0...59).contains(minute),
+          parts[0].count == 2,
+          parts[1].count == 2 else {
+        return false
+    }
+    return true
+}
+
 struct FlowLayout<Content: View>: View {
     var items: [String]
     @ViewBuilder var content: (String) -> Content
@@ -773,5 +1187,19 @@ struct FlowLayout<Content: View>: View {
                 content(item)
             }
         }
+    }
+}
+
+/// QR code for a pairing address, drawn with Core Image.
+enum PairingQRCode {
+    static func image(for text: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let representation = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: representation.size)
+        image.addRepresentation(representation)
+        return image
     }
 }

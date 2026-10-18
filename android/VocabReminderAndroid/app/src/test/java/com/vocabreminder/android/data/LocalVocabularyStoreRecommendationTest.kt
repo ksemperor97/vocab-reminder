@@ -28,6 +28,17 @@ class LocalVocabularyStoreRecommendationTest {
     }
 
     @Test
+    fun knownFeedbackHidesResurrectedCardAfterReload() {
+        val now = Instant.parse("2026-07-03T00:00:00Z")
+        val card = store.addRecommendedCard(DictionaryResolver.resolve("ubiquitous"), CaptureMethod.RECOMMENDATION, now)
+        store.softDeleteRecommendation(card.id, "known", now.plusSeconds(60))
+        store.updateCard(card.copy(lemma = "  UBIQUITOUS  ", version = card.version + 5))
+        val reloaded = LocalVocabularyStore(ApplicationProvider.getApplicationContext<Context>())
+        assertTrue(reloaded.cards().none { it.id == card.id })
+        assertEquals(1, reloaded.recommendationFeedback().size)
+    }
+
+    @Test
     fun userCapturePromotesRecommendedCardAndKeepsProgress() {
         val now = Instant.parse("2026-07-03T00:00:00Z")
         val recommended = store.addRecommendedCard(

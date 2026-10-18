@@ -14,6 +14,8 @@ import androidx.work.WorkerParameters
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.notifications.DailyReviewPlanner
 import com.vocabreminder.android.notifications.ReminderNotifications
+import com.vocabreminder.android.notifications.ReminderScheduler
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class SyncWorker(
@@ -22,20 +24,28 @@ class SyncWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val store = LocalVocabularyStore(applicationContext)
+        store.recordSyncWorkerHeartbeat()
         val credentials = store.cloudSyncCredentials()
         val serverUrl = credentials.serverBaseUrl.trim()
         val token = credentials.bearerToken.trim()
         if (serverUrl.isBlank() || token.isBlank()) return Result.success()
 
         return runCatching {
-            val result = store.syncWithCloud(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
-            store.recordCloudSyncSuccess(result.skippedSummary)
-            ReminderNotifications.clearStalePrompt(applicationContext, store)
-            DailyReviewPlanner.planAndSchedule(applicationContext)
+            val result = SyncCoordinator(store).sync(CloudSyncClient(CloudSyncConfig(serverUrl, token)))
+            store.recordCloudSyncSuccess(result.skippedSummary, result.requestId)
+            val now = Instant.now()
+            ReminderScheduler.reconcileAll(applicationContext, store, now)
+            ReminderNotifications.clearStalePrompt(applicationContext, store, now)
+            ReminderNotifications.restoreActiveNotification(applicationContext, store, now)
+            DailyReviewPlanner.planAndSchedule(applicationContext, now)
+            DictionaryEnrichmentWorker.enqueue(applicationContext)
         }.fold(
             onSuccess = { Result.success() },
             onFailure = { error ->
-                store.recordCloudSyncFailure(error.message ?: error::class.java.simpleName)
+                store.recordCloudSyncFailure(
+                    error.message ?: error::class.java.simpleName,
+                    (error as? CloudSyncException)?.requestId
+                )
                 Result.retry()
             }
         )
@@ -44,24 +54,27 @@ class SyncWorker(
     companion object {
         internal const val PERIODIC_WORK = "local-sync-periodic"
         internal const val IMMEDIATE_WORK = "local-sync-immediate"
-        internal const val DEBOUNCED_WORK = "local-sync-debounced"
-        internal const val PERIODIC_INTERVAL_HOURS = 2L
+        internal const val PERIODIC_INTERVAL_MINUTES = 15L
         internal val PERIODIC_WORK_POLICY = ExistingPeriodicWorkPolicy.UPDATE
+        private const val LEGACY_DEBOUNCED_WORK = "local-sync-debounced"
 
         private val networkConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         fun ensureScheduled(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIODIC_INTERVAL_HOURS, TimeUnit.HOURS)
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIODIC_INTERVAL_MINUTES, TimeUnit.MINUTES)
                 .setConstraints(networkConstraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            val workManager = WorkManager.getInstance(context)
+            workManager.enqueueUniquePeriodicWork(
                 PERIODIC_WORK,
                 PERIODIC_WORK_POLICY,
                 request
             )
+            workManager.cancelUniqueWork(LEGACY_DEBOUNCED_WORK)
+            DictionaryEnrichmentWorker.enqueue(context)
         }
 
         fun enqueueImmediate(context: Context) {
@@ -76,17 +89,5 @@ class SyncWorker(
             )
         }
 
-        fun enqueueDebounced(context: Context) {
-            val request = OneTimeWorkRequestBuilder<SyncWorker>()
-                .setInitialDelay(5, TimeUnit.MINUTES)
-                .setConstraints(networkConstraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(
-                DEBOUNCED_WORK,
-                ExistingWorkPolicy.REPLACE,
-                request
-            )
-        }
     }
 }

@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vocab Reminder 구조</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;700;800&family=IBM+Plex+Sans+KR:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~72ch) with wide breakouts for the diagram and tables; a sticky
+   section index on wide screens. Motif: the word card — a ruled index card with a review stamp. */
+:root {
+  --bg: #f6f7f6;
+  --surface: #ffffff;
+  --ink: #18221f;
+  --muted: #5a6662;
+  --rule: #d9dfdc;
+  --accent: #0f6e66;          /* teal ink */
+  --accent-soft: #dcefec;
+  --mark: #f3dc6b;            /* highlighter */
+  --mark-ink: #4a3d00;
+  --ok: #2e7d4f;
+  --ok-soft: #e1f2e7;
+  --warn: #9a5b00;
+  --warn-soft: #fbeed6;
+  --font-display: "Gothic A1", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1514; --surface: #161e1c; --ink: #e5ece9; --muted: #9aa8a3; --rule: #2a3633;
+    --accent: #5cc4b8; --accent-soft: #163633; --mark: #c9b04a; --mark-ink: #1d1700;
+    --ok: #6fcf97; --ok-soft: #173325; --warn: #e2a64b; --warn-soft: #3a2a12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1514; --surface: #161e1c; --ink: #e5ece9; --muted: #9aa8a3; --rule: #2a3633;
+  --accent: #5cc4b8; --accent-soft: #163633; --mark: #c9b04a; --mark-ink: #1d1700;
+  --ok: #6fcf97; --ok-soft: #173325; --warn: #e2a64b; --warn-soft: #3a2a12;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.7 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-block: 40px 96px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 48px;
+}
+@media (max-width: 900px) { .page { grid-template-columns: minmax(0, 1fr); gap: 24px; } .toc { display: none; } }
+
+/* index */
+.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 13.5px; }
+.toc p { font: 700 11px/1 var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; border-left: 1px solid var(--rule); }
+.toc a { display: block; padding: 2px 0 2px 14px; color: var(--muted); text-decoration: none; margin-left: -1px; border-left: 2px solid transparent; }
+.toc a:hover, .toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+
+main { min-width: 0; display: grid; gap: 72px; }
+section { display: grid; gap: 20px; scroll-margin-top: 24px; }
+.prose { max-width: 72ch; }
+
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 800; line-height: 1.15; }
+h2 { font-size: 26px; font-weight: 800; line-height: 1.25; display: flex; align-items: baseline; gap: 12px; }
+h2 .no { font: 600 13px var(--font-mono); color: var(--accent); }
+h3 { font-size: 17px; font-weight: 700; line-height: 1.35; }
+p { margin: 0; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; }
+.eyebrow { font: 700 12px/1 var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: .86em; }
+code { background: var(--accent-soft); color: var(--ink); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+mark { background: var(--mark); color: var(--mark-ink); padding: 0 3px; border-radius: 2px; }
+a { color: var(--accent); }
+ul.plain { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; }
+
+/* header: a word card */
+header.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 32px; align-items: center; }
+@media (max-width: 720px) { header.hero { grid-template-columns: minmax(0, 1fr); } }
+.hero-text { display: grid; gap: 16px; min-width: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.meta span { white-space: nowrap; }
+.wordcard {
+  width: min(300px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 18px 20px 16px;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, var(--rule) 27px 28px);
+  background-position: 0 52px;
+  box-shadow: 0 1px 0 var(--rule), 0 10px 24px -18px rgba(0,0,0,.35);
+  transform: rotate(-1.2deg);
+  position: relative;
+}
+.wordcard .w { font: 800 24px/1.2 var(--font-display); }
+.wordcard .pos { font: 400 12px var(--font-mono); color: var(--muted); }
+.wordcard .m { margin-top: 14px; line-height: 28px; }
+.wordcard .stamp {
+  position: absolute; right: 14px; top: 14px;
+  font: 700 11px/1 var(--font-display); letter-spacing: .08em;
+  color: var(--accent); border: 1.5px solid var(--accent); border-radius: 4px; padding: 5px 7px;
+  transform: rotate(6deg);
+}
+.wordcard .due { margin-top: 12px; font: 600 12px var(--font-mono); color: var(--muted); line-height: 28px; }
+
+/* principles */
+.principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.principle { border-top: 2px solid var(--accent); padding-top: 12px; display: grid; gap: 6px; }
+.principle p { color: var(--muted); font-size: 15px; }
+
+/* diagram */
+.figure { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; overflow-x: auto; }
+.figure svg { display: block; min-width: 860px; width: 100%; height: auto; }
+.figure figcaption, .caption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+svg text { font-family: var(--font-body); fill: var(--ink); }
+svg .t-small { font-size: 12px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11.5px; fill: var(--muted); }
+svg .t-title { font-family: var(--font-display); font-weight: 800; font-size: 15px; }
+svg .box { fill: var(--surface); stroke: var(--rule); stroke-width: 1.5; }
+svg .box-strong { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+svg .box-dash { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; }
+svg .inner { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+svg .edge { stroke: var(--accent); stroke-width: 2; fill: none; }
+svg .edge-dot { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: 2 4; }
+svg .arrow { fill: var(--accent); }
+
+/* components */
+.components { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.comp { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.comp .tag { font: 600 12px var(--font-mono); color: var(--accent); }
+.comp ul { margin: 0; padding-left: 1.1em; display: grid; gap: 5px; font-size: 15px; }
+.comp .files { font: 400 12px/1.6 var(--font-mono); color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 10px; overflow-wrap: anywhere; }
+
+/* tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 640px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font: 700 12px var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tbody tr:last-child td { border-bottom: 0; }
+td.group { font-family: var(--font-display); font-weight: 700; white-space: nowrap; }
+.yes { color: var(--ok); font-weight: 600; white-space: nowrap; }
+.no { color: var(--muted); white-space: nowrap; }
+.srv { color: var(--accent); font-weight: 600; white-space: nowrap; }
+
+/* schedule ladder */
+.ladder { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+.rung { flex: 1 1 110px; padding: 14px 14px 12px; border-right: 1px solid var(--rule); display: grid; gap: 4px; min-width: 0; }
+.rung:last-child { border-right: 0; }
+.rung .when { font: 700 20px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.rung .state { font: 600 11px var(--font-mono); color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.rung p { font-size: 13px; color: var(--muted); }
+.rung.final { background: var(--accent-soft); }
+.side-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.rule-card { border-left: 3px solid var(--rule); padding: 2px 0 2px 14px; display: grid; gap: 4px; }
+.rule-card.f { border-color: var(--warn); }
+.rule-card.u { border-color: var(--muted); }
+.rule-card.q { border-color: var(--accent); }
+.rule-card p { font-size: 14.5px; color: var(--muted); }
+
+/* sync */
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+.group-card { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 18px; display: grid; gap: 10px; align-content: start; }
+.group-card .clock { font: 600 12px var(--font-mono); color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 400 12px var(--font-mono); background: var(--bg); border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; }
+
+.flow { display: grid; gap: 0; counter-reset: step; }
+.flow li { list-style: none; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--rule); }
+.flow li:last-child { border-bottom: 0; }
+.flow li::before { counter-increment: step; content: counter(step); font: 700 13px/26px var(--font-mono); text-align: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.flow { padding: 0; margin: 0; }
+
+/* scenarios */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.filters button {
+  font: 600 13px var(--font-body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+}
+.filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.filters button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.scenarios { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.sc { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 18px 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.sc .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sc .area { font: 600 12px var(--font-mono); color: var(--accent); }
+.badge { font: 700 11px var(--font-display); letter-spacing: .04em; border-radius: 4px; padding: 3px 7px; white-space: nowrap; }
+.badge.verified { background: var(--ok-soft); color: var(--ok); }
+.badge.tests { background: var(--bg); color: var(--muted); border: 1px solid var(--rule); }
+.sc ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; font-size: 14.5px; }
+.sc .result { font-size: 14.5px; border-top: 1px dashed var(--rule); padding-top: 10px; }
+.sc .result b { font-family: var(--font-display); }
+
+/* storage */
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+
+/* verification */
+.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.check { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 2px; }
+.check .n { font: 800 26px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.check .l { font-size: 13px; color: var(--muted); }
+pre { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; font: 13px/1.6 var(--font-mono); }
+
+.todo { display: grid; gap: 10px; padding: 0; margin: 0; }
+.todo li { list-style: none; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; }
+.todo li::before { content: ""; width: 14px; height: 14px; margin-top: 6px; border: 1.5px solid var(--warn); border-radius: 3px; }
+
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="목차">
+    <p>목차</p>
+    <ol>
+      <li><a href="#overview">한눈에 보기</a></li>
+      <li><a href="#components">구성 요소</a></li>
+      <li><a href="#features">기능</a></li>
+      <li><a href="#schedule">복습 스케줄</a></li>
+      <li><a href="#sync">동기화</a></li>
+      <li><a href="#scenarios">시나리오</a></li>
+      <li><a href="#storage">저장 구조</a></li>
+      <li><a href="#verify">검증 방법</a></li>
+      <li><a href="#todo">남은 일</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="hero-text">
+        <span class="eyebrow">Vocab Reminder · 프로그램 구조</span>
+        <h1>읽다가 만난 단어를, 잊을 때쯤 다시 묻는 앱</h1>
+        <p class="lede">Android 폰과 Mac에서 단어를 캡처하면, 집의 Mac Studio에서 도는 동기화 서버가 두 기기를 하나의 단어장으로 묶습니다. 복습은 알림으로 오고, 답에 따라 다음 복습 시점이 정해집니다.</p>
+        <div class="meta">
+          <span>기준: 2026-10-17</span>
+          <span>브랜치 <code>codex/product-completion</code></span>
+          <span>동기화 프로토콜 3</span>
+          <span>1인 사용자</span>
+        </div>
+      </div>
+      <div class="wordcard" aria-hidden="true">
+        <span class="stamp">외움</span>
+        <div class="w">resilient</div>
+        <div class="pos">adjective · /rɪˈzɪliənt/</div>
+        <div class="m">회복력 있는, 탄력 있는</div>
+        <div class="due">다음 복습 · 3일 뒤</div>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2><span class="no">01</span>한눈에 보기</h2>
+      <figure class="figure" style="margin:0">
+        <svg viewBox="0 0 960 470" role="img" aria-labelledby="arch-title">
+          <title id="arch-title">Android 앱, Mac 앱, vocab-check가 Tailscale Funnel 주소로 Mac Studio 동기화 서버와 통신하는 구조</title>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="arrow"/>
+            </marker>
+          </defs>
+
+          <!-- clients -->
+          <rect x="20" y="30" width="230" height="118" rx="10" class="box"/>
+          <text x="38" y="58" class="t-title">Android 앱</text>
+          <text x="38" y="80" class="t-small">Kotlin · Jetpack Compose</text>
+          <text x="38" y="102" class="t-small">공유·텍스트 선택 캡처, 알림 복습</text>
+          <text x="38" y="124" class="t-mono">SQLite · outbox · WorkManager</text>
+
+          <rect x="20" y="170" width="230" height="118" rx="10" class="box"/>
+          <text x="38" y="198" class="t-title">Mac 메뉴바 앱</text>
+          <text x="38" y="220" class="t-small">SwiftUI · VocabCore 라이브러리</text>
+          <text x="38" y="242" class="t-small">⌘⌥V 클립보드·서비스 메뉴 캡처</text>
+          <text x="38" y="264" class="t-mono">SQLite · outbox · 15분 동기화</text>
+
+          <rect x="20" y="310" width="230" height="86" rx="10" class="box-dash"/>
+          <text x="38" y="338" class="t-title">vocab-check</text>
+          <text x="38" y="360" class="t-small">공유 벡터 검사, 실제 Mac 저장소</text>
+          <text x="38" y="380" class="t-small">구동 (E2E에서 Mac 역할)</text>
+
+          <!-- relay -->
+          <rect x="330" y="120" width="200" height="96" rx="10" class="box"/>
+          <text x="348" y="148" class="t-title">Tailscale Funnel</text>
+          <text x="348" y="170" class="t-small">고정 HTTPS 주소 (*.ts.net)</text>
+          <text x="348" y="192" class="t-mono">폰에 설치 없음 · TLS는 Mac Studio</text>
+
+          <!-- edges clients -> worker -->
+          <path d="M250 89 C 295 89, 290 150, 328 152" class="edge" marker-end="url(#arr)"/>
+          <path d="M250 229 C 295 229, 290 185, 328 182" class="edge" marker-end="url(#arr)"/>
+          <path d="M250 353 C 560 353, 600 330, 618 330" class="edge-dot" marker-end="url(#arr)"/>
+          <text x="300" y="372" class="t-small">로컬 실행 시 서버에 직접 연결</text>
+
+          <!-- server -->
+          <rect x="620" y="20" width="320" height="400" rx="12" class="box-strong"/>
+          <text x="640" y="50" class="t-title">Mac Studio 동기화 서버</text>
+          <text x="640" y="70" class="t-small">Node 22 · launchd 상주 · Funnel 공개</text>
+          <path d="M530 168 L 618 168" class="edge" marker-end="url(#arr)"/>
+
+          <rect x="640" y="86" width="280" height="50" rx="8" class="inner"/>
+          <text x="656" y="108" style="font-weight:600;font-size:13.5px">HTTP API · Bearer 토큰</text>
+          <text x="656" y="126" class="t-mono">/sync/batch · /sync/changes · /dict</text>
+
+          <rect x="640" y="146" width="280" height="62" rx="8" class="inner"/>
+          <text x="656" y="168" style="font-weight:600;font-size:13.5px">SyncStore — 병합의 단일 권한</text>
+          <text x="656" y="186" class="t-small">필드 그룹 병합 · 같은 단어 접기</text>
+          <text x="656" y="202" class="t-mono">변경 로그(트리거) → cursor</text>
+
+          <rect x="640" y="218" width="280" height="50" rx="8" class="inner"/>
+          <text x="656" y="240" style="font-weight:600;font-size:13.5px">추천 유지</text>
+          <text x="656" y="258" class="t-small">업로드 직후 + 10분 타이머 · 카탈로그</text>
+
+          <rect x="640" y="278" width="280" height="50" rx="8" class="inner"/>
+          <text x="656" y="300" style="font-weight:600;font-size:13.5px">사전 조회</text>
+          <text x="656" y="318" class="t-small">카탈로그 · macOS 사전 · 문맥 뜻(로컬 Qwen) · 캐시</text>
+
+          <rect x="640" y="338" width="280" height="62" rx="8" class="inner"/>
+          <text x="656" y="360" style="font-weight:600;font-size:13.5px">SQLite (WAL)</text>
+          <text x="656" y="378" class="t-small">일일 백업 30개 보관 · 복구 리허설</text>
+          <text x="656" y="394" class="t-mono">cards · contexts · review_events …</text>
+
+          <!-- shared vectors -->
+          <rect x="290" y="420" width="320" height="40" rx="8" class="box-dash"/>
+          <text x="306" y="445" class="t-small">shared/test-vectors — 세 구현이 같은 답을 내는지 고정</text>
+          <path d="M290 440 C 268 440, 266 400, 258 398" class="edge-dot"/>
+          <path d="M610 440 C 640 440, 650 430, 660 420" class="edge-dot"/>
+        </svg>
+        <figcaption>폰과 Mac은 각자 오프라인으로 동작하고, 서버를 통해서만 서로의 변경을 받습니다. 서버는 사용자의 Mac Studio에 있고(예전에는 Mac mini + Cloudflare), Tailscale Funnel이 고정 공개 주소를 줍니다. 폰에는 아무것도 설치하지 않으므로 AdGuard의 VPN 자리를 쓰지 않습니다.</figcaption>
+      </figure>
+
+      <div class="principles">
+        <div class="principle"><h3>서버가 정답을 정한다</h3><p>카드 병합, 같은 단어 접기, 추천 선택처럼 기기마다 답이 달라지면 안 되는 일은 서버만 합니다.</p></div>
+        <div class="principle"><h3>기기는 오프라인에서도 완전하다</h3><p>캡처·복습·알림은 네트워크 없이 동작하고, 바뀐 행은 outbox에 쌓였다가 연결되면 올라갑니다.</p></div>
+        <div class="principle"><h3>뜻과 진도는 따로 병합</h3><p>폰에서 복습하고 Mac에서 뜻을 고쳐도 둘 다 남습니다. 삭제는 되살아나지 않습니다.</p></div>
+        <div class="principle"><h3>읽기는 쓰지 않는다</h3><p>내려받기 요청은 서버 데이터를 바꾸지 않습니다. 추천은 업로드 직후와 타이머에서만 채워집니다.</p></div>
+      </div>
+    </section>
+
+    <section id="components">
+      <h2><span class="no">02</span>구성 요소</h2>
+      <div class="components">
+        <article class="comp">
+          <span class="tag">server/</span>
+          <h3>동기화 서버</h3>
+          <ul>
+            <li>업로드 적용: 검증 → 카드 필드 그룹 병합 → 기록 행 추가 → 같은 단어 접기 (한 트랜잭션)</li>
+            <li>변경분 내려주기: SQLite 트리거가 쌓은 변경 로그를 cursor로 페이지 단위 전달</li>
+            <li>추천: 카탈로그에서 난이도·주제 균형을 맞춰 하루 예산만큼 채움, 알아요·관심 없음은 영구 제외</li>
+            <li>사전 프록시, 일일 백업, 복구 리허설, 요청 로그(request id)</li>
+          </ul>
+          <div class="files">src/sync.js · card_merge.js · dedupe.js · changes.js · recommendations.js · dictionary.js · http.js · tunnel/</div>
+        </article>
+        <article class="comp">
+          <span class="tag">android/VocabReminderAndroid</span>
+          <h3>Android 앱</h3>
+          <ul>
+            <li>캡처: 공유 메뉴, 텍스트 선택(“텍스트 처리”), 앱 안 클립보드 버튼, 직접 입력</li>
+            <li>저장소: SQLite 행 저장 + outbox, 첫 실행 때 예전 SharedPreferences 데이터 가져오기</li>
+            <li>화면: AppViewModel이 상태와 동작을 맡고, 단어장·추천·설정·추가 시트는 파일별 컴포즈 화면</li>
+            <li>백그라운드: 알림 예약, 조용한 시간 정리, 동기화(즉시 + 15분), 사전 보강 워커</li>
+          </ul>
+          <div class="files">data/LocalVocabularyStore.kt · VocabularyDatabase.kt · CardMerge.kt · sync/SyncCoordinator.kt · AppViewModel.kt · notifications/</div>
+        </article>
+        <article class="comp">
+          <span class="tag">mac/VocabReminderMac</span>
+          <h3>Mac 앱</h3>
+          <ul>
+            <li><b>VocabCore</b>: 모델, 스케줄러, SQLite 저장소, 동기화, 사전, 알림 계획 (UI 없음)</li>
+            <li><b>VocabReminderMac</b>: 메뉴바 SwiftUI 앱, ⌘⌥V 전역 단축키, 서비스 메뉴 “Vocabulary Reminder에 추가”</li>
+            <li><b>vocab-check</b>: 공유 벡터 검사, 실제 저장소를 명령줄로 구동</li>
+            <li><b>UITests</b>: 패키징한 메뉴바 앱을 XCUITest로 실제 조작 (메뉴 열기 → 입력 → 저장 → 동기화 → 편집)</li>
+            <li>첫 실행 때 예전 <code>vocab-data.json</code>을 SQLite로 옮기고 <code>.migrated</code>로 보관</li>
+          </ul>
+          <div class="files">Sources/VocabCore/ · Sources/VocabReminderMac/ · Sources/VocabCheck/main.swift · UITests/ · swift.sh · package_app.sh</div>
+        </article>
+        <article class="comp">
+          <span class="tag">shared/ · tools/</span>
+          <h3>공유 규칙과 도구</h3>
+          <ul>
+            <li>스키마, 스케줄러·캡처·카드 병합·추천 테스트 벡터</li>
+            <li>추천 카탈로그 파이프라인 (SUBTLEX 빈도 → 후보 → 검수 → 카탈로그)</li>
+            <li><code>tools/e2e</code>: 서버 + Android 에뮬레이터 + Mac 저장소 + Mac 앱 화면 실제 실행</li>
+            <li>운영: 서버 Mac 설치, 서버 이전(<code>migrate_sync_server.mjs</code>), Tailscale Funnel 공개, 릴리스 빌드·서명 검증, 진단(doctor), 토큰 교체, 비밀값 검사</li>
+          </ul>
+          <div class="files">shared/test-vectors/*.json · shared/recommendations/ · tools/e2e/run_real_e2e.py · tools/sync_doctor.sh</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2><span class="no">03</span>기능</h2>
+      <p class="prose">어느 쪽에서 무엇을 할 수 있는지 정리했습니다. 서버 열은 기기 기능을 뒷받침하는 역할입니다.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>영역</th><th>기능</th><th>Android</th><th>Mac</th><th>서버</th></tr></thead>
+          <tbody>
+            <tr><td class="group" rowspan="4">캡처</td><td>공유 메뉴 / 텍스트 선택으로 단어 저장</td><td class="yes">지원</td><td class="yes">서비스 메뉴</td><td class="no">—</td></tr>
+            <tr><td>클립보드에서 가져오기</td><td class="yes">앱 안 버튼</td><td class="yes">⌘⌥V</td><td class="no">—</td></tr>
+            <tr><td>문장이 오면 저장할 단어 고르기 (4단어 이상)</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
+            <tr><td>출처(앱, URL, 페이지 제목)와 문맥 문장 보관</td><td class="yes">지원</td><td class="yes">지원</td><td class="srv">문맥 행 보관</td></tr>
+            <tr><td class="group" rowspan="4">뜻</td><td>저장 전 미리보기 (기기 사전)</td><td class="yes">오프라인 사전</td><td class="yes">macOS 사전</td><td class="no">—</td></tr>
+            <tr><td>뜻 없이 저장 → 백그라운드에서 보강</td><td class="yes">보강 워커</td><td class="yes">자동 동기화 중</td><td class="srv">/dict/batch</td></tr>
+            <tr><td>캡처한 문장에 맞는 뜻 고르기 (사전 뜻도 문장당 한 번 교체)</td><td class="yes">보강 워커</td><td class="yes">자동 동기화 중</td><td class="srv">이 Mac의 로컬 Qwen(LM Studio), Claude도 가능</td></tr>
+            <tr><td>뜻 후보 보관과 이전 뜻 복원, 직접 고친 뜻 고정</td><td class="yes">지원</td><td class="yes">지원</td><td class="srv">후보 행 보관</td></tr>
+            <tr><td class="group" rowspan="4">복습</td><td>알림에서 외움 / 잊음 / 나중에</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
+            <tr><td>워치(Galaxy Fit3) 답장으로 복습</td><td class="yes">“네·아니오·나중에”</td><td class="no">—</td><td class="no">—</td></tr>
+            <tr><td>한 번에 하나씩 알림, 조용한 시간, 하루 목표·대기열 상한</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
+            <tr><td>카드 기록(문맥·뜻 후보·복습 이력) 보기, 취약 단어 표시</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
+            <tr><td class="group" rowspan="2">추천</td><td>추천 단어 받기, 시작하기 / 알아요 / 관심 없음</td><td class="yes">지원</td><td class="yes">지원</td><td class="srv">선택·예산·영구 제외</td></tr>
+            <tr><td>카탈로그 수정이 앱 업데이트 없이 반영</td><td class="no">—</td><td class="no">—</td><td class="srv">파일 감시</td></tr>
+            <tr><td class="group" rowspan="3">동기화</td><td>자동 동기화</td><td class="yes">시작·변경 직후·15분</td><td class="yes">시작·변경 1초 뒤·15분·네트워크 복구</td><td class="srv">변경분 cursor</td></tr>
+            <tr><td>두 기기 동시 수정 병합, 같은 단어 합치기</td><td class="yes">결과 적용</td><td class="yes">결과 적용</td><td class="srv">병합·접기</td></tr>
+            <tr><td>수동 내보내기 / 가져오기 (JSON)</td><td class="yes">지원</td><td class="yes">지원</td><td class="no">—</td></tr>
+            <tr><td class="group" rowspan="2">운영</td><td>설정 진단(알림 권한, 배터리, 마지막 동기화)</td><td class="yes">설정 탭</td><td class="yes">진단 화면</td><td class="srv">sync_doctor</td></tr>
+            <tr><td>백업과 복구</td><td class="no">—</td><td class="no">—</td><td class="srv">일일 백업·리허설</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="schedule">
+      <h2><span class="no">04</span>복습 스케줄</h2>
+      <p class="prose">Android와 Mac이 같은 규칙으로 다음 복습 시점을 계산합니다. 같은 시각에 알림이 몰리지 않도록 몇 분 단위로 흩뜨립니다.</p>
+      <div class="ladder" role="list" aria-label="외움을 눌렀을 때의 간격">
+        <div class="rung" role="listitem"><span class="state">new</span><span class="when">10분</span><p>저장 직후 첫 알림</p></div>
+        <div class="rung" role="listitem"><span class="state">learning</span><span class="when">1일</span><p>첫 외움</p></div>
+        <div class="rung" role="listitem"><span class="state">learning</span><span class="when">3일</span><p>두 번째</p></div>
+        <div class="rung" role="listitem"><span class="state">review</span><span class="when">7일</span><p>7일부터 복습 단계</p></div>
+        <div class="rung" role="listitem"><span class="state">review</span><span class="when">×2</span><p>14 → 28 → 56일</p></div>
+        <div class="rung final" role="listitem"><span class="state">mastered</span><span class="when">90일</span><p>90일 + 최근 2번 연속 외움</p></div>
+      </div>
+      <div class="side-rules">
+        <div class="rule-card f"><h3>잊음</h3><p>재학습 상태로 바뀌고 뜻과 예문을 보여 준 뒤 20분 뒤 다시 묻습니다. 다시 외우면 이전 간격의 절반(1~7일)부터 이어갑니다.</p></div>
+        <div class="rule-card u"><h3>나중에</h3><p>진도는 그대로 두고 60분 뒤로 미룹니다. 같은 카드는 하루 2번까지 미룰 수 있습니다.</p></div>
+        <div class="rule-card q"><h3>조용한 시간</h3><p>기본 23:00~09:00에는 알림을 보내지 않고, 끝난 뒤 30분 무렵으로 옮깁니다.</p></div>
+      </div>
+    </section>
+
+    <section id="sync">
+      <h2><span class="no">05</span>동기화 (프로토콜 3)</h2>
+      <p class="prose">카드는 통째로 덮어쓰지 않습니다. 필드를 두 묶음으로 나누고 묶음마다 시계(버전 + 시각)를 두어, 더 새로운 쪽이 그 묶음만 가져갑니다. 나머지는 한 방향으로만 바뀝니다.</p>
+      <div class="groups">
+        <div class="group-card">
+          <h3>내용</h3>
+          <span class="clock">content_version · content_updated_at</span>
+          <div class="chips"><span class="chip">뜻</span><span class="chip">영영 정의</span><span class="chip">품사</span><span class="chip">발음</span><span class="chip">예문</span><span class="chip">출처 앱·URL</span><span class="chip">대표 뜻 후보</span></div>
+        </div>
+        <div class="group-card">
+          <h3>학습 상태</h3>
+          <span class="clock">schedule_version · schedule_updated_at</span>
+          <div class="chips"><span class="chip">상태</span><span class="chip">다음 복습</span><span class="chip">간격</span><span class="chip">잊은 횟수</span><span class="chip">잊기 전 간격</span></div>
+        </div>
+        <div class="group-card">
+          <h3>한 방향으로만</h3>
+          <span class="clock">시계 없음</span>
+          <div class="chips"><span class="chip">삭제: 가장 이른 시각, 되살아나지 않음</span><span class="chip">추천 → 내 단어장 승격</span><span class="chip">추천 시작 시각: 가장 이른 값</span></div>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="group-card">
+          <h3>한 번의 동기화</h3>
+          <ol class="flow">
+            <li><span>outbox에 쌓인 행만 <code>POST /sync/batch</code>로 올림 (비어 있어도 보냄: 서버가 추천을 채우는 계기)</li>
+            <li><span>서버가 병합하고 같은 단어를 접은 뒤, 추천을 채움</span></li>
+            <li><span><code>GET /sync/changes?cursor=…</code>로 바뀐 행만 내려받음</span></li>
+            <li><span>기기가 같은 규칙으로 병합해 저장하고, 서버가 받은 행을 outbox에서 지움</span></li>
+            <li><span>가져오기가 끝난 뒤에만 cursor를 저장 (중간에 끊겨도 다시 하면 그만)</span></li>
+          </ol>
+        </div>
+        <div class="group-card">
+          <h3>같은 단어가 두 장 생기면</h3>
+          <ol class="flow">
+            <li><span>폰과 Mac이 동기화 전에 같은 단어를 각자 저장</span></li>
+            <li><span>서버가 같은 lemma의 활성 카드를 찾아 하나를 남김 (내 단어장 → 뜻 있음 → 먼저 저장 순)</span></li>
+            <li><span>남는 카드는 가장 멀리 간 학습 진도를 가져가고, 나머지는 <code>merged_into</code>가 붙은 삭제 카드가 됨</span></li>
+            <li><span>문맥·복습 기록은 남는 카드로 옮겨지고, 기기는 결과를 그대로 받음</span></li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>요청</th><th>하는 일</th><th>쓰기 여부</th></tr></thead>
+          <tbody>
+            <tr><td><code>POST /sync/batch</code></td><td>카드·문맥·뜻 후보·복습 기록·추천 피드백·설정 업로드, 병합·접기·추천 채우기</td><td>씀</td></tr>
+            <tr><td><code>GET /sync/changes</code></td><td>cursor 이후 바뀐 행 (400개씩, <code>has_more</code>)</td><td>읽기만</td></tr>
+            <tr><td><code>GET /sync/snapshot</code></td><td>전체 사본 (구버전 호환)</td><td>읽기만</td></tr>
+            <tr><td><code>GET /dict/:lemma</code>, <code>POST /dict/batch</code></td><td>사전 조회, 문장이 있으면 문맥 뜻 선택 (분당 횟수 제한, 캐시)</td><td>읽기만</td></tr>
+            <tr><td><code>GET /health</code></td><td>서버 상태와 카드 수</td><td>읽기만</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">세 구현(JS·Kotlin·Swift)이 같은 규칙인지는 <code>shared/test-vectors/card_merge.json</code>의 8개 사례로 확인합니다.</p>
+    </section>
+
+    <section id="scenarios">
+      <h2><span class="no">06</span>시나리오</h2>
+      <p class="prose">사용자가 실제로 겪는 흐름입니다. <span class="badge verified">실제 실행 확인</span> 표시는 서버, Android 에뮬레이터, Mac 저장소, Mac 앱 화면(XCUITest)을 실제로 돌리는 <code>npm run e2e:real</code>로 확인한 것이고, <span class="badge tests">테스트</span>는 단위·통합 테스트로 고정한 것입니다.</p>
+      <div class="filters" role="group" aria-label="시나리오 거르기">
+        <button type="button" data-filter="all" aria-pressed="true">전체</button>
+        <button type="button" data-filter="capture" aria-pressed="false">캡처</button>
+        <button type="button" data-filter="review" aria-pressed="false">복습</button>
+        <button type="button" data-filter="sync" aria-pressed="false">두 기기</button>
+        <button type="button" data-filter="ops" aria-pressed="false">설치·운영</button>
+      </div>
+      <div class="scenarios">
+        <article class="sc" data-area="capture">
+          <div class="top"><span class="area">캡처 · Android</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>기사 읽다가 단어 공유</h3>
+          <ol><li>브라우저에서 “resilient” 선택 → 공유 → Vocabulary Reminder</li><li>미리보기에서 뜻 “회복력 있는, 탄력 있는” 확인 후 저장</li><li>앱이 바로 동기화</li></ol>
+          <p class="result"><b>결과</b> 10분 뒤 첫 알림이 예약되고, Mac도 다음 동기화에 같은 카드를 받습니다.</p>
+        </article>
+        <article class="sc" data-area="capture">
+          <div class="top"><span class="area">캡처 · 공통</span><span class="badge tests">테스트</span></div>
+          <h3>문장을 통째로 공유</h3>
+          <ol><li>“The results are tentative, but the pattern is robust.” 공유</li><li>단어 후보(tentative, robust …) 중 하나를 고름</li><li>고른 단어 + 원문 문장이 문맥으로 저장</li></ol>
+          <p class="result"><b>결과</b> 카드에 원문 문장과 출처 앱이 함께 남습니다.</p>
+        </article>
+        <article class="sc" data-area="capture">
+          <div class="top"><span class="area">캡처 · 공통</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>사전에 없는 단어</h3>
+          <ol><li>“serendipity”처럼 기기 사전에 없는 단어를 저장</li><li>“뜻 없음 · 알림 보류”로 일단 저장</li><li>서버 사전으로 백그라운드 보강, 실패하면 이유 표시</li></ol>
+          <p class="result"><b>결과</b> 캡처는 막히지 않고, 뜻이 생기면 그때 복습 알림이 시작됩니다.</p>
+        </article>
+        <article class="sc" data-area="capture">
+          <div class="top"><span class="area">캡처 · Mac</span><span class="badge tests">테스트</span></div>
+          <h3>Mac에서 단축키로 저장</h3>
+          <ol><li>아무 앱에서 단어 복사 후 ⌘⌥V (또는 서비스 메뉴 “Vocabulary Reminder에 추가”)</li><li>메뉴바 창에 macOS 사전 뜻이 뜸</li><li>저장하면 1초 뒤 자동 동기화</li></ol>
+          <p class="result"><b>결과</b> 폰에서도 몇 분 안에 같은 카드가 보입니다.</p>
+        </article>
+        <article class="sc" data-area="review">
+          <div class="top"><span class="area">복습 · Android</span><span class="badge tests">테스트</span></div>
+          <h3>알림에서 바로 답하기</h3>
+          <ol><li>잠금 화면 알림 “resilient” → 외움 / 잊음 / 나중에</li><li>잊음이면 뜻과 예문을 보여 주는 알림으로 바뀜</li><li>20분 뒤 다시 확인</li></ol>
+          <p class="result"><b>결과</b> 앱을 열지 않고 복습이 끝나고, 기록은 다음 동기화 때 올라갑니다.</p>
+        </article>
+        <article class="sc" data-area="review">
+          <div class="top"><span class="area">복습 · 워치</span><span class="badge tests">테스트</span></div>
+          <h3>Galaxy Fit3로 답장</h3>
+          <ol><li>폰 알림이 워치에 미러링</li><li>빠른 답장 “네·좋습니다” = 외움, “아니오” = 잊음, “나중에” = 미룸</li><li>뜻 알림은 아무 답장이나 하면 넘어감</li></ol>
+          <p class="result"><b>결과</b> 손목에서 복습을 이어갈 수 있습니다.</p>
+        </article>
+        <article class="sc" data-area="review">
+          <div class="top"><span class="area">추천</span><span class="badge tests">테스트</span></div>
+          <h3>추천 단어 받기</h3>
+          <ol><li>오늘 목표에 여유가 있으면 서버가 추천 카드를 채움</li><li>알림·추천 단어장에서 시작하기 / 알아요 / 관심 없음</li><li>알아요·관심 없음은 다시 추천되지 않음</li></ol>
+          <p class="result"><b>결과</b> 고른 반응에 따라 다음 추천의 난이도와 주제가 조정됩니다.</p>
+        </article>
+        <article class="sc" data-area="review">
+          <div class="top"><span class="area">복습 · 공통</span><span class="badge tests">테스트</span></div>
+          <h3>밤에는 조용히</h3>
+          <ol><li>23시 이후 복습할 카드가 생김</li><li>알림은 보내지 않고 대기</li><li>09:30 무렵 한 장씩 다시 시작</li></ol>
+          <p class="result"><b>결과</b> 잠자는 동안 알림이 오지 않고, 아침에 몰리지도 않습니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>지하철에서 복습, 집에서 뜻 수정</h3>
+          <ol><li>폰이 오프라인일 때 “resilient” 복습 → 외움</li><li>같은 시간에 Mac에서 뜻을 “(Mac 수정) 회복력 있는”으로 고침</li><li>폰이 다시 연결</li></ol>
+          <p class="result"><b>결과</b> 서버·폰·Mac 모두 Mac의 뜻 + 폰의 학습 상태(learning, 1일)를 가집니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>같은 단어를 두 곳에서 저장</h3>
+          <ol><li>폰이 오프라인일 때 “meticulous” 캡처</li><li>Mac에서도 “meticulous”를 뜻과 함께 저장</li><li>폰이 연결되어 업로드</li></ol>
+          <p class="result"><b>결과</b> 카드는 한 장만 남고, 두 기기의 문맥이 모두 그 카드에 붙습니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>Mac에서 삭제</h3>
+          <ol><li>Mac에서 카드 삭제 후 동기화</li><li>폰이 다음 동기화에서 삭제를 받음</li><li>오래된 사본이 다시 올라와도 무시</li></ol>
+          <p class="result"><b>결과</b> 폰 화면에서도 사라지고, 다시 살아나지 않습니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>오래 오프라인이었다가 연결</h3>
+          <ol><li>폰을 며칠 오프라인으로 사용하며 캡처·복습</li><li>연결되면 쌓인 행만 업로드</li><li>그사이 바뀐 서버 행만 내려받음</li></ol>
+          <p class="result"><b>결과</b> 전체를 다시 보내지 않고, 끝나면 outbox가 비어 있습니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기 · Mac 앱 화면</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>Mac 창에서 저장, 폰에서 확인</h3>
+          <ol><li>메뉴바에서 앱을 열고 “ephemeral” 입력 → 미리보기</li><li>뜻을 “덧없는”으로 적고 저장 → “지금 동기화”</li><li>폰이 다음 동기화에서 받음</li></ol>
+          <p class="result"><b>결과</b> 폰 단어장에 ephemeral과 뜻 “덧없는”이 그대로 보입니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기 · Mac 앱 화면</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>폰에서 캡처, Mac 창에서 확인</h3>
+          <ol><li>폰에서 “robust” 공유 캡처</li><li>Mac 앱에서 “지금 동기화”</li><li>최근 저장 단어 목록 확인</li></ol>
+          <p class="result"><b>결과</b> Mac 창에 robust가 “견고한, 안정적인”으로 나타납니다.</p>
+        </article>
+        <article class="sc" data-area="sync">
+          <div class="top"><span class="area">두 기기 · Mac 앱 화면</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>Mac 카드 편집기에서 뜻 수정</h3>
+          <ol><li>Mac 사이드바에서 robust 선택 → 편집기</li><li>뜻을 “(Mac 앱) 튼튼한”으로 고치고 저장 → 동기화</li><li>폰이 다음 동기화에서 받음</li></ol>
+          <p class="result"><b>결과</b> 폰 화면에 새 뜻이 보이고, Mac 카드 기록에는 수정·뜻 후보·동기화가 남습니다.</p>
+        </article>
+        <article class="sc" data-area="ops">
+          <div class="top"><span class="area">설치·운영</span><span class="badge verified">실제 실행 확인</span></div>
+          <h3>앱 업데이트</h3>
+          <ol><li>예전 버전(SharedPreferences / vocab-data.json)이 설치된 상태에서 새 버전 설치</li><li>첫 실행 때 SQLite로 한 번 옮김</li><li>옮긴 데이터를 전부 한 번 다시 업로드</li></ol>
+          <p class="result"><b>결과</b> 단어와 기록이 그대로 남습니다. 서버 쪽은 같은 행을 받아도 결과가 같습니다.</p>
+        </article>
+        <article class="sc" data-area="ops">
+          <div class="top"><span class="area">설치·운영</span><span class="badge tests">테스트</span></div>
+          <h3>서버 DB를 백업에서 복구</h3>
+          <ol><li>서버 변경 로그가 새로 시작됨(epoch 변경)</li><li>기기는 다음 동기화에서 이를 알아챔</li><li>가진 행을 전부 다시 보내고 전체 사본을 받음</li></ol>
+          <p class="result"><b>결과</b> 복구 이후 기기에서 생긴 변경도 서버로 돌아옵니다.</p>
+        </article>
+        <article class="sc" data-area="ops">
+          <div class="top"><span class="area">설치·운영</span><span class="badge tests">테스트</span></div>
+          <h3>저장 중 실패</h3>
+          <ol><li>디스크 오류 등으로 저장 트랜잭션 실패</li><li>카드·기록·후보가 함께 되돌아감</li><li>입력하던 미리보기는 그대로 남음</li></ol>
+          <p class="result"><b>결과</b> 반쯤 저장된 상태가 생기지 않고, 다시 저장하면 됩니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="storage">
+      <h2><span class="no">07</span>저장 구조</h2>
+      <div class="two">
+        <div class="group-card">
+          <h3>기기 (Android · Mac 공통)</h3>
+          <div class="table-wrap" style="border:0">
+            <table style="min-width:0">
+              <tbody>
+                <tr><td><code>cards</code></td><td>카드 1장 = 1행, 본문은 동기화 JSON 그대로</td></tr>
+                <tr><td><code>contexts</code></td><td>캡처 문맥(문장, 출처)</td></tr>
+                <tr><td><code>definition_candidates</code></td><td>뜻 후보와 복원 기록</td></tr>
+                <tr><td><code>review_events</code></td><td>복습 기록 (카드별 인덱스)</td></tr>
+                <tr><td><code>recommendation_feedback</code></td><td>시작하기·알아요·관심 없음</td></tr>
+                <tr><td><code>outbox</code></td><td>아직 서버가 받지 않은 행</td></tr>
+                <tr><td><code>kv</code></td><td>설정, cursor 등</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="group-card">
+          <h3>서버</h3>
+          <div class="table-wrap" style="border:0">
+            <table style="min-width:0">
+              <tbody>
+                <tr><td><code>cards</code> 외 4개</td><td>기기와 같은 엔티티, <code>body_json</code> + 비교용 열</td></tr>
+                <tr><td><code>sync_changes</code></td><td>트리거가 쌓는 변경 로그 (cursor의 근거)</td></tr>
+                <tr><td><code>sync_metadata</code></td><td>epoch (복구 감지)</td></tr>
+                <tr><td><code>settings</code></td><td>사용자 설정 1행</td></tr>
+                <tr><td colspan="2" class="caption" style="margin:0">문맥·후보·기록은 <code>card_id</code> 인덱스로 조회합니다. 백업은 매일, 30개 보관.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="verify">
+      <h2><span class="no">08</span>검증 방법</h2>
+      <div class="checks">
+        <div class="check"><span class="n">9 / 9</span><span class="l">실제 실행 시나리오 (서버 + 에뮬레이터 + Mac 저장소 + Mac 앱 화면)</span></div>
+        <div class="check"><span class="n">85</span><span class="l">서버 테스트</span></div>
+        <div class="check"><span class="n">139</span><span class="l">Android 단위 테스트</span></div>
+        <div class="check"><span class="n">59</span><span class="l">Mac 테스트 (Swift Testing)</span></div>
+        <div class="check"><span class="n">35</span><span class="l">공유 벡터 (스케줄러 20 · 캡처 7 · 병합 8)</span></div>
+      </div>
+<pre>npm run e2e:real -- --serial emulator-5554                         # 실제 실행
+npm run e2e:real -- --serial emulator-5554 --legacy-apk old.apk    # 업데이트까지
+npm run e2e:real -- --serial emulator-5554 --no-mac-ui             # Mac 앱 화면 단계 생략
+npm --prefix server test
+cd android/VocabReminderAndroid &amp;&amp; ./gradlew :app:testDebugUnitTest
+cd mac/VocabReminderMac &amp;&amp; ./swift.sh test &amp;&amp; ./swift.sh run vocab-check vectors</pre>
+      <p class="caption">실제 실행은 앱 데이터를 지우므로 에뮬레이터나 테스트 기기에서만 돌립니다. Mac 앱 단계는 Xcode와 macOS 자동화 모드가 필요하고, 별도 번들(<code>VocabReminder-E2E.app</code>)과 임시 데이터 폴더를 써서 실제 앱 설정은 건드리지 않습니다. 실행하는 몇 분 동안 테스트 창이 화면 왼쪽에 떠 있으니 Mac을 그대로 두세요. 화면 증거는 <code>docs/evidence/e2e-20261017/</code>와 <code>docs/evidence/e2e-20261017-mac-ui/</code>에 있습니다.</p>
+    </section>
+
+    <section id="todo">
+      <h2><span class="no">09</span>남은 일</h2>
+      <ul class="todo">
+        <li><span>완료(2026-10-18): 운영 서버를 이 Mac Studio로 옮김 — launchd + Tailscale Funnel <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code>, 기존 데이터 전부 이전(활성 카드 80장), 새 서명 키로 릴리스 빌드, 깨끗한 에뮬레이터에서 새 APK가 80장을 받아오는 것까지 확인.</span></li>
+        <li><span>폰 전환: 옛 앱 동기화 → <code>migrate_sync_server.mjs</code> 재실행 → 옛 앱 삭제 → 새 APK 설치(서명 키가 바뀌어 덮어쓰기 불가). Mac 앱도 교체.</span></li>
+        <li><span>두 기기가 새 주소로 동기화되면 Mac mini 서버를 끄고 <code>npm run sync:retire-cloudflare</code>로 Cloudflare 정리.</span></li>
+        <li><span>실기기 계측 테스트 실행</span></li>
+        <li><span>CI PR(<a href="https://github.com/ksemperor97/vocab-reminder/pull/2">#2</a>)을 먼저 병합하고, 이 PR(#1)에 CI가 통과하는지 확인한 뒤 병합. CI의 4개 job(서버·Android·Mac·비밀값 검사)은 #2에서 모두 통과함</span></li>
+      </ul>
+    </section>
+
+    <footer>PR: <a href="https://github.com/ksemperor97/vocab-reminder/pull/1">ksemperor97/vocab-reminder#1</a> · 저장소 구조와 규칙은 <code>README.md</code>, 진행 상황은 <code>docs/STATUS.md</code>를 함께 보세요.</footer>
+  </main>
+</div>
+<script>
+(() => {
+  const buttons = document.querySelectorAll('.filters button');
+  const cards = document.querySelectorAll('.sc');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const filter = button.dataset.filter;
+      buttons.forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      cards.forEach((card) => { card.hidden = filter !== 'all' && card.dataset.area !== filter; });
+    });
+  });
+})();
+</script>
+</body>
+</html>

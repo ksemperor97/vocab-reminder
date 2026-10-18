@@ -72,6 +72,9 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
   - 수정 후 재검증: `salient 문맥 추가됨 · 카드 수 9개 유지`, 기존 예문 보존. 증거: `/tmp/vocab_qc_20260703_094928/B9_recheck_salient_duplicate_message.xml`, `/tmp/vocab_qc_20260703_094928/B9_recheck_salient_duplicate_list_scrolled.xml`
 - [P] QC-B10. 사전에 없는 단어("perovskite") → "뜻 없음 · 알림 보류" 상태로 저장되고, 뜻을 채우기 전까지 알림이 오지 않는다. (UX 2.8)
   - 증거: `/tmp/vocab_qc_20260703_094928/B10_perovskite_saved_hold_message_retry.xml`, `/tmp/vocab_qc_20260703_094928/B10_notification_dump_after_perovskite_retry.txt`
+- [P] QC-B10a. 뜻 없음 카드의 상세에서 [편집] → 뜻/예문 저장 → 목록 뱃지에서 "알림 보류"가 사라지고 다음 복습이 잡힌다.
+  - 2026-07-05 재검증: QA 패키지에서 `perovskite` 뜻을 `filled_meaning`으로 저장했고, 목록에 `새 단어`/다음 복습이 표시되며 `MANUAL_EDIT` 이벤트가 store에 남았다.
+  - 증거: `/tmp/vocab_completeness_20260705/F2_after_edit_saved.png`, `/tmp/vocab_completeness_20260705/F2_after_edit_store.xml`
 - [P] QC-B11. 비행기 모드에서 저장 → 저장 자체는 즉시 성공한다. (UX 2.9)
   - 증거: `/tmp/vocab_qc_20260703_094928/B11_airplane_save_message.xml`, `/tmp/vocab_qc_20260703_094928/B11_airplane_saved_list.xml`
   - 복구: `airplane_mode_on=0` 확인.
@@ -234,9 +237,9 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 - [B] QC-J3. 앱 강제 종료 후에도 예약된 알림이 온다 (WorkManager 생존).
   - 차단: 현재 WorkManager DB에는 review 예약이 없고 quiet-hours 주기 작업만 있었다. fresh review 예약을 만들기 위한 preview save 탭이 현재 기기 상태에서 저장 콜백까지 들어가지 않아, 강제 종료 후 자연 도착을 새로 검증하지 못했다. Android의 true `am force-stop`은 플랫폼상 알람/잡을 중지시키므로 별도 정의가 필요하다.
   - 증거: `/tmp/vocab_qc_20260703_094928/J3_jobs_after_save.txt`, `/tmp/vocab_qc_20260703_094928/J3_after_tentative_preview_ui.xml`, `/tmp/vocab_qc_20260703_094928/J3_store_after_precise_save.xml`
-- [B] QC-J4. 기기 재부팅 후에도 알림이 온다 (재부팅 리스케줄 — 미구현 가능성, 확인 필수).
-  - 차단: 사용자 기기 재부팅은 이번 실행에서 수행하지 않았다. 병합된 패키지에는 WorkManager `RescheduleReceiver`와 `RECEIVE_BOOT_COMPLETED` 권한이 있으나, 앱 자체 AlarmManager fallback 재등록 receiver는 없다. 통제된 재부팅으로 별도 확인 필요.
-  - 증거: `/tmp/vocab_qc_20260703_094928/J4_android_package_receivers.txt`
+- [P] QC-J4. 기기 재부팅 후에도 알림이 온다 (재부팅 리스케줄).
+  - 2026-07-05 재검증: `com.vocabreminder.android.qa`에 과거 due 카드 `bootword`를 심고 앱 stopped 상태를 풀어둔 뒤 Galaxy SM-F766N을 실제 재부팅했다. 앱을 열지 않은 상태에서 알림 `id=720001`이 재게시됐고, quiet-hours 시작/끝 alarm 및 WorkManager job이 재등록됐다.
+  - 증거: `/tmp/vocab_completeness_20260705/F5_third_after_reboot_notifications.txt`, `/tmp/vocab_completeness_20260705/F5_third_after_reboot_alarm.txt`, `/tmp/vocab_completeness_20260705/F5_third_after_reboot_jobscheduler.txt`
 - [B] QC-J5. 비행기 모드에서 복습(못외웠다 포함) → 정상 동작, 온라인 복귀 후 데이터 이상 없음.
   - 차단: 비행기 모드 저장은 QC-B11에서 통과했지만, 현재 active review 알림이 없어 `못외웠다` 알림 액션을 비행기 모드에서 실행하지 못했다. `airplane_mode_on`은 1로 변경 시도 후 0으로 복구했다.
   - 증거: `/tmp/vocab_qc_20260703_094928/J5_airplane_after_attempt.txt`, `/tmp/vocab_qc_20260703_094928/J5_notification_list.txt`, `/tmp/vocab_qc_20260703_094928/J5_airplane_restored.txt`
@@ -258,6 +261,8 @@ P0-5. 시간이 걸리는 항목의 가속 방법:
 | 2026-07-03 | Codex | I. 동기화 | P: I1,I2,I3,I13 / F: 없음 / B: I4-I12 일부 세부 edge 미실행 |
 | 2026-07-03 | Codex | J. 파괴적 동작·엣지 | P: J1 / F: 없음 / B: J2-J5 |
 | 2026-07-05 | Codex | Android 알림 순차 흐름 | P: C3,D1,E4a,F2,F7,G5 / F: 없음 / B: 없음 |
+| 2026-07-05 | Codex | 완성도 마감 스팟체크 | P: B10a,J4,F3 reload,F9 invalid settings,F10 recommendation waiting / F: 없음 / B: 없음 |
+| 2026-07-14 | Codex | Android 격리 QA + production 무손실 upgrade | P: 12/13 + 수정 대상 1/1 = 시나리오 13/13, 같은 signer `adb install -r`, cold start / F: 없음 / B: production fresh-install |
 | | | | |
 
 ## 실패 항목 기록 양식

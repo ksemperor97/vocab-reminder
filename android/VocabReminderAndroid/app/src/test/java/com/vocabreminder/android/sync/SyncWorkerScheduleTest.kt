@@ -25,14 +25,14 @@ class SyncWorkerScheduleTest {
     }
 
     @Test
-    fun periodicSyncUsesTwoHourUpdatePolicy() {
+    fun periodicSyncUsesFifteenMinuteUpdatePolicy() {
         SyncWorker.ensureScheduled(context)
 
         val infos = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(SyncWorker.PERIODIC_WORK)
             .get()
 
-        assertEquals(2L, SyncWorker.PERIODIC_INTERVAL_HOURS)
+        assertEquals(15L, SyncWorker.PERIODIC_INTERVAL_MINUTES)
         assertEquals(ExistingPeriodicWorkPolicy.UPDATE, SyncWorker.PERIODIC_WORK_POLICY)
         assertEquals(1, infos.size)
         assertEquals(WorkInfo.State.ENQUEUED, infos.first().state)

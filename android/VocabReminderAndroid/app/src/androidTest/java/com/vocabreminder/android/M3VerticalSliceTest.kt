@@ -1,14 +1,17 @@
 package com.vocabreminder.android
 
+import android.app.Notification
+import android.app.NotificationManager
 import android.content.Intent
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import com.vocabreminder.android.data.LocalVocabularyStore
 import com.vocabreminder.android.data.VocabularyCard
 import com.vocabreminder.android.dictionary.DictionaryResolver
@@ -28,14 +31,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 import org.junit.runner.RunWith
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneOffset
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class M3VerticalSliceTest {
-    @get:Rule
+    @get:Rule(order = 0)
+    val isolatedQaState = object : ExternalResource() {
+        override fun before() {
+            val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+            check(targetContext.packageName == "com.vocabreminder.android.qa") {
+                "Instrumentation fixtures may only reset the isolated device-QA package."
+            }
+            LocalVocabularyStore(targetContext).apply {
+                clearAll()
+                completeCaptureGuide()
+            }
+        }
+    }
+
+    @get:Rule(order = 1)
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     private lateinit var store: LocalVocabularyStore
@@ -44,7 +64,14 @@ class M3VerticalSliceTest {
     fun setUp() {
         composeRule.activityRule.scenario.onActivity { activity ->
             store = LocalVocabularyStore(activity)
-            store.clearAll()
+            val quietStart = LocalTime.now(ZoneOffset.UTC).plusHours(2)
+            store.saveSettings(
+                store.settings().copy(
+                    quietHoursStart = quietStart,
+                    quietHoursEnd = quietStart.plusMinutes(1),
+                    timezone = ZoneOffset.UTC
+                )
+            )
         }
     }
 
@@ -63,7 +90,7 @@ class M3VerticalSliceTest {
         assertEquals("temporary", card.meaningKo)
         assertEquals(CardStatus.NEW, card.status)
         assertEquals(0, card.intervalDays)
-        assertTrue("first due should be about 10 minutes, was $dueInMinutes", dueInMinutes in 8..11)
+        assertTrue("first due should include the ±5 minute jitter around 10 minutes, was $dueInMinutes", dueInMinutes in 4..15)
     }
 
     @Test
@@ -72,7 +99,9 @@ class M3VerticalSliceTest {
         composeRule.onNodeWithTag("word_field").performTextInput("The results are tentative, but the pattern is robust.")
         composeRule.onNodeWithTag("preview_button").performClick()
         composeRule.onNodeWithTag("candidate_tentative").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("preview_save_button").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { store.cards().size == 1 }
 
         val card = store.cards().single()
         assertEquals("tentative", card.lemma)
@@ -215,22 +244,19 @@ class M3VerticalSliceTest {
             now = now
         )
 
-        sendRecommendationAction(recommended, ReminderNotifications.RECOMMENDATION_START)
+        applyRecommendationAction(recommended, ReminderNotifications.RECOMMENDATION_START)
 
         val started = store.findCard(recommended.id)!!
         val dueInMinutes = Duration.between(Instant.now(), started.dueAt).toMinutes()
         assertEquals(Wordbook.RECOMMENDED, started.wordbook)
         assertTrue(started.recommendationStartedAt != null)
-        assertTrue("started recommendation should enter review cycle in about 10 minutes, was $dueInMinutes", dueInMinutes in 8..11)
+        assertTrue("started recommendation should include the ±5 minute jitter around 10 minutes, was $dueInMinutes", dueInMinutes in 4..15)
         assertEquals("started", store.recommendationFeedback().single().action)
     }
 
     @Test
     fun recommendationNotificationShowsIntroMeaningBeforeStarted() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = UiDevice.getInstance(instrumentation)
-        device.executeShellCommand("pm grant ${composeRule.activity.packageName} android.permission.POST_NOTIFICATIONS")
-        device.executeShellCommand("cmd notification cancel-all")
+        composeRule.activity.getSystemService(NotificationManager::class.java).cancelAll()
         Thread.sleep(500)
 
         val now = Instant.now()
@@ -244,13 +270,13 @@ class M3VerticalSliceTest {
             ReminderNotifications.showRecommendation(activity, recommended)
         }
 
-        val firstDump = waitForNotificationDump(device, "android.title=String (오늘의 새 단어: mitigate)")
-        assertTrue(firstDump.contains("알고 있는 단어인가요?"))
-        assertTrue("recommendation intro should expose meaning as an introduction", firstDump.contains(recommended.meaningKo))
+        val firstNotification = waitForNotificationText("오늘의 새 단어: mitigate")
+        assertTrue(firstNotification.contains("알고 있는 단어인가요?"))
+        assertTrue("recommendation intro should expose meaning as an introduction", firstNotification.contains(recommended.meaningKo))
 
         sendRecommendationAction(recommended, ReminderNotifications.RECOMMENDATION_START)
-        val startedDump = waitForNotificationDump(device, "android.text=String (뜻: ${recommended.meaningKo})")
-        assertTrue(startedDump.contains("android.text=String (뜻: ${recommended.meaningKo})"))
+        val startedNotification = waitForNotificationText("뜻: ${recommended.meaningKo}")
+        assertTrue(startedNotification.contains("뜻: ${recommended.meaningKo}"))
         assertEquals("started", store.recommendationFeedback().single().action)
     }
 
@@ -268,8 +294,8 @@ class M3VerticalSliceTest {
             now = now
         )
 
-        sendRecommendationAction(known, ReminderNotifications.RECOMMENDATION_KNOWN)
-        sendRecommendationAction(dismissed, ReminderNotifications.RECOMMENDATION_DISMISS)
+        applyRecommendationAction(known, ReminderNotifications.RECOMMENDATION_KNOWN)
+        applyRecommendationAction(dismissed, ReminderNotifications.RECOMMENDATION_DISMISS)
 
         assertNull(store.findCard(known.id))
         assertNull(store.findCard(dismissed.id))
@@ -318,7 +344,7 @@ class M3VerticalSliceTest {
             now = now
         )
 
-        sendAction(card, ReviewResponse.FORGOTTEN)
+        applyReviewAction(card, ReviewResponse.FORGOTTEN)
 
         val forgottenCard = store.findCard(card.id)!!
         val forgottenDue = Duration.between(Instant.now(), forgottenCard.dueAt).toMinutes()
@@ -328,7 +354,7 @@ class M3VerticalSliceTest {
         assertTrue("forgotten recheck should be 10-30 minutes, was $forgottenDue", forgottenDue in 9..30)
         assertEquals(ReviewResponse.FORGOTTEN, store.events().last().response)
 
-        sendAction(forgottenCard, ReviewResponse.REMEMBERED)
+        applyReviewAction(forgottenCard, ReviewResponse.REMEMBERED)
 
         val rememberedCard = store.findCard(card.id)!!
         assertEquals(CardStatus.LEARNING, rememberedCard.status)
@@ -337,22 +363,19 @@ class M3VerticalSliceTest {
 
         val beforeSnoozeStatus = rememberedCard.status
         val beforeSnoozeInterval = rememberedCard.intervalDays
-        sendAction(rememberedCard, ReviewResponse.UNAVAILABLE)
+        applyReviewAction(rememberedCard, ReviewResponse.UNAVAILABLE)
 
         val snoozedCard = store.findCard(card.id)!!
         val snoozedDue = Duration.between(Instant.now(), snoozedCard.dueAt).toMinutes()
         assertEquals(beforeSnoozeStatus, snoozedCard.status)
         assertEquals(beforeSnoozeInterval, snoozedCard.intervalDays)
-        assertTrue("snooze should be about 60 minutes, was $snoozedDue", snoozedDue in 58..61)
+        assertTrue("snooze should include the ±12 minute jitter around 60 minutes, was $snoozedDue", snoozedDue in 47..72)
         assertEquals(ReviewResponse.UNAVAILABLE, store.events().last().response)
     }
 
     @Test
     fun reviewNotificationHidesMeaningUntilForgotten() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = UiDevice.getInstance(instrumentation)
-        device.executeShellCommand("pm grant ${composeRule.activity.packageName} android.permission.POST_NOTIFICATIONS")
-        device.executeShellCommand("cmd notification cancel-all")
+        composeRule.activity.getSystemService(NotificationManager::class.java).cancelAll()
         Thread.sleep(500)
 
         val now = Instant.now()
@@ -368,23 +391,20 @@ class M3VerticalSliceTest {
             ReminderNotifications.showReview(activity, card)
         }
 
-        val recallDump = waitForNotificationDump(device, "android.title=String (tentative)")
-        assertTrue(recallDump.contains("android.title=String (tentative)"))
-        assertTrue(recallDump.contains("android.text=String (무슨 뜻이었지?)"))
-        assertTrue("first recall notification must not expose meaning", !recallDump.contains("temporary"))
+        val recallNotification = waitForNotificationText("tentative")
+        assertTrue(recallNotification.contains("tentative"))
+        assertTrue(recallNotification.contains("무슨 뜻이었지?"))
+        assertTrue("first recall notification must not expose meaning", !recallNotification.contains("temporary"))
 
         sendAction(card, ReviewResponse.FORGOTTEN)
-        val forgottenDump = waitForNotificationDump(device, "android.text=String (뜻: temporary)")
-        assertTrue(forgottenDump.contains("android.text=String (뜻: temporary)"))
+        val forgottenNotification = waitForNotificationText("뜻: temporary")
+        assertTrue(forgottenNotification.contains("뜻: temporary"))
         assertEquals(ReviewResponse.FORGOTTEN, store.events().last().response)
     }
 
     @Test
     fun alarmReceiverShowsDueReviewNotificationWithoutMeaning() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = UiDevice.getInstance(instrumentation)
-        device.executeShellCommand("pm grant ${composeRule.activity.packageName} android.permission.POST_NOTIFICATIONS")
-        device.executeShellCommand("cmd notification cancel-all")
+        composeRule.activity.getSystemService(NotificationManager::class.java).cancelAll()
         Thread.sleep(500)
 
         val now = Instant.now()
@@ -405,9 +425,9 @@ class M3VerticalSliceTest {
             )
         }
 
-        val dump = waitForNotificationDump(device, "android.title=String (salient)")
-        assertTrue(dump.contains("android.text=String (무슨 뜻이었지?)"))
-        assertTrue("alarm recall notification must not expose meaning", !dump.contains("noticeable"))
+        val notification = waitForNotificationText("salient")
+        assertTrue(notification.contains("무슨 뜻이었지?"))
+        assertTrue("alarm recall notification must not expose meaning", !notification.contains("noticeable"))
     }
 
     private fun openAddSheet() {
@@ -416,7 +436,21 @@ class M3VerticalSliceTest {
 
     private fun openSyncSettings() {
         composeRule.onNodeWithTag("tab_settings").performClick()
-        composeRule.onNodeWithTag("open_sync_settings_button").performScrollTo().performClick()
+        composeRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("open_sync_settings_button"))
+        composeRule.onNodeWithTag("open_sync_settings_button").performClick()
+    }
+
+    private fun applyReviewAction(card: VocabularyCard, response: ReviewResponse) {
+        composeRule.activityRule.scenario.onActivity { activity ->
+            ReviewActionReceiver.applyReviewResponse(activity, store, card, response, Instant.now())
+        }
+    }
+
+    private fun applyRecommendationAction(card: VocabularyCard, action: String) {
+        composeRule.activityRule.scenario.onActivity { activity ->
+            RecommendationActionReceiver.applyRecommendationAction(activity, store, card, action, Instant.now())
+        }
     }
 
     private fun sendAction(card: VocabularyCard, response: ReviewResponse) {
@@ -443,13 +477,26 @@ class M3VerticalSliceTest {
         }
     }
 
-    private fun waitForNotificationDump(device: UiDevice, expected: String): String {
-        var dump = ""
+    private fun waitForNotificationText(expected: String): String {
+        var notificationText = ""
         repeat(10) {
-            dump = device.executeShellCommand("dumpsys notification --noredact")
-            if (dump.contains(expected)) return dump
+            composeRule.activityRule.scenario.onActivity { activity ->
+                notificationText = activity
+                    .getSystemService(NotificationManager::class.java)
+                    .activeNotifications
+                    .joinToString("\n") { statusBarNotification ->
+                        val extras = statusBarNotification.notification.extras
+                        listOf(
+                            Notification.EXTRA_TITLE,
+                            Notification.EXTRA_TEXT,
+                            Notification.EXTRA_BIG_TEXT
+                        ).mapNotNull { key -> extras.getCharSequence(key)?.toString() }
+                            .joinToString("\n")
+                    }
+            }
+            if (notificationText.contains(expected)) return notificationText
             Thread.sleep(500)
         }
-        return dump
+        return notificationText
     }
 }

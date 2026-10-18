@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="4dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/notification_feedback_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Title" />
+
+        <TextView
+            android:id="@+id/notification_feedback_meaning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/notification_feedback_next"
+        android:layout_width="72dp"
+        android:layout_height="48dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:gravity="center"
+        android:text="@string/notification_feedback_next"
+        android:textAppearance="@android:style/TextAppearance.Material.Button" />
+</LinearLayout>
