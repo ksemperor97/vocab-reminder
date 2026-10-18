@@ -126,8 +126,8 @@ import java.util.concurrent.TimeUnit
 
 
 internal enum class AppTab {
-    USER,
-    RECOMMENDED,
+    TODAY,
+    WORDBOOK,
     SETTINGS
 }
 

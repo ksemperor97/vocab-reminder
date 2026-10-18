@@ -185,6 +185,9 @@ class Phone:
         phone.adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
         time.sleep(3)
         phone.tap_if_present("안내 완료")
+        # The app opens on 오늘; scenarios read and tap words in the word list.
+        phone.tap_if_present("단어장")
+        time.sleep(1)
 
     def offline(self, enabled):
         phone.adb("shell", "cmd", "connectivity", "airplane-mode", "enable" if enabled else "disable")

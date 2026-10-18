@@ -139,9 +139,10 @@ internal fun CardSummary(
     onSelectDefinitionCandidate: (String) -> Unit,
     onReview: (ReviewResponse) -> Unit,
     onRecommendationAction: (String) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    initiallyExpanded: Boolean = false
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
     var editing by remember(card.id) { mutableStateOf(false) }
     var editMeaning by remember(card.id, card.meaningKo) { mutableStateOf(card.meaningKo) }
     var editExample by remember(card.id, card.exampleSentence) { mutableStateOf(card.exampleSentence) }
@@ -157,7 +158,7 @@ internal fun CardSummary(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(text = card.displayWord, style = MaterialTheme.typography.titleMedium)
+            Text(text = card.displayWord, fontFamily = WordFont, style = MaterialTheme.typography.headlineSmall)
             if (card.wordbook == Wordbook.RECOMMENDED && recommendationReason.isNotBlank()) {
                 Text(recommendationReason, style = MaterialTheme.typography.labelSmall)
             }
@@ -169,22 +170,7 @@ internal fun CardSummary(
                 maxLines = 1
             )
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { StatusBadge(card) }
-                item { EnrichmentBadge(card, enrichmentState) }
-                if (weak) {
-                    item {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text(
-                                text = "취약",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
+                item { StateChip(wordState(card, weak)) }
                 if (hasDefinitionConflict) {
                     item {
                         SmallBadge(
@@ -427,7 +413,10 @@ private fun CardHistoryRow(
                         },
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    if (candidate.parsedDefinitionEn.isNotBlank() && candidate.parsedMeaningKo.isNotBlank()) {
+                    // The Mac dictionary's English field once held the headword ("keen 1", "af·fin·i·ty").
+                    val englishIsHeadword = candidate.parsedDefinitionEn.contains('·') ||
+                        Regex("^\\S+ \\d+$").matches(candidate.parsedDefinitionEn.trim())
+                    if (candidate.parsedDefinitionEn.isNotBlank() && candidate.parsedMeaningKo.isNotBlank() && !englishIsHeadword) {
                         Text(
                             candidate.parsedDefinitionEn,
                             style = MaterialTheme.typography.bodySmall,
@@ -437,16 +426,9 @@ private fun CardHistoryRow(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         item {
                             SmallBadge(
-                                text = candidate.source.ifBlank { "source 없음" },
+                                text = candidateSourceLabel(candidate.source),
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                        }
-                        item {
-                            SmallBadge(
-                                text = "신뢰도 ${(candidate.confidence.coerceIn(0.0, 1.0) * 100).toInt()}%",
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         if (entry.isCurrentPrimary) {
@@ -512,44 +494,6 @@ private fun CardHistoryRow(
     }
 }
 
-@Composable
-private fun EnrichmentBadge(card: VocabularyCard, state: DictionaryEnrichmentState?) {
-    val effectiveState = state ?: DictionaryEnrichmentState(
-        cardId = card.id,
-        status = if (card.meaningKo.isBlank()) {
-            DictionaryEnrichmentStatus.PENDING
-        } else if (card.definitionSourcePrimary == "user") {
-            DictionaryEnrichmentStatus.USER_LOCKED
-        } else {
-            DictionaryEnrichmentStatus.RESOLVED
-        }
-    )
-    val baseLabel = when (effectiveState.status) {
-        DictionaryEnrichmentStatus.PENDING -> "뜻 찾는 중"
-        DictionaryEnrichmentStatus.FAILED -> when (effectiveState.failure) {
-            DictionaryEnrichmentFailure.NETWORK -> "해석 실패 · 네트워크"
-            DictionaryEnrichmentFailure.NOT_FOUND -> "해석 실패 · 사전에 없음"
-            DictionaryEnrichmentFailure.PROVIDER_FAILURE -> "해석 실패 · 제공자"
-            null -> "해석 실패"
-        }
-        DictionaryEnrichmentStatus.RESOLVED -> "자동 해석 완료"
-        DictionaryEnrichmentStatus.USER_LOCKED -> "사용자 뜻 고정"
-    }
-    val failed = effectiveState.status == DictionaryEnrichmentStatus.FAILED
-    val label = if (failed) {
-        shortRequestId(effectiveState.requestId)
-            ?.let { "$baseLabel · #$it" }
-            ?: baseLabel
-    } else {
-        baseLabel
-    }
-    SmallBadge(
-        text = label,
-        containerColor = if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
-    )
-}
-
 internal fun shortRequestId(value: String?): String? {
     return value?.trim()?.takeIf { it.isNotBlank() }?.take(8)
 }
@@ -563,41 +507,6 @@ private fun SmallBadge(text: String, containerColor: Color, contentColor: Color)
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall
-        )
-    }
-}
-
-@Composable
-private fun StatusBadge(card: VocabularyCard) {
-    val missingMeaning = card.meaningKo.isBlank()
-    val containerColor = when {
-        missingMeaning -> MaterialTheme.colorScheme.surface
-        card.status == CardStatus.NEW -> MaterialTheme.colorScheme.primaryContainer
-        card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.secondaryContainer
-        card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.tertiaryContainer
-        card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.errorContainer
-        card.status == CardStatus.MASTERED -> Color(0xFFE0E0E0)
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = when {
-        missingMeaning -> MaterialTheme.colorScheme.error
-        card.status == CardStatus.NEW -> MaterialTheme.colorScheme.onPrimaryContainer
-        card.status == CardStatus.LEARNING -> MaterialTheme.colorScheme.onSecondaryContainer
-        card.status == CardStatus.REVIEW -> MaterialTheme.colorScheme.onTertiaryContainer
-        card.status == CardStatus.RELEARNING -> MaterialTheme.colorScheme.onErrorContainer
-        card.status == CardStatus.MASTERED -> Color(0xFF424242)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Surface(
-        color = containerColor,
-        contentColor = contentColor,
-        shape = MaterialTheme.shapes.small,
-        border = if (missingMeaning) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
-    ) {
-        Text(
-            text = if (missingMeaning) "뜻 없음·알림 보류" else statusLabel(card.status),
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall
         )
@@ -649,4 +558,15 @@ private fun relativeDueLabel(dueAt: Instant, timezone: ZoneId): String {
         1L -> "내일"
         else -> "${days}일 뒤"
     }
+}
+
+/** Where a meaning came from, in words a learner understands. */
+private fun candidateSourceLabel(source: String): String = when (source) {
+    "llm_context" -> "문장에 맞춘 뜻"
+    "mac_dictionary" -> "Mac 사전"
+    "offline_catalog", "local_dictionary", "server_dictionary" -> "사전"
+    "user", "manual" -> "직접 입력"
+    "card_snapshot" -> "이전 뜻"
+    "recommendation" -> "추천"
+    else -> source.ifBlank { "출처 없음" }
 }

@@ -520,6 +520,51 @@ internal class AppViewModel(application: Application) : AndroidViewModel(applica
         reload()
     }
 
+    // ---- In-app study -----------------------------------------------------------------------
+
+    var study by mutableStateOf<StudySession?>(null)
+        private set
+
+    fun todaySummary(now: Instant = Instant.now()): TodaySummary = StudyPlan.today(
+        cards = library.cards,
+        events = library.events,
+        weakIds = library.weakWordIds,
+        dailyGoal = settings.dailyWordGoal,
+        timezone = settings.timezone,
+        now = now
+    )
+
+    /** Due cards when there are any; otherwise a practice round that leaves the schedule alone. */
+    fun startStudy() {
+        val due = StudyPlan.dueQueue(library.cards, Instant.now())
+        val practice = due.isEmpty()
+        val queue = if (practice) StudyPlan.practiceQueue(library.cards, library.weakWordIds) else due
+        if (queue.isEmpty()) return
+        study = StudySession(cardIds = queue.map { it.id }, practice = practice)
+    }
+
+    fun revealStudyCard() {
+        study = study?.copy(revealed = true)
+    }
+
+    fun answerStudyCard(response: ReviewResponse) {
+        val session = study ?: return
+        val card = session.currentId?.let { id -> library.cards.firstOrNull { it.id == id } }
+        if (card != null && !session.practice) reviewCard(card, response)
+        study = session.copy(
+            index = session.index + 1,
+            revealed = false,
+            remembered = session.remembered + if (response == ReviewResponse.REMEMBERED) 1 else 0,
+            forgotten = session.forgotten + if (response == ReviewResponse.FORGOTTEN) 1 else 0,
+            later = session.later + if (response == ReviewResponse.UNAVAILABLE) 1 else 0
+        )
+    }
+
+    fun closeStudy() {
+        study = null
+        message = ""
+    }
+
     fun onRecommendedTabSelected() {
         DailyReviewPlanner.planAndSchedule(context)
         reload()

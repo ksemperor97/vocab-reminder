@@ -1,3 +1,11 @@
+# Android 0.6.0: study in the app, new look — 2026-10-18
+
+- New 오늘 tab: today's due reviews and new words, a daily-goal ring, streak, shaky words and the next review, with a 학습 시작 button.
+- In-app study session: the word and the sentence it was captured in, tap to see the meaning, then 몰랐어요 / 알았어요 (or swipe after revealing) and 나중에. Answers go through the same scheduler as the notifications (AppViewModel.reviewCard), which also cancels and reschedules that card's notification. With nothing due, a practice round of the shakiest words leaves the schedule alone.
+- 단어장 tab: 내 단어 / 추천 switch, search, compact rows with a plain-language status (새 단어, 배우는 중, 헷갈림, 익힘, 보류). Tapping a row opens the card in a sheet with editing, meaning candidates, history and delete; the big delete button on every card is gone.
+- Paper-and-ink theme (light and dark), serif headwords, icon tabs. Meaning sources read 문장에 맞춘 뜻 / Mac 사전 / 직접 입력 instead of internal codes.
+- The real end-to-end run opens 단어장 after each restart.
+
 # Base forms keep their silent e — 2026-10-18
 
 - Android's offline base-form rule (and the Mac fallback after NLTagger) restores a silent e that -ed/-ing removed: baptized -> baptize, loved -> love, produced -> produce, continued -> continue, judging -> judge, closed -> close; a doubled s, f or z stays (kissed -> kiss). Shared capture vectors cover these.

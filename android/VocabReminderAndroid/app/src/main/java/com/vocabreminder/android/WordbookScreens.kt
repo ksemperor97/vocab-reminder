@@ -123,178 +123,122 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 
-
-@Composable
-internal fun UserWordbookScreen(
-    cards: List<VocabularyCard>,
-    contexts: List<StoredContext>,
-    definitionCandidates: List<StoredDefinitionCandidate>,
-    events: List<StoredReviewEvent>,
-    enrichmentStates: Map<String, DictionaryEnrichmentState>,
-    message: String,
-    weakWordIds: Set<String>,
-    timezone: ZoneId,
-    needsNotificationPermission: Boolean,
-    onRequestNotificationPermission: () -> Unit,
-    onEditSave: (VocabularyCard, String, String) -> Unit,
-    onRetryEnrichment: (VocabularyCard) -> Unit,
-    onSelectDefinitionCandidate: (VocabularyCard, String) -> Unit,
-    onReview: (VocabularyCard, ReviewResponse) -> Unit,
-    onDelete: (VocabularyCard) -> Unit
-) {
-    WordbookScreen(
-        title = stringResource(R.string.tab_user_words),
-        cards = cards,
-        contexts = contexts,
-        definitionCandidates = definitionCandidates,
-        events = events,
-        enrichmentStates = enrichmentStates,
-        message = message,
-        weakWordIds = weakWordIds,
-        timezone = timezone,
-        emptyText = "아직 저장된 단어가 없습니다.",
-        header = {
-            val now = Instant.now()
-            val dueToday = cards.count { card ->
-                card.meaningKo.isNotBlank() &&
-                    card.deletedAt == null &&
-                    card.status != CardStatus.MASTERED &&
-                    card.status != CardStatus.SUSPENDED &&
-                    !card.dueAt.isAfter(now)
-            }
-            Text(
-                text = stringResource(
-                    R.string.summary_remaining_reviews,
-                    dueToday,
-                    weakWordIds.size,
-                    cards.size
-                ),
-                style = MaterialTheme.typography.titleMedium
-            )
-            if (needsNotificationPermission) {
-                NotificationPermissionCard(onRequestNotificationPermission)
-            }
-        },
-        onEditSave = onEditSave,
-        onRetryEnrichment = onRetryEnrichment,
-        onSelectDefinitionCandidate = onSelectDefinitionCandidate,
-        onReview = onReview,
-        onRecommendationAction = { _, _ -> },
-        onDelete = onDelete
-    )
-}
-
-@Composable
-internal fun RecommendationWordbookScreen(
-    cards: List<VocabularyCard>,
-    recommendationStatus: String,
-    contexts: List<StoredContext>,
-    definitionCandidates: List<StoredDefinitionCandidate>,
-    events: List<StoredReviewEvent>,
-    enrichmentStates: Map<String, DictionaryEnrichmentState>,
-    message: String,
-    weakWordIds: Set<String>,
-    timezone: ZoneId,
-    onEditSave: (VocabularyCard, String, String) -> Unit,
-    onRetryEnrichment: (VocabularyCard) -> Unit,
-    onSelectDefinitionCandidate: (VocabularyCard, String) -> Unit,
-    onReview: (VocabularyCard, ReviewResponse) -> Unit,
-    onRecommendationAction: (VocabularyCard, String) -> Unit,
-    onDelete: (VocabularyCard) -> Unit
-) {
-    WordbookScreen(
-        title = stringResource(R.string.tab_recommendations),
-        cards = cards,
-        contexts = contexts,
-        definitionCandidates = definitionCandidates,
-        events = events,
-        enrichmentStates = enrichmentStates,
-        message = message,
-        weakWordIds = weakWordIds,
-        timezone = timezone,
-        emptyText = recommendationStatus,
-        header = {
-            Text(
-                text = "추천 단어 ${cards.size}개",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(recommendationStatus, style = MaterialTheme.typography.bodyMedium)
-        },
-        onEditSave = onEditSave,
-        onRetryEnrichment = onRetryEnrichment,
-        onSelectDefinitionCandidate = onSelectDefinitionCandidate,
-        onReview = onReview,
-        onRecommendationAction = onRecommendationAction,
-        onDelete = onDelete
-    )
-}
 
 @Composable
 internal fun WordbookScreen(
-    title: String,
     cards: List<VocabularyCard>,
-    contexts: List<StoredContext>,
-    definitionCandidates: List<StoredDefinitionCandidate>,
-    events: List<StoredReviewEvent>,
-    enrichmentStates: Map<String, DictionaryEnrichmentState>,
-    message: String,
     weakWordIds: Set<String>,
-    timezone: ZoneId,
-    emptyText: String,
-    header: @Composable () -> Unit,
-    onEditSave: (VocabularyCard, String, String) -> Unit,
-    onRetryEnrichment: (VocabularyCard) -> Unit,
-    onSelectDefinitionCandidate: (VocabularyCard, String) -> Unit,
-    onReview: (VocabularyCard, ReviewResponse) -> Unit,
-    onRecommendationAction: (VocabularyCard, String) -> Unit,
-    onDelete: (VocabularyCard) -> Unit
+    recommendationStatus: String,
+    message: String,
+    showRecommended: Boolean,
+    onShowRecommended: (Boolean) -> Unit,
+    onOpenCard: (VocabularyCard) -> Unit
 ) {
+    var query by remember { mutableStateOf("") }
+    val userCards = cards.filter { it.wordbook == Wordbook.USER }
+    val recommendedCards = cards.filter { it.wordbook == Wordbook.RECOMMENDED }
+    val shown = (if (showRecommended) recommendedCards else userCards)
+        .filter { card ->
+            query.isBlank() ||
+                card.displayWord.contains(query.trim(), ignoreCase = true) ||
+                card.lemma.contains(query.trim(), ignoreCase = true) ||
+                card.meaningKo.contains(query.trim())
+        }
+        .sortedByDescending { it.createdAt }
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-        }
-        item {
-            header()
-        }
-        if (message.isNotBlank()) {
-            item {
-                StatusSnackbar(message = message)
+            Column(modifier = Modifier.padding(top = 16.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.tab_user_words), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium)
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+                    Row(modifier = Modifier.padding(4.dp)) {
+                        SegmentButton("내 단어 ${userCards.size}", selected = !showRecommended, modifier = Modifier.weight(1f).testTag("segment_user")) { onShowRecommended(false) }
+                        SegmentButton("추천 ${recommendedCards.size}", selected = showRecommended, modifier = Modifier.weight(1f).testTag("segment_recommended")) { onShowRecommended(true) }
+                    }
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().testTag("wordbook_search"),
+                    singleLine = true,
+                    placeholder = { Text("단어나 뜻 검색") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) }
+                )
+                if (message.isNotBlank()) StatusSnackbar(message = message)
+                if (showRecommended && recommendationStatus.isNotBlank()) {
+                    Text(recommendationStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
-        if (cards.isEmpty()) {
+        if (shown.isEmpty()) {
             item {
-                Text(emptyText, style = MaterialTheme.typography.bodyMedium)
-            }
-        } else {
-            items(cards, key = { it.id }) { card ->
-                CardSummary(
-                    card = card,
-                    weak = card.id in weakWordIds,
-                    recommendationReason = com.vocabreminder.android.recommendation.RecommendationEngine.reason(
-                        card.lemma, contexts.filter { it.captureMethod != CaptureMethod.RECOMMENDATION }.takeLast(50).map { it.sourceSentence }
-                    ),
-                    contexts = contexts.filter { it.cardId == card.id },
-                    definitionCandidates = definitionCandidates.filter { it.cardId == card.id },
-                    events = events.filter { it.cardId == card.id },
-                    enrichmentState = enrichmentStates[card.id],
-                    timezone = timezone,
-                    onEditSave = { editedMeaning, editedExample -> onEditSave(card, editedMeaning, editedExample) },
-                    onRetryEnrichment = { onRetryEnrichment(card) },
-                    onSelectDefinitionCandidate = { candidateId ->
-                        onSelectDefinitionCandidate(card, candidateId)
+                Text(
+                    when {
+                        query.isNotBlank() -> "'$query'에 맞는 단어가 없어요."
+                        showRecommended -> "아직 추천 단어가 없어요."
+                        else -> "아직 저장한 단어가 없어요. 아래 + 로 추가하거나, 다른 앱에서 단어를 선택해 공유하세요."
                     },
-                    onReview = { response -> onReview(card, response) },
-                    onRecommendationAction = { action -> onRecommendationAction(card, action) },
-                    onDelete = { onDelete(card) }
+                    modifier = Modifier.padding(vertical = 24.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        } else {
+            items(shown, key = { it.id }) { card ->
+                WordRow(card = card, state = wordState(card, card.id in weakWordIds), onClick = { onOpenCard(card) })
+            }
+            item { Spacer(Modifier.height(88.dp)) }
         }
+    }
+}
+
+@Composable
+private fun SegmentButton(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun WordRow(card: VocabularyCard, state: WordState, onClick: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("word_row_${card.lemma}")) {
+        Row(modifier = Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(card.displayWord, fontFamily = WordFont, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    card.meaningKo.ifBlank { "뜻을 찾는 중" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            StateChip(state)
+        }
+        Divider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -302,10 +246,10 @@ internal fun WordbookScreen(
 internal fun NotificationPermissionCard(onRequestNotificationPermission: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("알림이 꺼져 있어 복습 알림을 받을 수 없습니다.")
-            Text("권한을 허용하면 저장한 단어가 due 시각에 알림으로 도착합니다.")
+            Text("알림이 꺼져 있어요", style = MaterialTheme.typography.titleSmall)
+            Text("허용하면 복습할 때가 된 단어를 알림으로 알려드려요.", style = MaterialTheme.typography.bodyMedium)
             Button(onClick = onRequestNotificationPermission) {
-                Text("알림 복구 안내")
+                Text("알림 허용")
             }
         }
     }

@@ -4,11 +4,16 @@ import android.app.Activity
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -20,8 +25,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,7 +42,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vocabreminder.android.capture.CaptureMethod
-import com.vocabreminder.android.scheduler.Wordbook
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +53,9 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
     val needsNotificationPermission = !model.notificationsAreAllowed
     val firstRunGuide = initial.text.isBlank() && model.onboarding.captureGuideCompletedAt == null
 
-    var selectedTab by remember { mutableStateOf(AppTab.USER) }
+    var selectedTab by remember { mutableStateOf(AppTab.TODAY) }
+    var showRecommended by remember { mutableStateOf(false) }
+    var openCardId by remember { mutableStateOf<String?>(null) }
     var showSyncSettings by remember { mutableStateOf(false) }
     var showCaptureGuide by remember { mutableStateOf(firstRunGuide) }
     var showNotificationPermissionDialog by remember {
@@ -146,61 +150,62 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
         )
     }
 
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+    VocabTheme {
+        val session = model.study
+        if (session != null) {
+            StudySessionScreen(
+                session = session,
+                cards = library.cards,
+                contexts = library.contexts,
+                definitionCandidates = library.definitionCandidates,
+                weakIds = library.weakWordIds,
+                onReveal = model::revealStudyCard,
+                onAnswer = model::answerStudyCard,
+                onClose = model::closeStudy
+            )
+            return@VocabTheme
+        }
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = { AppUpdateBanner(state = model.appUpdate, onUpdate = model::startUpdate) },
             bottomBar = {
                 AppNavigationBar(selectedTab = selectedTab, onTabSelected = { tab ->
                     selectedTab = tab
-                    if (tab == AppTab.RECOMMENDED) model.onRecommendedTabSelected()
                     if (tab != AppTab.SETTINGS) showSyncSettings = false
                 })
             },
             floatingActionButton = {
-                if (selectedTab == AppTab.USER) {
+                if (selectedTab != AppTab.SETTINGS) {
                     FloatingActionButton(
                         modifier = Modifier.testTag("add_word_fab"),
-                        onClick = { model.openManualCapture() }
-                    ) { Text("+") }
+                        onClick = { model.openManualCapture() },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) { Icon(Icons.Outlined.Add, contentDescription = "단어 추가") }
                 }
             }
         ) { innerPadding ->
             Surface(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 when (selectedTab) {
-                    AppTab.USER -> UserWordbookScreen(
-                        cards = library.cards.filter { it.wordbook == Wordbook.USER },
-                        contexts = library.contexts,
-                        definitionCandidates = library.definitionCandidates,
-                        events = library.events,
-                        enrichmentStates = library.enrichmentStates,
-                        message = model.message,
-                        weakWordIds = library.weakWordIds,
+                    AppTab.TODAY -> TodayScreen(
+                        summary = model.todaySummary(),
                         timezone = model.settings.timezone,
+                        message = model.message,
                         needsNotificationPermission = needsNotificationPermission,
                         onRequestNotificationPermission = { showNotificationPermissionDialog = true },
-                        onEditSave = model::saveCardEdit,
-                        onRetryEnrichment = model::retryDictionaryEnrichment,
-                        onSelectDefinitionCandidate = model::selectDefinitionCandidate,
-                        onReview = model::reviewCard,
-                        onDelete = model::deleteCard
+                        onStartStudy = model::startStudy
                     )
-                    AppTab.RECOMMENDED -> RecommendationWordbookScreen(
-                        cards = library.cards.filter { it.wordbook == Wordbook.RECOMMENDED },
-                        recommendationStatus = library.recommendationStatus,
-                        contexts = library.contexts,
-                        definitionCandidates = library.definitionCandidates,
-                        events = library.events,
-                        enrichmentStates = library.enrichmentStates,
-                        message = model.message,
+                    AppTab.WORDBOOK -> WordbookScreen(
+                        cards = library.cards,
                         weakWordIds = library.weakWordIds,
-                        timezone = model.settings.timezone,
-                        onEditSave = model::saveCardEdit,
-                        onRetryEnrichment = model::retryDictionaryEnrichment,
-                        onSelectDefinitionCandidate = model::selectDefinitionCandidate,
-                        onReview = model::reviewCard,
-                        onRecommendationAction = model::handleRecommendation,
-                        onDelete = model::deleteCard
+                        recommendationStatus = library.recommendationStatus,
+                        message = model.message,
+                        showRecommended = showRecommended,
+                        onShowRecommended = { recommended ->
+                            showRecommended = recommended
+                            if (recommended) model.onRecommendedTabSelected()
+                        },
+                        onOpenCard = { openCardId = it.id }
                     )
                     AppTab.SETTINGS -> SettingsScreen(
                         settings = model.settings,
@@ -253,6 +258,38 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
             }
         }
 
+        val openCard = openCardId?.let { id -> library.cards.firstOrNull { it.id == id && it.deletedAt == null } }
+        if (openCardId != null && openCard == null) openCardId = null
+        if (openCard != null) {
+            ModalBottomSheet(onDismissRequest = { openCardId = null }) {
+                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+                    CardSummary(
+                        card = openCard,
+                        weak = openCard.id in library.weakWordIds,
+                        recommendationReason = com.vocabreminder.android.recommendation.RecommendationEngine.reason(
+                            openCard.lemma,
+                            library.contexts.filter { it.captureMethod != CaptureMethod.RECOMMENDATION }.takeLast(50).map { it.sourceSentence }
+                        ),
+                        contexts = library.contexts.filter { it.cardId == openCard.id },
+                        definitionCandidates = library.definitionCandidates.filter { it.cardId == openCard.id },
+                        events = library.events.filter { it.cardId == openCard.id },
+                        enrichmentState = library.enrichmentStates[openCard.id],
+                        timezone = model.settings.timezone,
+                        onEditSave = { meaning, example -> model.saveCardEdit(openCard, meaning, example) },
+                        onRetryEnrichment = { model.retryDictionaryEnrichment(openCard) },
+                        onSelectDefinitionCandidate = { candidateId -> model.selectDefinitionCandidate(openCard, candidateId) },
+                        onReview = { response -> model.reviewCard(openCard, response) },
+                        onRecommendationAction = { action -> model.handleRecommendation(openCard, action) },
+                        onDelete = {
+                            model.deleteCard(openCard)
+                            openCardId = null
+                        },
+                        initiallyExpanded = true
+                    )
+                }
+            }
+        }
+
         if (capture.showSheet) {
             ModalBottomSheet(onDismissRequest = { capture.showSheet = false }) {
                 AddWordSheetContent(
@@ -286,27 +323,27 @@ internal fun VocabReminderApp(initial: InitialCapture, model: AppViewModel = vie
 
 @Composable
 internal fun AppNavigationBar(selectedTab: AppTab, onTabSelected: (AppTab) -> Unit) {
-    NavigationBar {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
         NavigationBarItem(
-            modifier = Modifier.testTag("tab_user_words"),
-            selected = selectedTab == AppTab.USER,
-            onClick = { onTabSelected(AppTab.USER) },
-            label = { Text(stringResource(R.string.tab_user_words)) },
-            icon = { Text("내") }
+            modifier = Modifier.testTag("tab_today"),
+            selected = selectedTab == AppTab.TODAY,
+            onClick = { onTabSelected(AppTab.TODAY) },
+            label = { Text("오늘") },
+            icon = { Icon(Icons.Outlined.Home, contentDescription = null) }
         )
         NavigationBarItem(
-            modifier = Modifier.testTag("tab_recommendations"),
-            selected = selectedTab == AppTab.RECOMMENDED,
-            onClick = { onTabSelected(AppTab.RECOMMENDED) },
-            label = { Text(stringResource(R.string.tab_recommendations)) },
-            icon = { Text("추") }
+            modifier = Modifier.testTag("tab_user_words"),
+            selected = selectedTab == AppTab.WORDBOOK,
+            onClick = { onTabSelected(AppTab.WORDBOOK) },
+            label = { Text(stringResource(R.string.tab_user_words)) },
+            icon = { Icon(Icons.Outlined.List, contentDescription = null) }
         )
         NavigationBarItem(
             modifier = Modifier.testTag("tab_settings"),
             selected = selectedTab == AppTab.SETTINGS,
             onClick = { onTabSelected(AppTab.SETTINGS) },
             label = { Text(stringResource(R.string.tab_settings)) },
-            icon = { Text("설") }
+            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) }
         )
     }
 }

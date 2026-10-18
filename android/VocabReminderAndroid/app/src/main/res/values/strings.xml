@@ -15,7 +15,7 @@
     <string name="settings_save_button">설정 저장</string>
     <string name="settings_plan_today_button">오늘 편성</string>
     <string name="settings_rebalance_button">복습 재조정</string>
-    <string name="tab_user_words">내 단어장</string>
+    <string name="tab_user_words">단어장</string>
     <string name="tab_recommendations">추천 단어장</string>
     <string name="tab_settings">설정</string>
     <string name="sync_settings_title">동기화</string>
