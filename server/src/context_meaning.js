@@ -4,7 +4,8 @@
 // Given the word, that sentence and the dictionary's candidate meanings, this
 // picks the Korean meaning (one or two short glosses) that fits the sentence.
 //
-// Only the server holds the Claude API key (runtime .env). Results are cached
+// The model is Claude (API key in the server runtime .env) or a local model
+// behind an OpenAI-compatible endpoint such as LM Studio. Results are cached
 // by lemma + sentence hash. Every failure returns a status instead of
 // throwing, so /dict/batch can fall back to the plain dictionary result.
 //
@@ -20,6 +21,8 @@ import Anthropic from "@anthropic-ai/sdk";
 export const contextSourceType = "llm_context";
 export const defaultContextModel = "claude-opus-5-5";
 const defaultTimeoutMs = 15_000;
+const defaultLocalBaseUrl = "http://127.0.0.1:1234/v1";
+const defaultLocalTimeoutMs = 60_000;
 const defaultMinConfidence = 0.6;
 const defaultCacheMaxEntries = 2_000;
 const defaultHitTtlMs = 30 * 24 * 60 * 60 * 1_000;
@@ -189,6 +192,57 @@ export function createClaudeContextProvider({
   };
 }
 
+// A local model behind an OpenAI-compatible chat endpoint (LM Studio, llama.cpp,
+// Ollama's /v1). Nothing leaves the machine. Thinking models served by LM Studio
+// put structured output in `reasoning_content` instead of `content`, so both
+// are read, and a leading <think> block is dropped.
+export function createLocalContextProvider({
+  baseUrl = defaultLocalBaseUrl,
+  model,
+  timeoutMs = defaultLocalTimeoutMs,
+  fetchImpl = fetch
+} = {}) {
+  if (!model) throw new Error("the local context provider needs a model name (VOCAB_CONTEXT_MODEL).");
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  return {
+    name: "local",
+    async resolve({ lemma, sentence, candidates }) {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          temperature: 0,
+          max_tokens: 1_024,
+          response_format: { type: "json_schema", json_schema: { name: "context_meaning", strict: true, schema: outputSchema } },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt(lemma, sentence, candidates) }
+          ]
+        }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      if (!response.ok) return { status: "failed" };
+      const choice = (await response.json())?.choices?.[0];
+      if (choice?.finish_reason === "length") return { status: "failed" };
+      return parseJsonObject(choice?.message?.content) ?? parseJsonObject(choice?.message?.reasoning_content) ?? { status: "failed" };
+    }
+  };
+}
+
+function parseJsonObject(text) {
+  if (typeof text !== "string") return null;
+  const body = text.replace(/<think>[\s\S]*?<\/think>/g, "");
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(body.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
 // Fixed responses keyed by lemma + sentence, for tests and key-less end-to-end
 // runs. Accepts shared/test-vectors/context_meanings.json directly: every
 // `resolver_cases` entry with an `llm_response` becomes one fixed answer.
@@ -239,6 +293,13 @@ function configuredProvider(options) {
       apiKey,
       model: nonEmpty(options.model ?? env.VOCAB_CONTEXT_MODEL) ?? defaultContextModel,
       timeoutMs: positiveInteger(options.timeoutMs ?? env.VOCAB_CONTEXT_TIMEOUT_MS, defaultTimeoutMs)
+    });
+  }
+  if (mode === "local") {
+    return createLocalContextProvider({
+      baseUrl: nonEmpty(options.baseUrl ?? env.VOCAB_CONTEXT_BASE_URL) ?? defaultLocalBaseUrl,
+      model: nonEmpty(options.model ?? env.VOCAB_CONTEXT_MODEL),
+      timeoutMs: positiveInteger(options.timeoutMs ?? env.VOCAB_CONTEXT_TIMEOUT_MS, defaultLocalTimeoutMs)
     });
   }
   if (mode === "off") return null;

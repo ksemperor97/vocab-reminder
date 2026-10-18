@@ -5,7 +5,8 @@ import {
   contextCacheKey,
   createClaudeContextProvider,
   createContextMeaningResolver,
-  createFixtureContextProvider
+  createFixtureContextProvider,
+  createLocalContextProvider
 } from "../src/context_meaning.js";
 import { openDatabase } from "../src/db.js";
 import { createSyncServer } from "../src/http.js";
@@ -265,3 +266,40 @@ async function authorizedPost(url, body) {
   });
   return { status: response.status, body: await response.json() };
 }
+
+test("local provider reads LM Studio's reasoning_content, drops <think>, and reports failures", async () => {
+  const calls = [];
+  const reply = (message, extra = {}) => async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ choices: [{ message, finish_reason: "stop", ...extra }] }), { status: 200 });
+  };
+  const answer = { meanings_ko: ["견고한", "안정적인"], part_of_speech: "adjective", confidence: 0.95 };
+  const request = { lemma: "robust", sentence: "The model showed robust decoding performance.", candidates: [] };
+
+  let provider = createLocalContextProvider({ baseUrl: "http://127.0.0.1:1234/v1/", model: "qwen", fetchImpl: reply({ content: "", reasoning_content: JSON.stringify(answer) }) });
+  assert.deepEqual(await provider.resolve(request), answer);
+  assert.equal(calls[0].url, "http://127.0.0.1:1234/v1/chat/completions");
+  assert.equal(calls[0].body.model, "qwen");
+  assert.equal(calls[0].body.response_format.type, "json_schema");
+
+  provider = createLocalContextProvider({ model: "qwen", fetchImpl: reply({ content: `<think>robust here means stable</think>\n${JSON.stringify(answer)}` }) });
+  assert.deepEqual(await provider.resolve(request), answer);
+
+  provider = createLocalContextProvider({ model: "qwen", fetchImpl: reply({ content: "not json" }) });
+  assert.deepEqual(await provider.resolve(request), { status: "failed" });
+  provider = createLocalContextProvider({ model: "qwen", fetchImpl: reply({ content: "{\"meanings_ko\": [" }, { finish_reason: "length" }) });
+  assert.deepEqual(await provider.resolve(request), { status: "failed" });
+  provider = createLocalContextProvider({ model: "qwen", fetchImpl: async () => new Response("busy", { status: 503 }) });
+  assert.deepEqual(await provider.resolve(request), { status: "failed" });
+
+  const resolver = createContextMeaningResolver({ provider: createLocalContextProvider({ model: "qwen", fetchImpl: reply({ reasoning_content: JSON.stringify(answer) }) }) });
+  assert.equal(resolver.providerName, "local");
+  assert.deepEqual((await resolver.resolve(request)).meaningsKo, ["견고한", "안정적인"]);
+});
+
+test("VOCAB_CONTEXT_RESOLVER=local needs a model name and needs no API key", () => {
+  assert.throws(() => createContextMeaningResolver({ env: { VOCAB_CONTEXT_RESOLVER: "local" } }), /VOCAB_CONTEXT_MODEL/);
+  const resolver = createContextMeaningResolver({ env: { VOCAB_CONTEXT_RESOLVER: "local", VOCAB_CONTEXT_MODEL: "qwen3.8-27b" } });
+  assert.equal(resolver.enabled, true);
+  assert.equal(resolver.providerName, "local");
+});

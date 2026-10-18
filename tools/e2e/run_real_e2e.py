@@ -20,11 +20,14 @@ Options:
                          Automation Mode, which asks for authentication once)
     --out DIR            where evidence goes (default: a temp dir, printed at the end)
 
-Context meanings: when ANTHROPIC_API_KEY is set (in the environment, or in the
-Mac mini's runtime .env), the server asks Claude for the meaning a captured
-sentence uses. Without a key that live scenario is skipped with the reason, and
-the same scenario runs against fixed answers from
-shared/test-vectors/context_meanings.json. The key is passed to the server
+Context meanings: the test server uses the same live model as the production
+server. VOCAB_CONTEXT_RESOLVER=local in the server runtime .env (a local model
+such as Qwen in LM Studio, VOCAB_CONTEXT_MODEL / VOCAB_CONTEXT_BASE_URL) or an
+ANTHROPIC_API_KEY (environment first, then the runtime .env) makes the server
+ask that model for the meaning a captured sentence uses. Without either, or when
+the local endpoint does not answer, the live scenario is skipped with the reason
+and the same scenario runs against fixed answers from
+shared/test-vectors/context_meanings.json. An API key is passed to the server
 process only through its environment and never written to the evidence dir.
 
 The phone must be an emulator or test device: the app's data on it is wiped.
@@ -78,36 +81,55 @@ def wait_until(check, timeout=60.0, interval=1.0, what="condition"):
     raise TimeoutError(f"timed out waiting for {what} (last: {last})")
 
 
-def anthropic_api_key():
-    """The key the server would use: this environment first, then the Mac mini runtime .env."""
-    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
-        return os.environ["ANTHROPIC_API_KEY"].strip()
+def runtime_env_value(name):
+    """A value from this environment first, then the server runtime .env (read only)."""
+    if os.environ.get(name, "").strip():
+        return os.environ[name].strip()
     if RUNTIME_ENV.is_file():
         for line in RUNTIME_ENV.read_text().splitlines():
             key, _, value = line.strip().partition("=")
-            if key == "ANTHROPIC_API_KEY" and value.strip().strip("'\""):
+            if key == name and value.strip().strip("'\""):
                 return value.strip().strip("'\"")
     return None
 
 
+def live_context_config():
+    """(mode, label, server env lines, secret env, skip reason) for the live context model."""
+    if (runtime_env_value("VOCAB_CONTEXT_RESOLVER") or "").lower() == "local":
+        model = runtime_env_value("VOCAB_CONTEXT_MODEL")
+        base_url = runtime_env_value("VOCAB_CONTEXT_BASE_URL") or "http://127.0.0.1:1234/v1"
+        try:
+            with urllib.request.urlopen(f"{base_url.rstrip('/')}/models", timeout=5) as response:
+                served = {entry["id"] for entry in json.load(response).get("data", [])}
+        except Exception as error:  # noqa: BLE001 - reported as the skip reason
+            return None, None, None, None, f"local model endpoint {base_url} did not answer ({error})"
+        if model not in served:
+            return None, None, None, None, f"{base_url} does not serve {model!r} (serves {sorted(served)})"
+        lines = f"VOCAB_CONTEXT_RESOLVER=local\nVOCAB_CONTEXT_MODEL={model}\nVOCAB_CONTEXT_BASE_URL={base_url}\n"
+        return "local", f"local {model}", lines, {}, None
+    api_key = runtime_env_value("ANTHROPIC_API_KEY")
+    if api_key:
+        return "claude", "Claude", "VOCAB_CONTEXT_RESOLVER=claude\n", {"ANTHROPIC_API_KEY": api_key}, None
+    return None, None, None, None, f"no local model or ANTHROPIC_API_KEY configured in the environment or {RUNTIME_ENV}"
+
+
 class Server:
-    def __init__(self, workdir, port, api_key=None):
+    def __init__(self, workdir, port):
         self.dir = workdir / "server"
         self.dir.mkdir(parents=True)
         self.port = port
         self.token = secrets.token_hex(16)
         self.db = self.dir / "db.sqlite"
-        self.context_mode = "claude" if api_key else "fixture"
-        context_env = ("VOCAB_CONTEXT_RESOLVER=claude\n" if api_key else
-                       f"VOCAB_CONTEXT_RESOLVER=fixture\nVOCAB_CONTEXT_FIXTURE_PATH={CONTEXT_VECTORS}\n")
+        mode, self.context_label, live_env, secret_env, self.context_skip_reason = live_context_config()
+        self.context_mode = mode or "fixture"
+        context_env = live_env or f"VOCAB_CONTEXT_RESOLVER=fixture\nVOCAB_CONTEXT_FIXTURE_PATH={CONTEXT_VECTORS}\n"
         (self.dir / ".env").write_text(
             f"VOCAB_SYNC_TOKEN={self.token}\nVOCAB_SYNC_PORT={port}\nVOCAB_SYNC_HOST=127.0.0.1\n"
             f"VOCAB_SYNC_DB_PATH={self.db}\nVOCAB_SYNC_BACKUP_DIR={self.dir / 'backups'}\n{context_env}"
         )
         env = dict(os.environ, VOCAB_SYNC_RUNTIME_ROOT=str(self.dir), VOCAB_SYNC_ENV_PATH=str(self.dir / ".env"))
         env.pop("ANTHROPIC_API_KEY", None)
-        if api_key:
-            env["ANTHROPIC_API_KEY"] = api_key
+        env.update(secret_env or {})
         self.log_file = open(self.dir / "server.log", "w")
         self.process = subprocess.Popen([NODE, "src/index.js"], cwd=ROOT / "server", env=env,
                                         stdout=self.log_file, stderr=subprocess.STDOUT)
@@ -345,8 +367,8 @@ def main():
 
     workdir = Path(args.out or tempfile.mkdtemp(prefix="vocab-e2e-"))
     workdir.mkdir(parents=True, exist_ok=True)
-    server = Server(workdir, args.port, api_key=anthropic_api_key())
-    log(f"context meanings: {'Claude (live)' if server.context_mode == 'claude' else 'fixed responses'}")
+    server = Server(workdir, args.port)
+    log(f"context meanings: {server.context_label + ' (live)' if server.context_mode != 'fixture' else 'fixed responses'}")
     results = []
 
     def scenario(name):
@@ -512,12 +534,11 @@ def main():
                 return card if context_meaning_matches(lemma, sentence, card["meaning_ko"]) else None
             return check
 
-        live = "Claude" if server.context_mode == "claude" else "fixed responses"
-        if server.context_mode != "claude":
-            reason = (f"no ANTHROPIC_API_KEY in the environment or {RUNTIME_ENV}; "
-                      "the same scenario runs below against fixed responses")
-            results.append(("a word captured with its sentence gets the meaning that sentence uses (live Claude)", None, reason))
-            log(f"SKIP live Claude context scenario: {reason}")
+        live = server.context_label if server.context_mode != "fixture" else "fixed responses"
+        if server.context_mode == "fixture":
+            reason = f"{server.context_skip_reason}; the same scenario runs below against fixed responses"
+            results.append(("a word captured with its sentence gets the meaning that sentence uses (live model)", None, reason))
+            log(f"SKIP live context scenario: {reason}")
 
         @scenario(f"a word captured with its sentence gets the meaning that sentence uses ({live})")
         def _():
