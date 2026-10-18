@@ -616,8 +616,14 @@ def main():
                 handset.restart()
                 for word in visible_before:
                     assert word in handset.screen_texts(), f"{word} missing after the update"
-                cards_after = handset.query("SELECT id FROM cards ORDER BY id")
-                assert cards_after == cards_before, f"cards changed: {len(cards_before)} -> {len(cards_after)}"
+                # Nothing the phone had may be lost. Cards that reached the server
+                # from the Mac since the phone last synced arrive with the restart.
+                before_ids = {row["id"] for row in cards_before}
+                after_ids = {row["id"] for row in handset.query("SELECT id FROM cards")}
+                assert before_ids <= after_ids, f"cards lost in the update: {sorted(before_ids - after_ids)}"
+                server_ids = {row[0] for row in server.query("SELECT id FROM cards")}
+                wait_until(lambda: {row["id"] for row in handset.query("SELECT id FROM cards")} == server_ids,
+                           what="phone cards matching the server after the update")
                 leftovers = phone.adb("shell", "run-as", PACKAGE, "ls", "cache/app-update", check=False).strip()
                 assert leftovers in ("",) or "No such file" in leftovers, f"download left in cache: {leftovers}"
                 phone.tap("설정")
